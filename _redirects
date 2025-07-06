@@ -1,0 +1,10 @@
+// ===== _redirects (for Cloudflare Pages) =====
+# Redirects for Cloudflare Pages
+/old-product-page /products 301
+/shop /products 301
+
+# ===== robots.txt =====
+User-agent: *
+Allow: /
+
+Sitemap: https://traveldatawifi.com/sitemap.xml
