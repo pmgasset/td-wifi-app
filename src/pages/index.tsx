@@ -146,7 +146,7 @@ export const getStaticProps: GetStaticProps = async () => {
       props: {
         featuredProducts,
       },
-      revalidate: 3600, // Revalidate every hour
+      // Removed revalidate property - not compatible with static export
     };
   } catch (error) {
     console.error('Error fetching products:', error);
@@ -154,7 +154,7 @@ export const getStaticProps: GetStaticProps = async () => {
       props: {
         featuredProducts: [],
       },
-      revalidate: 3600,
+      // Removed revalidate property - not compatible with static export
     };
   }
 };
