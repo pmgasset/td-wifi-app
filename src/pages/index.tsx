@@ -1,4 +1,4 @@
-// ===== src/pages/index.tsx =====
+// ====== src/pages/index.tsx =====
 import React from 'react';
 import { GetStaticProps } from 'next';
 import Link from 'next/link';
