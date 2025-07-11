@@ -38,7 +38,8 @@ const ProductsPage: React.FC = () => {
     if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
       return product.product_images[0];
     }
-    return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200' viewBox='0 0 300 200'%3E%3Crect width='300' height='200' fill='%23f8fafc'/%3E%3Cpath d='M120 80h60v40h-60zM140 90h20v20h-20z' fill='%23e2e8f0'/%3E%3Ctext x='50%25' y='75%25' dominant-baseline='middle' text-anchor='middle' font-family='system-ui' font-size='12' fill='%2364748b'%3ENo Image%3C/text%3E%3C/svg%3E";
+    // Return a simple placeholder instead of complex SVG data URL
+    return "/api/placeholder/300x200";
   };
 
   // Filter products based on search and category
@@ -229,7 +230,7 @@ const ProductsPage: React.FC = () => {
                           className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement;
-                            target.src = getProductImage(product);
+                            target.src = "https://via.placeholder.com/300x200?text=No+Image";
                           }}
                         />
                         {product.inventory_count === 0 && (
@@ -323,7 +324,7 @@ const ProductsPage: React.FC = () => {
                             className="w-full md:w-48 h-48 object-cover rounded-lg"
                             onError={(e) => {
                               const target = e.target as HTMLImageElement;
-                              target.src = getProductImage(product);
+                              target.src = "https://via.placeholder.com/300x200?text=No+Image";
                             }}
                           />
                         </div>

@@ -42,7 +42,7 @@ const ProductPage: React.FC = () => {
     if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
       return product.product_images[0];
     }
-    return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300' viewBox='0 0 400 300'%3E%3Crect width='400' height='300' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='16' fill='%23374151'%3ENo Image Available%3C/text%3E%3C/svg%3E";
+    return "https://via.placeholder.com/400x300?text=No+Image+Available";
   };
 
   if (isLoading) {
@@ -151,7 +151,7 @@ const ProductPage: React.FC = () => {
                 className="w-full h-96 object-cover"
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
-                  target.src = getProductImage(product);
+                  target.src = "https://via.placeholder.com/400x300?text=No+Image+Available";
                 }}
               />
             </div>
