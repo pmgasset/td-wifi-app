@@ -16,6 +16,9 @@ export default async function handler(req, res) {
     res.status(200).json({ product });
   } catch (error) {
     console.error('API Error:', error);
-    res.status(500).json({ error: 'Failed to fetch product' });
+    res.status(500).json({ 
+      error: 'Failed to fetch product from Zoho API',
+      details: error.message 
+    });
   }
 }
