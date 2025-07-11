@@ -58,8 +58,13 @@ const ProductsPage: React.FC = () => {
   // Get unique categories
   const categories = React.useMemo(() => {
     if (!data?.products) return [];
-    const uniqueCategories = [...new Set(data.products.map((p: ZohoProduct) => p.product_category))];
-    return uniqueCategories.filter(Boolean);
+    const categorySet = new Set<string>();
+    data.products.forEach((p: ZohoProduct) => {
+      if (p.product_category) {
+        categorySet.add(p.product_category);
+      }
+    });
+    return Array.from(categorySet);
   }, [data?.products]);
 
   if (error) {
