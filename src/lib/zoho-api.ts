@@ -104,8 +104,9 @@ class ZohoCommerceAPI {
     try {
       const response = await this.apiRequest(`/stores/${process.env.ZOHO_STORE_ID}/products/${productId}`);
       return response.product || null;
-    } catch (error: any) {
-      if (error.message.includes('404')) {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      if (errorMessage.includes('404')) {
         return null;
       }
       throw error;
