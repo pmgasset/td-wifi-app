@@ -3,6 +3,7 @@ interface ZohoProduct {
   product_id: string;
   name: string; // Note: Zoho uses 'name' not 'product_name'
   product_description: string;
+  description: string;
   min_rate: number; // Note: Zoho uses 'min_rate' for price
   max_rate: number;
   documents: Array<{
@@ -27,6 +28,13 @@ interface ZohoProduct {
   category_name: string;
   url: string; // SEO URL
   overall_stock: string;
+  // Compatibility fields added by transformation
+  product_name?: string;
+  product_price?: number;
+  product_images?: string[];
+  inventory_count?: number;
+  product_category?: string;
+  seo_url?: string;
 }
 
 interface ZohoOrder {

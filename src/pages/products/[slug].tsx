@@ -1,4 +1,4 @@
-// ===== src/pages/products/[slug].tsx =====
+// ===== src/pages/products/[slug].tsx ===== (Replace your existing file)
 import React from 'react';
 import { useRouter } from 'next/router';
 import useSWR from 'swr';
@@ -7,7 +7,6 @@ import Layout from '../../components/Layout';
 import { useCartStore } from '../../store/cart';
 import { ArrowLeft, ShoppingCart, Loader2, AlertCircle, Package, Star } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { ZohoProduct } from '../../lib/zoho-api';
 
 const fetcher = (url: string) => fetch(url).then(res => {
   if (!res.ok) {
@@ -27,18 +26,18 @@ const ProductPage: React.FC = () => {
   // Find the specific product
   const product = React.useMemo(() => {
     if (!data?.products || !slug) return null;
-    return data.products.find((p: ZohoProduct) => 
-      p.seo_url === slug || p.product_id === slug
+    return data.products.find((p: any) => 
+      (p.seo_url === slug || p.url === slug || p.product_id === slug)
     );
   }, [data, slug]);
 
   const handleAddToCart = (quantity: number = 1) => {
     if (!product) return;
     addItem(product, quantity);
-    toast.success(`${product.product_name} added to cart!`);
+    toast.success(`${product.product_name || product.name} added to cart!`);
   };
 
-  const getProductImage = (product: ZohoProduct) => {
+  const getProductImage = (product: any) => {
     if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
       return product.product_images[0];
     }
@@ -103,22 +102,22 @@ const ProductPage: React.FC = () => {
   const productSchema = {
     "@context": "https://schema.org/",
     "@type": "Product",
-    "name": product.product_name,
-    "description": product.product_description,
+    "name": product.product_name || product.name,
+    "description": product.product_description || product.description,
     "image": getProductImage(product),
     "offers": {
       "@type": "Offer",
-      "url": `https://traveldatawifi.com/products/${product.seo_url || product.product_id}`,
+      "url": `https://traveldatawifi.com/products/${product.seo_url || product.url || product.product_id}`,
       "priceCurrency": "USD",
-      "price": product.product_price,
-      "availability": product.inventory_count > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
+      "price": product.product_price || product.min_rate || 0,
+      "availability": (product.inventory_count > 0 || product.overall_stock !== '0') ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
     }
   };
 
   return (
     <Layout 
-      title={`${product.product_name} - Travel Data WiFi`}
-      description={product.product_description || `Buy ${product.product_name} from Travel Data WiFi`}
+      title={`${product.product_name || product.name} - Travel Data WiFi`}
+      description={(product.product_description || product.description) || `Buy ${product.product_name || product.name} from Travel Data WiFi`}
       schema={productSchema}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -128,7 +127,7 @@ const ProductPage: React.FC = () => {
           <span>/</span>
           <Link href="/products" className="hover:text-travel-blue">Products</Link>
           <span>/</span>
-          <span className="text-gray-900">{product.product_name}</span>
+          <span className="text-gray-900">{product.product_name || product.name}</span>
         </nav>
 
         {/* Back Button */}
@@ -147,7 +146,7 @@ const ProductPage: React.FC = () => {
             <div className="aspect-w-1 aspect-h-1 bg-gray-100 rounded-lg overflow-hidden">
               <img 
                 src={getProductImage(product)}
-                alt={product.product_name}
+                alt={product.product_name || product.name}
                 className="w-full h-96 object-cover"
                 onError={(e) => {
                   const target = e.target as HTMLImageElement;
@@ -160,25 +159,25 @@ const ProductPage: React.FC = () => {
           {/* Product Info */}
           <div className="space-y-6">
             <div>
-              {product.product_category && (
+              {(product.product_category || product.category_name) && (
                 <span className="inline-block bg-travel-blue/10 text-travel-blue px-3 py-1 rounded-full text-sm font-medium mb-3">
-                  {product.product_category}
+                  {product.product_category || product.category_name}
                 </span>
               )}
               <h1 className="text-3xl font-bold text-gray-900 mb-4">
-                {product.product_name}
+                {product.product_name || product.name}
               </h1>
               
               <div className="flex items-center space-x-4 mb-4">
                 <span className="text-3xl font-bold text-travel-blue">
-                  ${typeof product.product_price === 'number' ? product.product_price.toFixed(2) : '0.00'}
+                  ${typeof product.product_price === 'number' ? product.product_price.toFixed(2) : (product.min_rate || 0).toFixed(2)}
                 </span>
-                {product.inventory_count !== undefined && (
-                  <span className={`text-sm font-medium ${
-                    product.inventory_count > 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {product.inventory_count > 0 ? `${product.inventory_count} in stock` : 'Out of stock'}
+                {((product.inventory_count !== undefined && product.inventory_count > 0) || (product.overall_stock && product.overall_stock !== '0')) ? (
+                  <span className="text-sm font-medium text-green-600">
+                    {product.inventory_count || product.overall_stock || 'In stock'}
                   </span>
+                ) : (
+                  <span className="text-sm font-medium text-red-600">Out of stock</span>
                 )}
               </div>
 
@@ -192,11 +191,11 @@ const ProductPage: React.FC = () => {
             </div>
 
             {/* Description */}
-            {product.product_description && (
+            {(product.product_description || product.description) && (
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-3">Description</h3>
                 <p className="text-gray-600 leading-relaxed">
-                  {product.product_description}
+                  {product.product_description || product.description}
                 </p>
               </div>
             )}
@@ -206,14 +205,14 @@ const ProductPage: React.FC = () => {
               <div className="flex space-x-4">
                 <button
                   onClick={() => handleAddToCart(1)}
-                  disabled={product.inventory_count === 0}
+                  disabled={(product.inventory_count === 0 || product.overall_stock === '0')}
                   className="flex-1 bg-travel-blue text-white py-3 px-6 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
                 >
                   <ShoppingCart className="h-5 w-5" />
-                  <span>{product.inventory_count === 0 ? 'Out of Stock' : 'Add to Cart'}</span>
+                  <span>{(product.inventory_count === 0 || product.overall_stock === '0') ? 'Out of Stock' : 'Add to Cart'}</span>
                 </button>
                 <button
-                  disabled={product.inventory_count === 0}
+                  disabled={(product.inventory_count === 0 || product.overall_stock === '0')}
                   className="px-6 py-3 border border-travel-blue text-travel-blue rounded-lg font-semibold hover:bg-travel-blue hover:text-white transition-colors disabled:border-gray-300 disabled:text-gray-300 disabled:cursor-not-allowed"
                 >
                   Buy Now

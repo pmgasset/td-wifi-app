@@ -1,4 +1,4 @@
-// ===== src/pages/products.tsx =====
+// ===== src/pages/products.tsx ===== (Replace your existing file)
 import React, { useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
@@ -6,7 +6,6 @@ import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
 import { ShoppingCart, Loader2, AlertCircle, Package, Filter, Search, Star } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { ZohoProduct } from '../lib/zoho-api';
 
 const fetcher = (url: string) => fetch(url).then(res => {
   if (!res.ok) {
@@ -21,12 +20,7 @@ const ProductsPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
 
-  const handleAddToCart = (product: ZohoProduct) => {
-    addItem(product, 1);
-    toast.success(`${product.product_name} added to cart!`);
-  };
-
-  const getProductImage = (product: ZohoProduct) => {
+  const getProductImage = (product: any) => {
     if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
       return product.product_images[0];
     }
@@ -34,15 +28,24 @@ const ProductsPage: React.FC = () => {
     return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
   };
 
+  const handleAddToCart = (product: any) => {
+    addItem(product, 1);
+    toast.success(`${product.product_name || product.name} added to cart!`);
+  };
+
   // Filter products based on search and category
   const filteredProducts = React.useMemo(() => {
     if (!data?.products) return [];
     
-    return data.products.filter((product: ZohoProduct) => {
-      const matchesSearch = product.product_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           product.product_description.toLowerCase().includes(searchTerm.toLowerCase());
+    return data.products.filter((product: any) => {
+      const productName = product.product_name || product.name || '';
+      const productDesc = product.product_description || product.description || '';
+      const productCategory = product.product_category || product.category_name || '';
+      
+      const matchesSearch = productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           productDesc.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = selectedCategory === 'all' || 
-                             product.product_category.toLowerCase() === selectedCategory.toLowerCase();
+                             productCategory.toLowerCase() === selectedCategory.toLowerCase();
       return matchesSearch && matchesCategory;
     });
   }, [data?.products, searchTerm, selectedCategory]);
@@ -51,9 +54,10 @@ const ProductsPage: React.FC = () => {
   const categories = React.useMemo(() => {
     if (!data?.products) return [];
     const categorySet = new Set<string>();
-    data.products.forEach((p: ZohoProduct) => {
-      if (p.product_category) {
-        categorySet.add(p.product_category);
+    data.products.forEach((p: any) => {
+      const category = p.product_category || p.category_name;
+      if (category) {
+        categorySet.add(category);
       }
     });
     return Array.from(categorySet);
@@ -186,20 +190,20 @@ const ProductsPage: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {products.map((product: ZohoProduct) => (
+              {products.map((product: any) => (
                 <div key={product.product_id} className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300">
                   {/* Product Image */}
                   <div className="relative bg-gray-100">
                     <img 
                       src={getProductImage(product)}
-                      alt={product.product_name}
+                      alt={product.product_name || product.name}
                       className="w-full h-48 object-cover"
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
                         target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBVbmF2YWlsYWJsZTwvdGV4dD4KPC9zdmc+Cg==";
                       }}
                     />
-                    {product.inventory_count === 0 && (
+                    {(product.inventory_count === 0 || product.overall_stock === '0') && (
                       <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
                         <span className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-medium">
                           Out of Stock
@@ -212,11 +216,11 @@ const ProductsPage: React.FC = () => {
                   <div className="p-4">
                     <div className="flex justify-between items-start mb-2">
                       <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 flex-1 mr-2">
-                        {product.product_name}
+                        {product.product_name || product.name}
                       </h3>
-                      {product.product_category && (
+                      {(product.product_category || product.category_name) && (
                         <span className="text-xs bg-travel-blue bg-opacity-10 text-travel-blue px-2 py-1 rounded-full whitespace-nowrap">
-                          {product.product_category}
+                          {product.product_category || product.category_name}
                         </span>
                       )}
                     </div>
@@ -231,33 +235,33 @@ const ProductsPage: React.FC = () => {
                       <span className="text-sm text-gray-500 ml-1">(4.8)</span>
                     </div>
                     
-                    {product.product_description && (
+                    {(product.product_description || product.description) && (
                       <p className="text-gray-600 text-sm mb-3 line-clamp-2">
-                        {product.product_description}
+                        {product.product_description || product.description}
                       </p>
                     )}
                     
                     <div className="flex items-center justify-between mb-4">
                       <span className="text-2xl font-bold text-travel-blue">
-                        ${typeof product.product_price === 'number' ? product.product_price.toFixed(2) : '0.00'}
+                        ${typeof product.product_price === 'number' ? product.product_price.toFixed(2) : (product.min_rate || 0).toFixed(2)}
                       </span>
-                      {product.inventory_count !== undefined && product.inventory_count > 0 && (
+                      {(product.inventory_count !== undefined && product.inventory_count > 0) || (product.overall_stock && product.overall_stock !== '0') ? (
                         <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
-                          {product.inventory_count} in stock
+                          {product.inventory_count || product.overall_stock || 'In stock'}
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     
                     <div className="flex space-x-2">
                       <Link 
-                        href={`/products/${product.seo_url || product.product_id}`}
+                        href={`/products/${product.seo_url || product.url || product.product_id}`}
                         className="flex-1 bg-gray-100 text-gray-700 text-center py-2 px-3 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
                       >
                         View Details
                       </Link>
                       <button
                         onClick={() => handleAddToCart(product)}
-                        disabled={product.inventory_count === 0}
+                        disabled={(product.inventory_count === 0 || product.overall_stock === '0')}
                         className="btn-primary text-sm disabled:bg-gray-300 disabled:cursor-not-allowed"
                       >
                         Add to Cart
