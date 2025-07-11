@@ -49,7 +49,7 @@ const ProductsPage: React.FC = () => {
   // Get unique categories safely
   const categories = React.useMemo(() => {
     if (!data?.products) return [];
-    const categorySet = new Set();
+    const categorySet = new Set<string>();
     data.products.forEach((p: ZohoProduct) => {
       if (p.product_category) {
         categorySet.add(p.product_category);
@@ -143,7 +143,7 @@ const ProductsPage: React.FC = () => {
                   className="px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent bg-white"
                 >
                   <option value="all">All Categories</option>
-                  {categories.map((category: string) => (
+                  {categories.map((category) => (
                     <option key={category} value={category}>{category}</option>
                   ))}
                 </select>
