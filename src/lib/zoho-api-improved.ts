@@ -110,11 +110,17 @@ class ImprovedZohoCommerceAPI {
       const responseText = await response.text();
       
       if (!response.ok) {
+        // Convert headers to object (TypeScript compatible way)
+        const headers: Record<string, string> = {};
+        response.headers.forEach((value, key) => {
+          headers[key] = value;
+        });
+        
         console.error('Auth response error:', {
           status: response.status,
           statusText: response.statusText,
           body: responseText,
-          headers: Object.fromEntries([...response.headers.entries()])
+          headers
         });
         throw new Error(`Authentication failed: ${response.status} ${response.statusText} - ${responseText}`);
       }
@@ -165,12 +171,18 @@ class ImprovedZohoCommerceAPI {
     const responseText = await response.text();
     
     if (!response.ok) {
+      // Convert headers to object (TypeScript compatible way)
+      const headers: Record<string, string> = {};
+      response.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+      
       console.error('API request failed:', {
         url,
         status: response.status,
         statusText: response.statusText,
         response: responseText,
-        headers: Object.fromEntries([...response.headers.entries()])
+        headers
       });
       
       throw new Error(`Zoho API error: ${response.status} ${response.statusText} - ${responseText}`);
