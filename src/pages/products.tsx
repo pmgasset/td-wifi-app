@@ -4,12 +4,11 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
-import { ShoppingCart, Loader2, AlertCircle } from 'lucide-react';
+import { ShoppingCart, Loader2, AlertCircle, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ZohoProduct } from '../lib/zoho-api';
 
 const fetcher = (url: string) => fetch(url).then(res => {
-  console.log('API Response status:', res.status);
   if (!res.ok) {
     throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   }
@@ -20,20 +19,21 @@ const ProductsPage: React.FC = () => {
   const { data, error, isLoading } = useSWR('/api/products', fetcher);
   const { addItem } = useCartStore();
 
-  // Debug logging
-  React.useEffect(() => {
-    console.log('Products page data:', data);
-    console.log('Products page error:', error);
-    console.log('Products page loading:', isLoading);
-  }, [data, error, isLoading]);
-
   const handleAddToCart = (product: ZohoProduct) => {
     addItem(product, 1);
     toast.success(`${product.product_name} added to cart!`);
   };
 
+  // Better image handling with fallback
+  const getProductImage = (product: ZohoProduct) => {
+    if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
+      return product.product_images[0];
+    }
+    // Return a data URL for a simple placeholder instead of broken image
+    return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200' viewBox='0 0 300 200'%3E%3Crect width='300' height='200' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='14' fill='%23374151'%3ENo Image%3C/text%3E%3C/svg%3E";
+  };
+
   if (error) {
-    console.error('Products fetch error:', error);
     return (
       <Layout title="Products - Travel Data WiFi">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
@@ -41,12 +41,8 @@ const ProductsPage: React.FC = () => {
             <h1 className="text-3xl font-bold text-gray-900 mb-4">Products</h1>
             <div className="bg-red-50 border border-red-200 rounded-md p-6 mb-8">
               <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-              <p className="text-red-600 mb-2">
-                Unable to load products at this time.
-              </p>
-              <p className="text-sm text-red-500 mb-4">
-                Error: {error.message || 'Unknown error occurred'}
-              </p>
+              <p className="text-red-600 mb-2">Unable to load products</p>
+              <p className="text-sm text-red-500 mb-4">{error.message}</p>
               <button 
                 onClick={() => window.location.reload()}
                 className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
@@ -54,10 +50,7 @@ const ProductsPage: React.FC = () => {
                 Retry
               </button>
             </div>
-            <Link 
-              href="/"
-              className="text-travel-blue hover:underline"
-            >
+            <Link href="/" className="text-travel-blue hover:underline">
               Return to Home
             </Link>
           </div>
@@ -83,7 +76,6 @@ const ProductsPage: React.FC = () => {
   }
 
   const products = data?.products || [];
-  console.log('Parsed products:', products);
 
   return (
     <Layout 
@@ -96,80 +88,81 @@ const ProductsPage: React.FC = () => {
           <p className="text-xl text-gray-600">
             Premium mobile internet solutions for life on the road
           </p>
+          <p className="text-sm text-gray-500 mt-2">
+            {products.length} products available
+          </p>
         </div>
-
-        {/* Debug info for development */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="mb-8 p-4 bg-gray-100 rounded-lg">
-            <h3 className="font-semibold mb-2">Debug Info:</h3>
-            <p>Data: {JSON.stringify(data, null, 2)}</p>
-            <p>Products count: {products.length}</p>
-          </div>
-        )}
 
         {products.length === 0 ? (
           <div className="text-center">
-            <div className="bg-yellow-50 border border-yellow-200 rounded-md p-6 mb-8">
-              <AlertCircle className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
-              <p className="text-yellow-700 mb-2">No products available</p>
-              <p className="text-sm text-yellow-600">
-                This could mean:
-              </p>
-              <ul className="text-sm text-yellow-600 mt-2 space-y-1">
-                <li>• Zoho Commerce API is not returning products</li>
-                <li>• Environment variables are not properly configured</li>
-                <li>• Your Zoho store doesn't have any products yet</li>
-              </ul>
-            </div>
-            <Link 
-              href="/"
-              className="text-travel-blue hover:underline"
-            >
+            <Package className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+            <p className="text-gray-600 mb-4">No products available at this time.</p>
+            <Link href="/" className="text-travel-blue hover:underline">
               Return to Home
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {products.map((product: ZohoProduct) => (
-              <div key={product.product_id} className="bg-white border rounded-lg shadow-sm hover:shadow-md transition-shadow">
-                <img 
-                  src={product.product_images[0] || '/images/placeholder.jpg'} 
-                  alt={product.product_name}
-                  className="w-full h-64 object-cover rounded-t-lg"
-                />
-                <div className="p-6">
+              <div key={product.product_id} className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
+                {/* Product Image */}
+                <div className="aspect-w-1 aspect-h-1 bg-gray-100">
+                  <img 
+                    src={getProductImage(product)}
+                    alt={product.product_name}
+                    className="w-full h-48 object-cover"
+                    onError={(e) => {
+                      // If image fails to load, show placeholder
+                      const target = e.target as HTMLImageElement;
+                      target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200' viewBox='0 0 300 200'%3E%3Crect width='300' height='200' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='14' fill='%23374151'%3ENo Image%3C/text%3E%3C/svg%3E";
+                    }}
+                  />
+                </div>
+                
+                {/* Product Info */}
+                <div className="p-4">
                   <div className="flex justify-between items-start mb-2">
-                    <h3 className="text-xl font-semibold">{product.product_name}</h3>
-                    <span className="text-sm bg-gray-100 text-gray-600 px-2 py-1 rounded">
-                      {product.product_category}
-                    </span>
+                    <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 flex-1 mr-2">
+                      {product.product_name}
+                    </h3>
+                    {product.product_category && (
+                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full whitespace-nowrap">
+                        {product.product_category}
+                      </span>
+                    )}
                   </div>
                   
-                  <p className="text-gray-600 mb-4 line-clamp-3">{product.product_description}</p>
+                  {product.product_description && (
+                    <p className="text-gray-600 text-sm mb-3 line-clamp-2">
+                      {product.product_description}
+                    </p>
+                  )}
                   
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-2xl font-bold text-travel-blue">
-                      ${product.product_price}
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-xl font-bold text-travel-blue">
+                      ${typeof product.product_price === 'number' ? product.product_price.toFixed(2) : '0.00'}
                     </span>
-                    <span className="text-sm text-gray-500">
-                      {product.inventory_count > 0 ? `${product.inventory_count} in stock` : 'Out of stock'}
-                    </span>
+                    {product.inventory_count !== undefined && (
+                      <span className="text-xs text-gray-500">
+                        {product.inventory_count > 0 ? `${product.inventory_count} in stock` : 'Out of stock'}
+                      </span>
+                    )}
                   </div>
                   
                   <div className="flex space-x-2">
                     <Link 
-                      href={`/products/${product.seo_url}`}
-                      className="flex-1 bg-gray-100 text-gray-700 text-center py-2 px-4 rounded-lg hover:bg-gray-200 transition-colors"
+                      href={`/products/${product.seo_url || product.product_id}`}
+                      className="flex-1 bg-gray-100 text-gray-700 text-center py-2 px-3 rounded-md hover:bg-gray-200 transition-colors text-sm font-medium"
                     >
-                      Learn More
+                      Details
                     </Link>
                     <button
                       onClick={() => handleAddToCart(product)}
                       disabled={product.inventory_count === 0}
-                      className="flex items-center space-x-2 bg-travel-blue text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                      className="flex items-center justify-center space-x-1 bg-travel-blue text-white px-3 py-2 rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium"
                     >
                       <ShoppingCart className="h-4 w-4" />
-                      <span>Add to Cart</span>
+                      <span className="hidden sm:inline">Add</span>
                     </button>
                   </div>
                 </div>
