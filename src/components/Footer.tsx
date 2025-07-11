@@ -212,19 +212,19 @@ const Footer: React.FC = () => {
                 </p>
               </div>
               
-              <div className="flex flex-wrap justify-center md:justify-end items-center text-sm">
+              <div className="flex flex-wrap justify-center md:justify-end items-center text-sm space-x-1">
                 {legalLinks.map((link, index) => (
-                  <span key={link.name} className="flex items-center">
+                  <div key={link.name} className="flex items-center">
                     <Link 
                       href={link.href}
-                      className="text-gray-400 hover:text-travel-orange transition-colors duration-200"
+                      className="text-gray-400 hover:text-travel-orange transition-colors duration-200 px-2"
                     >
                       {link.name}
                     </Link>
                     {index < legalLinks.length - 1 && (
-                      <span className="text-gray-600 mx-3">•</span>
+                      <span className="text-gray-600">•</span>
                     )}
-                  </span>
+                  </div>
                 ))}
               </div>
             </div>
