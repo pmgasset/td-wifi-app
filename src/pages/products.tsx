@@ -69,7 +69,7 @@ const ProductsPage: React.FC = () => {
               <p className="text-gray-600 mb-6">{error.message}</p>
               <button 
                 onClick={() => window.location.reload()}
-                className="bg-travel-blue text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+                className="btn-primary"
               >
                 Try Again
               </button>
@@ -111,7 +111,7 @@ const ProductsPage: React.FC = () => {
       <div className="min-h-screen bg-gray-50">
         {/* Header Section */}
         <div className="bg-white shadow-sm border-b">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+          <div className="container mx-auto px-4 py-12">
             <div className="text-center mb-8">
               <h1 className="text-4xl font-bold text-gray-900 mb-4">
                 Our Products
@@ -160,7 +160,7 @@ const ProductsPage: React.FC = () => {
         </div>
 
         {/* Products Grid */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        <div className="container mx-auto px-4 py-16">
           {products.length === 0 ? (
             <div className="text-center py-16">
               <Package className="h-20 w-20 text-gray-300 mx-auto mb-6" />
@@ -257,7 +257,7 @@ const ProductsPage: React.FC = () => {
                       <button
                         onClick={() => handleAddToCart(product)}
                         disabled={product.inventory_count === 0}
-                        className="bg-travel-blue text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium"
+                        className="btn-primary text-sm disabled:bg-gray-300 disabled:cursor-not-allowed"
                       >
                         Add to Cart
                       </button>

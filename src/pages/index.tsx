@@ -41,10 +41,10 @@ const Home: React.FC = () => {
     <Layout schema={heroSchema}>
       {/* Hero Section */}
       <section className="bg-gradient-to-r from-travel-blue to-blue-600 text-white py-20">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto px-4">
           <div className="text-center">
             <div className="inline-flex items-center space-x-2 bg-white bg-opacity-10 rounded-full px-4 py-2 mb-8">
-              <Star className="h-5 w-5 text-yellow-400 fill-current" />
+              <Star className="h-5 w-5 text-yellow-400" />
               <span className="text-white text-sm font-medium">Trusted by 50,000+ RV Travelers</span>
             </div>
             
@@ -53,14 +53,14 @@ const Home: React.FC = () => {
               <span className="text-yellow-400">Anywhere</span>
             </h1>
             
-            <p className="text-xl md:text-2xl text-blue-100 mb-10 max-w-3xl mx-auto">
+            <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto leading-relaxed">
               Premium mobile internet solutions designed for RV travelers, digital nomads, and remote workers who demand reliable connectivity on the road
             </p>
             
-            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-12">
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-8">
               <Link 
                 href="/products" 
-                className="bg-travel-orange hover:bg-orange-600 text-white px-8 py-3 rounded-lg font-semibold transition-colors inline-block"
+                className="btn-secondary"
               >
                 Shop Products
               </Link>
@@ -72,16 +72,16 @@ const Home: React.FC = () => {
               </Link>
             </div>
             
-            <div className="flex items-center justify-center space-x-8 text-white text-opacity-80">
-              <div className="flex items-center space-x-1">
-                <CheckCircle className="h-5 w-5 text-green-400" />
+            <div className="flex items-center justify-center space-x-8 text-white">
+              <div className="flex items-center space-x-2">
+                <CheckCircle className="h-5 w-5 text-yellow-400" />
                 <span className="text-sm">Free Shipping</span>
               </div>
-              <div className="flex items-center space-x-1">
-                <Shield className="h-5 w-5 text-blue-400" />
+              <div className="flex items-center space-x-2">
+                <Shield className="h-5 w-5 text-yellow-400" />
                 <span className="text-sm">Secure Payment</span>
               </div>
-              <div className="flex items-center space-x-1">
+              <div className="flex items-center space-x-2">
                 <Star className="h-5 w-5 text-yellow-400" />
                 <span className="text-sm">30-Day Guarantee</span>
               </div>
@@ -92,37 +92,37 @@ const Home: React.FC = () => {
 
       {/* Stats Section */}
       <section className="py-16 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="container mx-auto px-4">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
             <div className="text-center">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-travel-blue to-blue-600 rounded-full mb-4">
+              <div className="w-16 h-16 bg-gradient-to-r from-travel-blue to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Wifi className="h-8 w-8 text-white" />
               </div>
-              <div className="text-3xl font-bold text-gray-900 mb-1">50,000+</div>
+              <div className="text-3xl font-bold text-gray-900 mb-2">50,000+</div>
               <div className="text-gray-600">Happy Customers</div>
             </div>
             
             <div className="text-center">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-green-500 to-green-600 rounded-full mb-4">
+              <div className="w-16 h-16 bg-gradient-to-r from-travel-green to-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
                 <CheckCircle className="h-8 w-8 text-white" />
               </div>
-              <div className="text-3xl font-bold text-gray-900 mb-1">99.9%</div>
+              <div className="text-3xl font-bold text-gray-900 mb-2">99.9%</div>
               <div className="text-gray-600">Uptime Guarantee</div>
             </div>
             
             <div className="text-center">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-travel-orange to-orange-600 rounded-full mb-4">
+              <div className="w-16 h-16 bg-gradient-to-r from-travel-orange to-orange-600 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Star className="h-8 w-8 text-white" />
               </div>
-              <div className="text-3xl font-bold text-gray-900 mb-1">24/7</div>
+              <div className="text-3xl font-bold text-gray-900 mb-2">24/7</div>
               <div className="text-gray-600">Expert Support</div>
             </div>
             
             <div className="text-center">
-              <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-600 rounded-full mb-4">
+              <div className="w-16 h-16 bg-gradient-to-r from-purple-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
                 <MapPin className="h-8 w-8 text-white" />
               </div>
-              <div className="text-3xl font-bold text-gray-900 mb-1">50 States</div>
+              <div className="text-3xl font-bold text-gray-900 mb-2">50 States</div>
               <div className="text-gray-600">Coverage Area</div>
             </div>
           </div>
@@ -131,8 +131,8 @@ const Home: React.FC = () => {
 
       {/* Features Section */}
       <section className="py-20 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-12">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">
               Why Choose Travel Data WiFi?
             </h2>
@@ -143,8 +143,8 @@ const Home: React.FC = () => {
           
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
             {features.map((feature, index) => (
-              <div key={index} className="bg-white rounded-xl shadow-lg p-8 text-center hover:shadow-xl transition-shadow duration-300">
-                <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-r from-travel-orange to-orange-600 rounded-full mb-6">
+              <div key={index} className="card p-8 text-center">
+                <div className="w-16 h-16 bg-gradient-to-r from-travel-orange to-orange-600 rounded-full flex items-center justify-center mx-auto mb-6">
                   <feature.icon className="h-8 w-8 text-white" />
                 </div>
                 <h3 className="text-xl font-semibold text-gray-900 mb-3">{feature.title}</h3>
@@ -157,8 +157,8 @@ const Home: React.FC = () => {
 
       {/* Products Preview Section */}
       <section className="py-20 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-16">
+        <div className="container mx-auto px-4">
+          <div className="text-center mb-12">
             <h2 className="text-4xl font-bold text-gray-900 mb-4">
               Premium Mobile Internet Solutions
             </h2>
@@ -168,7 +168,7 @@ const Home: React.FC = () => {
             
             <Link 
               href="/products"
-              className="bg-travel-blue hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold transition-colors inline-block"
+              className="btn-primary"
             >
               Browse All Products
             </Link>
@@ -178,16 +178,16 @@ const Home: React.FC = () => {
 
       {/* CTA Section */}
       <section className="bg-travel-blue text-white py-16">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <div className="container mx-auto px-4 text-center">
           <h2 className="text-3xl font-bold mb-6">Ready to Transform Your Travel Experience?</h2>
-          <p className="text-xl text-blue-100 mb-10 max-w-2xl mx-auto">
+          <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
             Join thousands of RV travelers, digital nomads, and remote workers who trust Travel Data WiFi for their connectivity needs
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link 
               href="/products" 
-              className="bg-travel-orange hover:bg-orange-600 text-white px-8 py-3 rounded-lg font-semibold transition-colors inline-block"
+              className="btn-secondary"
             >
               Shop Now
             </Link>
