@@ -27,12 +27,12 @@ const Header: React.FC = () => {
               <div className="w-10 h-10 bg-gradient-to-r from-travel-blue to-blue-600 rounded-xl flex items-center justify-center">
                 <Wifi className="h-6 w-6 text-white" />
               </div>
-              <div className="hidden sm:block">
-                <span className="text-xl font-bold text-travel-blue">
-                  Travel Data WiFi
-                </span>
-                <div className="text-xs text-gray-500 -mt-1">Stay Connected Anywhere</div>
-              </div>
+            <div className="hidden sm:block">
+              <span className="text-xl font-bold text-travel-blue">
+                Travel Data WiFi
+              </span>
+              <div className="text-xs text-gray-500 -mt-1">Stay Connected Anywhere</div>
+            </div>
             </Link>
 
             {/* Desktop Navigation */}
