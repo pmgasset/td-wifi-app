@@ -1,10 +1,10 @@
 // ===== src/pages/products.tsx =====
-import React from 'react';
+import React, { useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
 import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
-import { ShoppingCart, Loader2, AlertCircle, Package } from 'lucide-react';
+import { ShoppingCart, Loader2, AlertCircle, Package, Filter, Grid, List, Search, Star, ArrowRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { ZohoProduct } from '../lib/zoho-api';
 
@@ -18,41 +18,68 @@ const fetcher = (url: string) => fetch(url).then(res => {
 const ProductsPage: React.FC = () => {
   const { data, error, isLoading } = useSWR('/api/products', fetcher);
   const { addItem } = useCartStore();
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('all');
 
   const handleAddToCart = (product: ZohoProduct) => {
     addItem(product, 1);
-    toast.success(`${product.product_name} added to cart!`);
+    toast.success(`${product.product_name} added to cart!`, {
+      icon: '🛒',
+      style: {
+        borderRadius: '10px',
+        background: '#333',
+        color: '#fff',
+      },
+    });
   };
 
-  // Better image handling with fallback
   const getProductImage = (product: ZohoProduct) => {
     if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
       return product.product_images[0];
     }
-    // Return a data URL for a simple placeholder instead of broken image
-    return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200' viewBox='0 0 300 200'%3E%3Crect width='300' height='200' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='14' fill='%23374151'%3ENo Image%3C/text%3E%3C/svg%3E";
+    return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200' viewBox='0 0 300 200'%3E%3Crect width='300' height='200' fill='%23f8fafc'/%3E%3Cpath d='M120 80h60v40h-60zM140 90h20v20h-20z' fill='%23e2e8f0'/%3E%3Ctext x='50%25' y='75%25' dominant-baseline='middle' text-anchor='middle' font-family='system-ui' font-size='12' fill='%2364748b'%3ENo Image%3C/text%3E%3C/svg%3E";
   };
+
+  // Filter products based on search and category
+  const filteredProducts = React.useMemo(() => {
+    if (!data?.products) return [];
+    
+    return data.products.filter((product: ZohoProduct) => {
+      const matchesSearch = product.product_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           product.product_description.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = selectedCategory === 'all' || 
+                             product.product_category.toLowerCase() === selectedCategory.toLowerCase();
+      return matchesSearch && matchesCategory;
+    });
+  }, [data?.products, searchTerm, selectedCategory]);
+
+  // Get unique categories
+  const categories = React.useMemo(() => {
+    if (!data?.products) return [];
+    const uniqueCategories = [...new Set(data.products.map((p: ZohoProduct) => p.product_category))];
+    return uniqueCategories.filter(Boolean);
+  }, [data?.products]);
 
   if (error) {
     return (
       <Layout title="Products - Travel Data WiFi">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-4">Products</h1>
-            <div className="bg-red-50 border border-red-200 rounded-md p-6 mb-8">
-              <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-              <p className="text-red-600 mb-2">Unable to load products</p>
-              <p className="text-sm text-red-500 mb-4">{error.message}</p>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white flex items-center justify-center">
+          <div className="text-center max-w-md mx-auto px-4">
+            <div className="card p-8">
+              <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+              <h1 className="text-2xl font-bold text-gray-900 mb-4">Unable to Load Products</h1>
+              <p className="text-gray-600 mb-6">{error.message}</p>
               <button 
                 onClick={() => window.location.reload()}
-                className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors"
+                className="btn-primary"
               >
-                Retry
+                Try Again
               </button>
+              <Link href="/" className="block mt-4 text-travel-blue hover:underline">
+                Return to Home
+              </Link>
             </div>
-            <Link href="/" className="text-travel-blue hover:underline">
-              Return to Home
-            </Link>
           </div>
         </div>
       </Layout>
@@ -62,12 +89,27 @@ const ProductsPage: React.FC = () => {
   if (isLoading) {
     return (
       <Layout title="Products - Travel Data WiFi">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-          <div className="text-center">
-            <h1 className="text-3xl font-bold text-gray-900 mb-8">Products</h1>
-            <div className="flex items-center justify-center">
-              <Loader2 className="h-8 w-8 animate-spin text-travel-blue" />
-              <span className="ml-2 text-gray-600">Loading products...</span>
+        <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
+          {/* Header */}
+          <div className="bg-white shadow-sm">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+              <div className="text-center">
+                <div className="shimmer h-8 w-64 mx-auto mb-4 rounded"></div>
+                <div className="shimmer h-4 w-96 mx-auto rounded"></div>
+              </div>
+            </div>
+          </div>
+          
+          {/* Loading Grid */}
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {[...Array(8)].map((_, i) => (
+                <div key={i} className="card p-4">
+                  <div className="shimmer h-48 w-full mb-4 rounded"></div>
+                  <div className="shimmer h-4 w-3/4 mb-2 rounded"></div>
+                  <div className="shimmer h-4 w-1/2 rounded"></div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -75,101 +117,284 @@ const ProductsPage: React.FC = () => {
     );
   }
 
-  const products = data?.products || [];
+  const products = filteredProducts;
 
   return (
     <Layout 
       title="Products - Travel Data WiFi"
       description="Browse our selection of mobile hotspots, unlimited data SIMs, and signal boosters for RV travel and remote work."
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-4">Our Products</h1>
-          <p className="text-xl text-gray-600">
-            Premium mobile internet solutions for life on the road
-          </p>
-          <p className="text-sm text-gray-500 mt-2">
-            {products.length} products available
-          </p>
-        </div>
-
-        {products.length === 0 ? (
-          <div className="text-center">
-            <Package className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-600 mb-4">No products available at this time.</p>
-            <Link href="/" className="text-travel-blue hover:underline">
-              Return to Home
-            </Link>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {products.map((product: ZohoProduct) => (
-              <div key={product.product_id} className="bg-white border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-shadow duration-200 overflow-hidden">
-                {/* Product Image */}
-                <div className="aspect-w-1 aspect-h-1 bg-gray-100">
-                  <img 
-                    src={getProductImage(product)}
-                    alt={product.product_name}
-                    className="w-full h-48 object-cover"
-                    onError={(e) => {
-                      // If image fails to load, show placeholder
-                      const target = e.target as HTMLImageElement;
-                      target.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200' viewBox='0 0 300 200'%3E%3Crect width='300' height='200' fill='%23f3f4f6'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' font-family='sans-serif' font-size='14' fill='%23374151'%3ENo Image%3C/text%3E%3C/svg%3E";
-                    }}
-                  />
-                </div>
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-white">
+        {/* Header Section */}
+        <div className="bg-white shadow-sm border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            <div className="text-center mb-8">
+              <h1 className="text-4xl font-bold text-gray-900 mb-4">
+                Our <span className="text-gradient">Products</span>
+              </h1>
+              <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+                Premium mobile internet solutions designed for life on the road
+              </p>
+            </div>
+            
+            {/* Search and Filters */}
+            <div className="flex flex-col lg:flex-row gap-4 items-center justify-between">
+              {/* Search */}
+              <div className="relative flex-1 max-w-md">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search products..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                />
+              </div>
+              
+              {/* Category Filter */}
+              <div className="flex items-center space-x-4">
+                <select
+                  value={selectedCategory}
+                  onChange={(e) => setSelectedCategory(e.target.value)}
+                  className="px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent bg-white"
+                >
+                  <option value="all">All Categories</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>{category}</option>
+                  ))}
+                </select>
                 
-                {/* Product Info */}
-                <div className="p-4">
-                  <div className="flex justify-between items-start mb-2">
-                    <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 flex-1 mr-2">
-                      {product.product_name}
-                    </h3>
-                    {product.product_category && (
-                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full whitespace-nowrap">
-                        {product.product_category}
-                      </span>
-                    )}
-                  </div>
-                  
-                  {product.product_description && (
-                    <p className="text-gray-600 text-sm mb-3 line-clamp-2">
-                      {product.product_description}
-                    </p>
-                  )}
-                  
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-xl font-bold text-travel-blue">
-                      ${typeof product.product_price === 'number' ? product.product_price.toFixed(2) : '0.00'}
-                    </span>
-                    {product.inventory_count !== undefined && (
-                      <span className="text-xs text-gray-500">
-                        {product.inventory_count > 0 ? `${product.inventory_count} in stock` : 'Out of stock'}
-                      </span>
-                    )}
-                  </div>
-                  
-                  <div className="flex space-x-2">
-                    <Link 
-                      href={`/products/${product.seo_url || product.product_id}`}
-                      className="flex-1 bg-gray-100 text-gray-700 text-center py-2 px-3 rounded-md hover:bg-gray-200 transition-colors text-sm font-medium"
-                    >
-                      Details
-                    </Link>
-                    <button
-                      onClick={() => handleAddToCart(product)}
-                      disabled={product.inventory_count === 0}
-                      className="flex items-center justify-center space-x-1 bg-travel-blue text-white px-3 py-2 rounded-md hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium"
-                    >
-                      <ShoppingCart className="h-4 w-4" />
-                      <span className="hidden sm:inline">Add</span>
-                    </button>
-                  </div>
+                {/* View Toggle */}
+                <div className="flex items-center space-x-1 bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setViewMode('grid')}
+                    className={`p-2 rounded ${viewMode === 'grid' ? 'bg-white shadow-sm' : ''}`}
+                  >
+                    <Grid className="h-4 w-4" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('list')}
+                    className={`p-2 rounded ${viewMode === 'list' ? 'bg-white shadow-sm' : ''}`}
+                  >
+                    <List className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
-            ))}
+            </div>
+            
+            {/* Results Count */}
+            <div className="mt-6 text-center">
+              <p className="text-gray-600">
+                Showing <span className="font-semibold">{products.length}</span> of <span className="font-semibold">{data?.products?.length || 0}</span> products
+              </p>
+            </div>
           </div>
-        )}
+        </div>
+
+        {/* Products Grid/List */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+          {products.length === 0 ? (
+            <div className="text-center py-16">
+              <Package className="h-20 w-20 text-gray-300 mx-auto mb-6" />
+              <h3 className="text-2xl font-bold text-gray-900 mb-4">No Products Found</h3>
+              <p className="text-gray-600 mb-8">
+                {searchTerm || selectedCategory !== 'all' 
+                  ? "Try adjusting your search or filter criteria"
+                  : "No products are currently available"
+                }
+              </p>
+              {(searchTerm || selectedCategory !== 'all') && (
+                <button
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedCategory('all');
+                  }}
+                  className="btn-primary"
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              {viewMode === 'grid' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                  {products.map((product: ZohoProduct) => (
+                    <div key={product.product_id} className="card card-hover overflow-hidden group">
+                      {/* Product Image */}
+                      <div className="relative aspect-w-1 aspect-h-1 bg-gradient-to-br from-gray-100 to-gray-200">
+                        <img 
+                          src={getProductImage(product)}
+                          alt={product.product_name}
+                          className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = getProductImage(product);
+                          }}
+                        />
+                        {product.inventory_count === 0 && (
+                          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                            <span className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-medium">
+                              Out of Stock
+                            </span>
+                          </div>
+                        )}
+                        
+                        {/* Quick Add Button */}
+                        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                          <button
+                            onClick={() => handleAddToCart(product)}
+                            disabled={product.inventory_count === 0}
+                            className="bg-white/90 backdrop-blur-sm p-2 rounded-full shadow-lg hover:bg-white transition-colors disabled:opacity-50"
+                          >
+                            <ShoppingCart className="h-4 w-4 text-travel-blue" />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {/* Product Info */}
+                      <div className="p-4">
+                        <div className="flex justify-between items-start mb-2">
+                          <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 flex-1 mr-2 group-hover:text-travel-blue transition-colors">
+                            {product.product_name}
+                          </h3>
+                          {product.product_category && (
+                            <span className="text-xs bg-travel-blue/10 text-travel-blue px-2 py-1 rounded-full whitespace-nowrap">
+                              {product.product_category}
+                            </span>
+                          )}
+                        </div>
+                        
+                        {/* Rating */}
+                        <div className="flex items-center space-x-1 mb-2">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star key={star} className="h-4 w-4 text-yellow-400 fill-current" />
+                          ))}
+                          <span className="text-sm text-gray-500 ml-1">(4.8)</span>
+                        </div>
+                        
+                        {product.product_description && (
+                          <p className="text-gray-600 text-sm mb-3 line-clamp-2">
+                            {product.product_description}
+                          </p>
+                        )}
+                        
+                        <div className="flex items-center justify-between mb-4">
+                          <span className="text-2xl font-bold text-travel-blue">
+                            ${typeof product.product_price === 'number' ? product.product_price.toFixed(2) : '0.00'}
+                          </span>
+                          {product.inventory_count !== undefined && product.inventory_count > 0 && (
+                            <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                              {product.inventory_count} in stock
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="flex space-x-2">
+                          <Link 
+                            href={`/products/${product.seo_url || product.product_id}`}
+                            className="flex-1 bg-gray-100 text-gray-700 text-center py-2 px-3 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium group"
+                          >
+                            <span className="group-hover:text-travel-blue transition-colors">View Details</span>
+                          </Link>
+                          <button
+                            onClick={() => handleAddToCart(product)}
+                            disabled={product.inventory_count === 0}
+                            className="btn-primary py-2 px-4 text-sm disabled:bg-gray-300 disabled:cursor-not-allowed"
+                          >
+                            Add to Cart
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                /* List View */
+                <div className="space-y-6">
+                  {products.map((product: ZohoProduct) => (
+                    <div key={product.product_id} className="card p-6 hover:shadow-lg transition-all duration-200">
+                      <div className="flex flex-col md:flex-row gap-6">
+                        {/* Product Image */}
+                        <div className="flex-shrink-0">
+                          <img 
+                            src={getProductImage(product)}
+                            alt={product.product_name}
+                            className="w-full md:w-48 h-48 object-cover rounded-lg"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = getProductImage(product);
+                            }}
+                          />
+                        </div>
+                        
+                        {/* Product Info */}
+                        <div className="flex-1">
+                          <div className="flex justify-between items-start mb-3">
+                            <div>
+                              <h3 className="text-2xl font-semibold text-gray-900 mb-2">
+                                {product.product_name}
+                              </h3>
+                              {product.product_category && (
+                                <span className="inline-block bg-travel-blue/10 text-travel-blue px-3 py-1 rounded-full text-sm font-medium">
+                                  {product.product_category}
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <span className="text-3xl font-bold text-travel-blue">
+                                ${typeof product.product_price === 'number' ? product.product_price.toFixed(2) : '0.00'}
+                              </span>
+                              {product.inventory_count !== undefined && (
+                                <p className={`text-sm mt-1 ${
+                                  product.inventory_count > 0 ? 'text-green-600' : 'text-red-600'
+                                }`}>
+                                  {product.inventory_count > 0 ? `${product.inventory_count} in stock` : 'Out of stock'}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          
+                          {/* Rating */}
+                          <div className="flex items-center space-x-1 mb-3">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star key={star} className="h-5 w-5 text-yellow-400 fill-current" />
+                            ))}
+                            <span className="text-sm text-gray-500 ml-2">(4.8 out of 5 stars)</span>
+                          </div>
+                          
+                          {product.product_description && (
+                            <p className="text-gray-600 mb-4 leading-relaxed">
+                              {product.product_description}
+                            </p>
+                          )}
+                          
+                          <div className="flex space-x-4">
+                            <Link 
+                              href={`/products/${product.seo_url || product.product_id}`}
+                              className="btn-outline inline-flex items-center space-x-2"
+                            >
+                              <span>View Details</span>
+                              <ArrowRight className="h-4 w-4" />
+                            </Link>
+                            <button
+                              onClick={() => handleAddToCart(product)}
+                              disabled={product.inventory_count === 0}
+                              className="btn-primary inline-flex items-center space-x-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                            >
+                              <ShoppingCart className="h-4 w-4" />
+                              <span>{product.inventory_count === 0 ? 'Out of Stock' : 'Add to Cart'}</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </Layout>
   );
