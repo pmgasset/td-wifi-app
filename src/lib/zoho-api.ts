@@ -1,18 +1,6 @@
 // ===== src/lib/zoho-api.ts =====
 interface ZohoProduct {
   product_id: string;
-  name: string; // Note: Zoho uses 'name' not 'product_name'
-  product_description: string;
-  rate?: number; // Zoho might use 'rate' instead of 'product_price'
-  product_images?: string[];
-  stock_on_hand?: number; // Zoho might use different field for inventory
-  category_name?: string;
-  url: string; // For SEO URL
-}
-
-// Normalized product interface for our app
-interface NormalizedProduct {
-  product_id: string;
   product_name: string;
   product_description: string;
   product_price: number;
@@ -35,7 +23,7 @@ interface ZohoOrder {
 }
 
 class ZohoCommerceAPI {
-  private baseURL = 'https://commerce.zoho.com/store/api/v1';
+  private baseURL = 'https://commerce.zoho.com/api/v1';
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
 
@@ -95,7 +83,6 @@ class ZohoCommerceAPI {
       ...options,
       headers: {
         'Authorization': `Zoho-oauthtoken ${token}`,
-        'X-com-zoho-store-organizationid': process.env.ZOHO_STORE_ID,
         'Content-Type': 'application/json',
         ...options.headers,
       },
@@ -109,51 +96,15 @@ class ZohoCommerceAPI {
     return response.json();
   }
 
-  // Normalize Zoho product data to our expected format
-  private normalizeProduct(zohoProduct: ZohoProduct): NormalizedProduct {
-    return {
-      product_id: zohoProduct.product_id,
-      product_name: zohoProduct.name || 'Unnamed Product',
-      product_description: zohoProduct.product_description || '',
-      product_price: zohoProduct.rate || 0,
-      product_images: zohoProduct.product_images || [],
-      inventory_count: zohoProduct.stock_on_hand || 0,
-      product_category: zohoProduct.category_name || 'Uncategorized',
-      seo_url: zohoProduct.url || zohoProduct.product_id
-    };
+  async getProducts(): Promise<ZohoProduct[]> {
+    const response = await this.apiRequest(`/stores/${process.env.ZOHO_STORE_ID}/products`);
+    return response.products || [];
   }
 
-  async getProducts(): Promise<NormalizedProduct[]> {
+  async getProduct(productId: string): Promise<ZohoProduct | null> {
     try {
-      console.log('Fetching products from Zoho Commerce...');
-      const response = await this.apiRequest('/products');
-      console.log('Zoho response:', JSON.stringify(response, null, 2));
-      
-      if (response.code === 0 && response.products) {
-        const normalizedProducts = response.products.map((product: ZohoProduct) => 
-          this.normalizeProduct(product)
-        );
-        console.log('Normalized products:', normalizedProducts.length);
-        return normalizedProducts;
-      }
-      
-      console.log('No products found in response');
-      return [];
-    } catch (error) {
-      console.error('Error fetching products:', error);
-      throw error;
-    }
-  }
-
-  async getProduct(productId: string): Promise<NormalizedProduct | null> {
-    try {
-      const response = await this.apiRequest(`/products/editpage?product_id=${productId}`);
-      
-      if (response.code === 0 && response.product) {
-        return this.normalizeProduct(response.product);
-      }
-      
-      return null;
+      const response = await this.apiRequest(`/stores/${process.env.ZOHO_STORE_ID}/products/${productId}`);
+      return response.product || null;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       if (errorMessage.includes('404')) {
@@ -164,7 +115,7 @@ class ZohoCommerceAPI {
   }
 
   async createOrder(orderData: Partial<ZohoOrder>): Promise<ZohoOrder> {
-    const response = await this.apiRequest('/orders', {
+    const response = await this.apiRequest(`/stores/${process.env.ZOHO_STORE_ID}/orders`, {
       method: 'POST',
       body: JSON.stringify(orderData),
     });
@@ -173,4 +124,4 @@ class ZohoCommerceAPI {
 }
 
 export const zohoAPI = new ZohoCommerceAPI();
-export type { NormalizedProduct as ZohoProduct, ZohoOrder };
+export type { ZohoProduct, ZohoOrder };
