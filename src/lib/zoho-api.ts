@@ -63,10 +63,11 @@ class ZohoCommerceAPI {
       this.accessToken = data.access_token;
       this.tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000; // 1 min buffer
       
-      return this.accessToken!
+      return data.access_token;
     } catch (error) {
       console.error('Failed to get Zoho access token:', error);
-      throw new Error(`Authentication failed: ${error.message}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      throw new Error(`Authentication failed: ${errorMessage}`);
     }
   }
 
