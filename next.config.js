@@ -1,20 +1,24 @@
-// ===== next.config.js =====
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // output: 'export',
+  // Remove output: 'export' for Vercel deployment with API routes
   trailingSlash: true,
   images: {
     unoptimized: true
   },
-  env: {
-    ZOHO_CLIENT_ID: process.env.ZOHO_CLIENT_ID,
-    ZOHO_CLIENT_SECRET: process.env.ZOHO_CLIENT_SECRET,
-    ZOHO_REFRESH_TOKEN: process.env.ZOHO_REFRESH_TOKEN,
-    ZOHO_STORE_ID: process.env.ZOHO_STORE_ID,
-  },
+  // Environment variables are handled by Vercel's dashboard
+  // No need to expose them here
   async generateBuildId() {
     return 'build-' + Date.now()
-  }
+  },
+  // Ensure API routes work properly
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: '/api/:path*',
+      },
+    ]
+  },
 }
 
 module.exports = nextConfig
