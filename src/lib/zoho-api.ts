@@ -63,7 +63,7 @@ class ZohoCommerceAPI {
       this.accessToken = data.access_token;
       this.tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000; // 1 min buffer
       
-      return this.accessToken;
+      return this.accessToken!
     } catch (error) {
       console.error('Failed to get Zoho access token:', error);
       throw new Error(`Authentication failed: ${error.message}`);
@@ -104,7 +104,7 @@ class ZohoCommerceAPI {
     try {
       const response = await this.apiRequest(`/stores/${process.env.ZOHO_STORE_ID}/products/${productId}`);
       return response.product || null;
-    } catch (error) {
+    } catch (error: any) {
       if (error.message.includes('404')) {
         return null;
       }
