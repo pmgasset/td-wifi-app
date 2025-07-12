@@ -1,4 +1,4 @@
-// ===== src/pages/categories/[...slug].tsx ===== (Create this new file)
+// ===== src/pages/categories/[...slug].tsx ===== (Updated with utilities)
 import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import useSWR from 'swr';
@@ -7,6 +7,17 @@ import Layout from '../../components/Layout';
 import { useCartStore } from '../../store/cart';
 import { ShoppingCart, Loader2, AlertCircle, Package, Search, Star, ArrowLeft, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { 
+  stripHtml, 
+  isProductAvailable, 
+  formatPrice, 
+  getProductImageUrl, 
+  getProductName, 
+  getProductDescription,
+  getProductPrice,
+  getProductCategory,
+  truncateText
+} from '../../lib/html-utils';
 
 const fetcher = (url: string) => fetch(url).then(res => {
   if (!res.ok) {
@@ -30,16 +41,9 @@ const CategoryProductsPage: React.FC = () => {
   const { data: productsData, error: productsError, isLoading: productsLoading } = useSWR('/api/products', fetcher);
   const { data: categoriesData, error: categoriesError, isLoading: categoriesLoading } = useSWR('/api/categories', fetcher);
 
-  const getProductImage = (product: any) => {
-    if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
-      return product.product_images[0];
-    }
-    return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
-  };
-
   const handleAddToCart = (product: any) => {
     addItem(product, 1);
-    toast.success(`${product.product_name || product.name} added to cart!`);
+    toast.success(`${getProductName(product)} added to cart!`);
   };
 
   // Find the current category
@@ -60,7 +64,7 @@ const CategoryProductsPage: React.FC = () => {
     
     return productsData.products.filter((product: any) => {
       // Filter by category using multiple possible matches
-      const productCategory = product.product_category || product.category_name || '';
+      const productCategory = getProductCategory(product);
       const productCategoryId = product.category_id;
       
       const matchesCategory = 
@@ -76,8 +80,8 @@ const CategoryProductsPage: React.FC = () => {
   // Filter and sort products
   const filteredAndSortedProducts = React.useMemo(() => {
     let filtered = categoryProducts.filter((product: any) => {
-      const productName = product.product_name || product.name || '';
-      const productDesc = product.product_description || product.description || '';
+      const productName = getProductName(product);
+      const productDesc = getProductDescription(product);
       
       return productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
              productDesc.toLowerCase().includes(searchTerm.toLowerCase());
@@ -87,12 +91,12 @@ const CategoryProductsPage: React.FC = () => {
     filtered.sort((a: any, b: any) => {
       switch (sortBy) {
         case 'price-low':
-          return (a.product_price || a.min_rate || 0) - (b.product_price || b.min_rate || 0);
+          return getProductPrice(a) - getProductPrice(b);
         case 'price-high':
-          return (b.product_price || b.min_rate || 0) - (a.product_price || a.min_rate || 0);
+          return getProductPrice(b) - getProductPrice(a);
         case 'name':
         default:
-          return (a.product_name || a.name || '').localeCompare(b.product_name || b.name || '');
+          return getProductName(a).localeCompare(getProductName(b));
       }
     });
 
@@ -248,81 +252,83 @@ const CategoryProductsPage: React.FC = () => {
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {filteredAndSortedProducts.map((product: any) => (
-                <div key={product.product_id} className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300">
-                  {/* Product Image */}
-                  <div className="relative bg-gray-100">
-                    <img 
-                      src={getProductImage(product)}
-                      alt={product.product_name || product.name}
-                      className="w-full h-48 object-cover"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBVbmF2YWlsYWJsZTwvdGV4dD4KPC9zdmc+Cg==";
-                      }}
-                    />
-                    {(product.inventory_count === 0 || product.overall_stock === '0') && (
-                      <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-                        <span className="bg-red-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-                          Out of Stock
+              {filteredAndSortedProducts.map((product: any) => {
+                const isAvailable = isProductAvailable(product);
+                const productName = getProductName(product);
+                const productDescription = getProductDescription(product);
+                const productPrice = getProductPrice(product);
+                const productCategory = getProductCategory(product);
+                const productImage = getProductImageUrl(product);
+                
+                return (
+                  <div key={product.product_id} className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300">
+                    {/* Product Image */}
+                    <div className="relative bg-gray-100">
+                      <img 
+                        src={productImage}
+                        alt={productName}
+                        className="w-full h-48 object-cover"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBVbmF2YWlsYWJsZTwvdGV4dD4KPC9zdmc+Cg==";
+                        }}
+                      />
+                    </div>
+                    
+                    {/* Product Info */}
+                    <div className="p-4">
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 flex-1 mr-2">
+                          {productName}
+                        </h3>
+                      </div>
+                      
+                      {/* Rating */}
+                      <div className="flex items-center space-x-1 mb-2">
+                        <Star className="h-4 w-4 text-yellow-400 fill-current" />
+                        <Star className="h-4 w-4 text-yellow-400 fill-current" />
+                        <Star className="h-4 w-4 text-yellow-400 fill-current" />
+                        <Star className="h-4 w-4 text-yellow-400 fill-current" />
+                        <Star className="h-4 w-4 text-yellow-400 fill-current" />
+                        <span className="text-sm text-gray-500 ml-1">(4.8)</span>
+                      </div>
+                      
+                      {/* Clean description without HTML */}
+                      {productDescription && (
+                        <p className="text-gray-600 text-sm mb-3 line-clamp-2">
+                          {truncateText(productDescription, 120)}
+                        </p>
+                      )}
+                      
+                      <div className="flex items-center justify-between mb-4">
+                        <span className="text-2xl font-bold text-travel-blue">
+                          {formatPrice(productPrice)}
+                        </span>
+                        {/* Always show as available since inventory isn't tracked */}
+                        <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
+                          Available
                         </span>
                       </div>
-                    )}
-                  </div>
-                  
-                  {/* Product Info */}
-                  <div className="p-4">
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className="text-lg font-semibold text-gray-900 line-clamp-2 flex-1 mr-2">
-                        {product.product_name || product.name}
-                      </h3>
-                    </div>
-                    
-                    {/* Rating */}
-                    <div className="flex items-center space-x-1 mb-2">
-                      <Star className="h-4 w-4 text-yellow-400 fill-current" />
-                      <Star className="h-4 w-4 text-yellow-400 fill-current" />
-                      <Star className="h-4 w-4 text-yellow-400 fill-current" />
-                      <Star className="h-4 w-4 text-yellow-400 fill-current" />
-                      <Star className="h-4 w-4 text-yellow-400 fill-current" />
-                      <span className="text-sm text-gray-500 ml-1">(4.8)</span>
-                    </div>
-                    
-                    {(product.product_description || product.description) && (
-                      <p className="text-gray-600 text-sm mb-3 line-clamp-2">
-                        {product.product_description || product.description}
-                      </p>
-                    )}
-                    
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-2xl font-bold text-travel-blue">
-                        ${typeof product.product_price === 'number' ? product.product_price.toFixed(2) : (product.min_rate || 0).toFixed(2)}
-                      </span>
-                      {(product.inventory_count !== undefined && product.inventory_count > 0) || (product.overall_stock && product.overall_stock !== '0') ? (
-                        <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded-full">
-                          {product.inventory_count || product.overall_stock || 'In stock'}
-                        </span>
-                      ) : null}
-                    </div>
-                    
-                    <div className="flex space-x-2">
-                      <Link 
-                        href={`/products/${product.seo_url || product.url || product.product_id}`}
-                        className="flex-1 bg-gray-100 text-gray-700 text-center py-2 px-3 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
-                      >
-                        View Details
-                      </Link>
-                      <button
-                        onClick={() => handleAddToCart(product)}
-                        disabled={(product.inventory_count === 0 || product.overall_stock === '0')}
-                        className="btn-primary text-sm disabled:bg-gray-300 disabled:cursor-not-allowed"
-                      >
-                        Add to Cart
-                      </button>
+                      
+                      <div className="flex space-x-2">
+                        <Link 
+                          href={`/products/${product.seo_url || product.url || product.product_id}`}
+                          className="flex-1 bg-gray-100 text-gray-700 text-center py-2 px-3 rounded-lg hover:bg-gray-200 transition-colors text-sm font-medium"
+                        >
+                          View Details
+                        </Link>
+                        <button
+                          onClick={() => handleAddToCart(product)}
+                          disabled={!isAvailable}
+                          className="btn-primary text-sm disabled:bg-gray-300 disabled:cursor-not-allowed"
+                        >
+                          Add to Cart
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
