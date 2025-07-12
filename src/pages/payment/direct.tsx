@@ -121,7 +121,7 @@ const DirectPaymentPage = () => {
                   </div>
                   <div className="flex justify-between text-lg font-semibold pt-2 border-t">
                     <span>Total:</span>
-                    <span className="text-travel-blue">{formatCurrency(amount || 0)}</span>
+                    <span className="text-travel-blue">{formatCurrency(Array.isArray(amount) ? amount[0] : amount || 0)}</span>
                   </div>
                 </div>
               </div>
@@ -151,7 +151,7 @@ const DirectPaymentPage = () => {
                 ) : (
                   <>
                     <CreditCard className="h-5 w-5" />
-                    <span>Pay {formatCurrency(amount || 0)}</span>
+                    <span>Pay {formatCurrency(Array.isArray(amount) ? amount[0] : amount || 0)}</span>
                   </>
                 )}
               </button>
