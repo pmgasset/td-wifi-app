@@ -1,5 +1,6 @@
-// ===== src/pages/checkout.tsx =====
-import React from 'react';
+// ===== src/pages/checkout.tsx (Updated for Zoho Hosted Only) =====
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
 import { 
@@ -16,25 +17,24 @@ import {
   ArrowLeft,
   Truck,
   Settings,
-  ExternalLink
+  ExternalLink,
+  Shield
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const CheckoutPage: React.FC = () => {
+  const router = useRouter();
   const { items, getTotalPrice, clearCart } = useCartStore();
   
-  // Checkout type selection
-  const [checkoutType, setCheckoutType] = React.useState<'api' | 'hosted' | 'embedded'>('api');
-  
-  // Form state
-  const [customerInfo, setCustomerInfo] = React.useState({
+  // Form state - only collect shipping info since payment is handled by Zoho
+  const [customerInfo, setCustomerInfo] = useState({
     email: '',
     firstName: '',
     lastName: '',
     phone: ''
   });
   
-  const [shippingAddress, setShippingAddress] = React.useState({
+  const [shippingAddress, setShippingAddress] = useState({
     address1: '',
     address2: '',
     city: '',
@@ -43,90 +43,47 @@ const CheckoutPage: React.FC = () => {
     country: 'US'
   });
   
-  const [billingAddress, setBillingAddress] = React.useState({
-    sameAsShipping: true,
-    address1: '',
-    address2: '',
-    city: '',
-    state: '',
-    zipCode: '',
-    country: 'US'
-  });
-  
-  const [paymentMethod, setPaymentMethod] = React.useState({
-    type: 'credit_card',
-    cardNumber: '',
-    expiryMonth: '',
-    expiryYear: '',
-    cvv: '',
-    nameOnCard: ''
-  });
-  
-  const [orderNotes, setOrderNotes] = React.useState('');
-  const [agreeToTerms, setAgreeToTerms] = React.useState(false);
+  const [orderNotes, setOrderNotes] = useState('');
+  const [agreeToTerms, setAgreeToTerms] = useState(false);
   
   // UI state
-  const [isProcessing, setIsProcessing] = React.useState(false);
-  const [orderComplete, setOrderComplete] = React.useState(false);
-  const [orderResult, setOrderResult] = React.useState<any>(null);
-  const [validationErrors, setValidationErrors] = React.useState<string[]>([]);
-  const [embeddedWidget, setEmbeddedWidget] = React.useState<any>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
   
   // Redirect if cart is empty
-  React.useEffect(() => {
-    if (items.length === 0 && !orderComplete) {
-      window.location.href = '/products';
+  useEffect(() => {
+    if (items.length === 0) {
+      router.push('/products');
     }
-  }, [items.length, orderComplete]);
-  
+  }, [items.length, router]);
+
   // Calculate totals
-  const subtotal = getTotalPrice();
-  const tax = calculateTax(subtotal, shippingAddress.state);
-  const shipping = calculateShipping(items, shippingAddress);
-  const total = subtotal + tax + shipping;
-  
-  // US States
-  const US_STATES = [
-    { code: 'AL', name: 'Alabama' }, { code: 'AK', name: 'Alaska' },
-    { code: 'AZ', name: 'Arizona' }, { code: 'AR', name: 'Arkansas' },
-    { code: 'CA', name: 'California' }, { code: 'CO', name: 'Colorado' },
-    { code: 'CT', name: 'Connecticut' }, { code: 'DE', name: 'Delaware' },
-    { code: 'FL', name: 'Florida' }, { code: 'GA', name: 'Georgia' },
-    { code: 'HI', name: 'Hawaii' }, { code: 'ID', name: 'Idaho' },
-    { code: 'IL', name: 'Illinois' }, { code: 'IN', name: 'Indiana' },
-    { code: 'IA', name: 'Iowa' }, { code: 'KS', name: 'Kansas' },
-    { code: 'KY', name: 'Kentucky' }, { code: 'LA', name: 'Louisiana' },
-    { code: 'ME', name: 'Maine' }, { code: 'MD', name: 'Maryland' },
-    { code: 'MA', name: 'Massachusetts' }, { code: 'MI', name: 'Michigan' },
-    { code: 'MN', name: 'Minnesota' }, { code: 'MS', name: 'Mississippi' },
-    { code: 'MO', name: 'Missouri' }, { code: 'MT', name: 'Montana' },
-    { code: 'NE', name: 'Nebraska' }, { code: 'NV', name: 'Nevada' },
-    { code: 'NH', name: 'New Hampshire' }, { code: 'NJ', name: 'New Jersey' },
-    { code: 'NM', name: 'New Mexico' }, { code: 'NY', name: 'New York' },
-    { code: 'NC', name: 'North Carolina' }, { code: 'ND', name: 'North Dakota' },
-    { code: 'OH', name: 'Ohio' }, { code: 'OK', name: 'Oklahoma' },
-    { code: 'OR', name: 'Oregon' }, { code: 'PA', name: 'Pennsylvania' },
-    { code: 'RI', name: 'Rhode Island' }, { code: 'SC', name: 'South Carolina' },
-    { code: 'SD', name: 'South Dakota' }, { code: 'TN', name: 'Tennessee' },
-    { code: 'TX', name: 'Texas' }, { code: 'UT', name: 'Utah' },
-    { code: 'VT', name: 'Vermont' }, { code: 'VA', name: 'Virginia' },
-    { code: 'WA', name: 'Washington' }, { code: 'WV', name: 'West Virginia' },
+  const subtotal = items.reduce((sum, item) => sum + (item.product_price * item.quantity), 0);
+  const shipping = subtotal >= 100 ? 0 : 9.99;
+  const tax = Math.round(subtotal * 0.0875 * 100) / 100; // 8.75% tax rate
+  const total = subtotal + shipping + tax;
+
+  // US States for dropdown
+  const states = [
+    { code: 'AL', name: 'Alabama' }, { code: 'AK', name: 'Alaska' }, { code: 'AZ', name: 'Arizona' },
+    { code: 'AR', name: 'Arkansas' }, { code: 'CA', name: 'California' }, { code: 'CO', name: 'Colorado' },
+    { code: 'CT', name: 'Connecticut' }, { code: 'DE', name: 'Delaware' }, { code: 'FL', name: 'Florida' },
+    { code: 'GA', name: 'Georgia' }, { code: 'HI', name: 'Hawaii' }, { code: 'ID', name: 'Idaho' },
+    { code: 'IL', name: 'Illinois' }, { code: 'IN', name: 'Indiana' }, { code: 'IA', name: 'Iowa' },
+    { code: 'KS', name: 'Kansas' }, { code: 'KY', name: 'Kentucky' }, { code: 'LA', name: 'Louisiana' },
+    { code: 'ME', name: 'Maine' }, { code: 'MD', name: 'Maryland' }, { code: 'MA', name: 'Massachusetts' },
+    { code: 'MI', name: 'Michigan' }, { code: 'MN', name: 'Minnesota' }, { code: 'MS', name: 'Mississippi' },
+    { code: 'MO', name: 'Missouri' }, { code: 'MT', name: 'Montana' }, { code: 'NE', name: 'Nebraska' },
+    { code: 'NV', name: 'Nevada' }, { code: 'NH', name: 'New Hampshire' }, { code: 'NJ', name: 'New Jersey' },
+    { code: 'NM', name: 'New Mexico' }, { code: 'NY', name: 'New York' }, { code: 'NC', name: 'North Carolina' },
+    { code: 'ND', name: 'North Dakota' }, { code: 'OH', name: 'Ohio' }, { code: 'OK', name: 'Oklahoma' },
+    { code: 'OR', name: 'Oregon' }, { code: 'PA', name: 'Pennsylvania' }, { code: 'RI', name: 'Rhode Island' },
+    { code: 'SC', name: 'South Carolina' }, { code: 'SD', name: 'South Dakota' }, { code: 'TN', name: 'Tennessee' },
+    { code: 'TX', name: 'Texas' }, { code: 'UT', name: 'Utah' }, { code: 'VT', name: 'Vermont' },
+    { code: 'VA', name: 'Virginia' }, { code: 'WA', name: 'Washington' }, { code: 'WV', name: 'West Virginia' },
     { code: 'WI', name: 'Wisconsin' }, { code: 'WY', name: 'Wyoming' }
   ];
-  
-  function calculateTax(subtotal: number, state: string) {
-    const taxRates: { [key: string]: number } = {
-      'CA': 0.0875, 'NY': 0.08, 'TX': 0.0625, 'FL': 0.06, 'WA': 0.065
-    };
-    const rate = taxRates[state] || 0.05;
-    return Math.round(subtotal * rate * 100) / 100;
-  }
-  
-  function calculateShipping(items: any[], address: any) {
-    if (subtotal >= 100) return 0;
-    return 9.99;
-  }
-  
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -139,7 +96,7 @@ const CheckoutPage: React.FC = () => {
     setValidationErrors([]);
     
     try {
-      const response = await fetch('/api/checkout', {
+      const response = await fetch('/api/zoho-checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -147,11 +104,9 @@ const CheckoutPage: React.FC = () => {
         body: JSON.stringify({
           customerInfo,
           shippingAddress,
-          billingAddress,
           cartItems: items,
-          paymentMethod,
           orderNotes,
-          checkoutType
+          checkoutType: 'hosted' // Force hosted checkout
         }),
       });
       
@@ -164,137 +119,124 @@ const CheckoutPage: React.FC = () => {
         throw new Error(result.error || 'Checkout failed');
       }
       
-      setOrderResult(result);
-      setOrderComplete(true);
-      clearCart();
-      toast.success('Order placed successfully!');
+      // Redirect to Zoho's hosted checkout page
+      if (result.checkout_url) {
+        toast.success('Redirecting to secure checkout...');
+        window.location.href = result.checkout_url;
+      } else {
+        throw new Error('No checkout URL received from Zoho');
+      }
       
     } catch (error: any) {
       console.error('Checkout error:', error);
       toast.error(error.message || 'Something went wrong. Please try again.');
-    } finally {
       setIsProcessing(false);
     }
   };
-  
-  const formatCardNumber = (value: string) => {
-    const v = value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
-    const matches = v.match(/\d{4,16}/g);
-    const match = matches && matches[0] || '';
-    const parts = [];
-    for (let i = 0, len = match.length; i < len; i += 4) {
-      parts.push(match.substring(i, i + 4));
-    }
-    if (parts.length) {
-      return parts.join(' ');
-    } else {
-      return v;
-    }
-  };
-  
-  // Success page
-  if (orderComplete && orderResult) {
+
+  if (items.length === 0) {
     return (
-      <Layout title="Order Confirmed - Travel Data WiFi">
-        <div className="min-h-screen bg-gray-50 py-12">
-          <div className="max-w-2xl mx-auto px-4">
-            <div className="bg-white rounded-lg shadow-lg p-8 text-center">
-              <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-6" />
-              <h1 className="text-3xl font-bold text-gray-900 mb-4">Order Confirmed!</h1>
-              <p className="text-lg text-gray-600 mb-6">
-                Thank you for your order. You'll receive a confirmation email shortly.
-              </p>
-              
-              <div className="bg-gray-50 rounded-lg p-6 mb-6">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="font-medium text-gray-700">Order Number:</span>
-                    <p className="text-gray-900">{orderResult.orderNumber}</p>
-                  </div>
-                  <div>
-                    <span className="font-medium text-gray-700">Total:</span>
-                    <p className="text-gray-900 font-bold">${orderResult.total.toFixed(2)}</p>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex space-x-4 justify-center">
-                <button
-                  onClick={() => window.location.href = '/products'}
-                  className="bg-travel-blue text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
-                >
-                  Continue Shopping
-                </button>
-                <button
-                  onClick={() => window.location.href = '/'}
-                  className="bg-gray-100 text-gray-700 px-6 py-3 rounded-lg font-medium hover:bg-gray-200 transition-colors"
-                >
-                  Return Home
-                </button>
-              </div>
-            </div>
+      <Layout title="Checkout - Travel Data WiFi">
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <ShoppingCart className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <h2 className="text-2xl font-semibold text-gray-900 mb-2">Your cart is empty</h2>
+            <p className="text-gray-600 mb-6">Add some products to get started</p>
+            <button
+              onClick={() => router.push('/products')}
+              className="bg-travel-blue text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Browse Products
+            </button>
           </div>
         </div>
       </Layout>
     );
   }
-  
+
   return (
-    <Layout title="Checkout - Travel Data WiFi">
-      <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-        <div className="bg-white shadow-sm border-b">
-          <div className="max-w-7xl mx-auto px-4 py-4">
+    <Layout title="Secure Checkout - Travel Data WiFi">
+      <div className="min-h-screen bg-gray-50 py-12">
+        <div className="max-w-6xl mx-auto px-4">
+          {/* Header */}
+          <div className="mb-8">
+            <button
+              onClick={() => router.back()}
+              className="flex items-center space-x-2 text-travel-blue hover:text-blue-700 mb-4"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back to Cart</span>
+            </button>
+            
             <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-4">
-                <button
-                  onClick={() => window.history.back()}
-                  className="flex items-center space-x-2 text-travel-blue hover:text-blue-700"
-                >
-                  <ArrowLeft className="h-5 w-5" />
-                  <span>Back</span>
-                </button>
-                <h1 className="text-2xl font-bold text-gray-900">Checkout</h1>
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">Secure Checkout</h1>
+                <p className="text-gray-600 mt-2">Powered by Zoho Commerce</p>
               </div>
-              <div className="flex items-center space-x-2 text-sm text-gray-500">
-                <Lock className="h-4 w-4" />
-                <span>Secure Checkout</span>
+              
+              <div className="flex items-center space-x-2 text-sm text-gray-600">
+                <Shield className="h-5 w-5 text-green-500" />
+                <span>256-bit SSL Encrypted</span>
               </div>
             </div>
           </div>
-        </div>
 
-        <div className="max-w-7xl mx-auto px-4 py-8">
+          {/* Validation Errors */}
+          {validationErrors.length > 0 && (
+            <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-start space-x-3">
+                <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
+                <div>
+                  <h3 className="text-red-800 font-medium">Please fix the following errors:</h3>
+                  <ul className="mt-2 text-red-700 list-disc list-inside">
+                    {validationErrors.map((error, index) => (
+                      <li key={index}>{error}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Main Checkout Form */}
+            {/* Main Form */}
             <div className="lg:col-span-2">
               <form onSubmit={handleSubmit} className="space-y-8">
-                
-                {/* Validation Errors */}
-                {validationErrors.length > 0 && (
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <div className="flex items-start space-x-3">
-                      <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
-                      <div>
-                        <h3 className="text-sm font-medium text-red-800">Please fix the following errors:</h3>
-                        <ul className="mt-2 text-sm text-red-700 list-disc list-inside">
-                          {validationErrors.map((error, index) => (
-                            <li key={index}>{error}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* Customer Information */}
                 <div className="bg-white rounded-lg shadow-sm p-6">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <User className="h-6 w-6 text-travel-blue" />
-                    <h2 className="text-xl font-semibold text-gray-900">Contact Information</h2>
-                  </div>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-6 flex items-center space-x-2">
+                    <User className="h-5 w-5" />
+                    <span>Contact Information</span>
+                  </h2>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Email Address *
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={customerInfo.email}
+                        onChange={(e) => setCustomerInfo({...customerInfo, email: e.target.value})}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        placeholder="john@example.com"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Phone Number
+                      </label>
+                      <input
+                        type="tel"
+                        value={customerInfo.phone}
+                        onChange={(e) => setCustomerInfo({...customerInfo, phone: e.target.value})}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        placeholder="(555) 123-4567"
+                      />
+                    </div>
+                    
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         First Name *
@@ -304,7 +246,8 @@ const CheckoutPage: React.FC = () => {
                         required
                         value={customerInfo.firstName}
                         onChange={(e) => setCustomerInfo({...customerInfo, firstName: e.target.value})}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        placeholder="John"
                       />
                     </div>
                     
@@ -317,53 +260,21 @@ const CheckoutPage: React.FC = () => {
                         required
                         value={customerInfo.lastName}
                         onChange={(e) => setCustomerInfo({...customerInfo, lastName: e.target.value})}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        placeholder="Doe"
                       />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Email Address *
-                      </label>
-                      <div className="relative">
-                        <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input
-                          type="email"
-                          required
-                          value={customerInfo.email}
-                          onChange={(e) => setCustomerInfo({...customerInfo, email: e.target.value})}
-                          className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                          placeholder="your@email.com"
-                        />
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Phone Number
-                      </label>
-                      <div className="relative">
-                        <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                        <input
-                          type="tel"
-                          value={customerInfo.phone}
-                          onChange={(e) => setCustomerInfo({...customerInfo, phone: e.target.value})}
-                          className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                          placeholder="(555) 123-4567"
-                        />
-                      </div>
                     </div>
                   </div>
                 </div>
 
                 {/* Shipping Address */}
                 <div className="bg-white rounded-lg shadow-sm p-6">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <Truck className="h-6 w-6 text-travel-blue" />
-                    <h2 className="text-xl font-semibold text-gray-900">Shipping Address</h2>
-                  </div>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-6 flex items-center space-x-2">
+                    <MapPin className="h-5 w-5" />
+                    <span>Shipping Address</span>
+                  </h2>
                   
-                  <div className="space-y-4">
+                  <div className="space-y-6">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
                         Street Address *
@@ -373,12 +284,25 @@ const CheckoutPage: React.FC = () => {
                         required
                         value={shippingAddress.address1}
                         onChange={(e) => setShippingAddress({...shippingAddress, address1: e.target.value})}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                         placeholder="123 Main Street"
                       />
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Apartment, Suite, etc. (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={shippingAddress.address2}
+                        onChange={(e) => setShippingAddress({...shippingAddress, address2: e.target.value})}
+                        className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        placeholder="Apt 4B"
+                      />
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">
                           City *
@@ -388,7 +312,7 @@ const CheckoutPage: React.FC = () => {
                           required
                           value={shippingAddress.city}
                           onChange={(e) => setShippingAddress({...shippingAddress, city: e.target.value})}
-                          className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                           placeholder="Austin"
                         />
                       </div>
@@ -401,10 +325,10 @@ const CheckoutPage: React.FC = () => {
                           required
                           value={shippingAddress.state}
                           onChange={(e) => setShippingAddress({...shippingAddress, state: e.target.value})}
-                          className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                         >
                           <option value="">Select State</option>
-                          {US_STATES.map(state => (
+                          {states.map(state => (
                             <option key={state.code} value={state.code}>{state.name}</option>
                           ))}
                         </select>
@@ -419,105 +343,24 @@ const CheckoutPage: React.FC = () => {
                           required
                           value={shippingAddress.zipCode}
                           onChange={(e) => setShippingAddress({...shippingAddress, zipCode: e.target.value})}
-                          className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                           placeholder="78701"
-                          pattern="\d{5}(-\d{4})?"
                         />
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Payment Information */}
+                {/* Order Notes */}
                 <div className="bg-white rounded-lg shadow-sm p-6">
-                  <div className="flex items-center space-x-3 mb-6">
-                    <CreditCard className="h-6 w-6 text-travel-blue" />
-                    <h2 className="text-xl font-semibold text-gray-900">Payment Information</h2>
-                  </div>
-                  
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Name on Card *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={paymentMethod.nameOnCard}
-                        onChange={(e) => setPaymentMethod({...paymentMethod, nameOnCard: e.target.value})}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                        placeholder="John Doe"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Card Number *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={paymentMethod.cardNumber}
-                        onChange={(e) => setPaymentMethod({...paymentMethod, cardNumber: formatCardNumber(e.target.value)})}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                        placeholder="1234 5678 9012 3456"
-                        maxLength={19}
-                      />
-                    </div>
-                    
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Month *
-                        </label>
-                        <select
-                          required
-                          value={paymentMethod.expiryMonth}
-                          onChange={(e) => setPaymentMethod({...paymentMethod, expiryMonth: e.target.value})}
-                          className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                        >
-                          <option value="">MM</option>
-                          {Array.from({length: 12}, (_, i) => i + 1).map(month => (
-                            <option key={month} value={month.toString().padStart(2, '0')}>
-                              {month.toString().padStart(2, '0')}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Year *
-                        </label>
-                        <select
-                          required
-                          value={paymentMethod.expiryYear}
-                          onChange={(e) => setPaymentMethod({...paymentMethod, expiryYear: e.target.value})}
-                          className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                        >
-                          <option value="">YYYY</option>
-                          {Array.from({length: 10}, (_, i) => new Date().getFullYear() + i).map(year => (
-                            <option key={year} value={year}>{year}</option>
-                          ))}
-                        </select>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          CVV *
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={paymentMethod.cvv}
-                          onChange={(e) => setPaymentMethod({...paymentMethod, cvv: e.target.value.replace(/\D/g, '').slice(0, 4)})}
-                          className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                          placeholder="123"
-                          maxLength={4}
-                        />
-                      </div>
-                    </div>
-                  </div>
+                  <h2 className="text-xl font-semibold text-gray-900 mb-6">Order Notes (Optional)</h2>
+                  <textarea
+                    value={orderNotes}
+                    onChange={(e) => setOrderNotes(e.target.value)}
+                    rows={3}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                    placeholder="Special delivery instructions, setup preferences, etc."
+                  />
                 </div>
 
                 {/* Terms and Submit */}
@@ -551,15 +394,19 @@ const CheckoutPage: React.FC = () => {
                       {isProcessing ? (
                         <>
                           <Loader2 className="h-5 w-5 animate-spin" />
-                          <span>Processing Order...</span>
+                          <span>Redirecting to Secure Checkout...</span>
                         </>
                       ) : (
                         <>
-                          <Lock className="h-5 w-5" />
-                          <span>Complete Order - ${total.toFixed(2)}</span>
+                          <ExternalLink className="h-5 w-5" />
+                          <span>Continue to Secure Payment - ${total.toFixed(2)}</span>
                         </>
                       )}
                     </button>
+
+                    <div className="text-center text-sm text-gray-600">
+                      You will be redirected to Zoho Commerce's secure checkout page to complete your payment
+                    </div>
                   </div>
                 </div>
               </form>
@@ -579,7 +426,7 @@ const CheckoutPage: React.FC = () => {
                     <div key={item.product_id} className="flex items-center space-x-4">
                       <div className="relative">
                         <img 
-                          src={item.product_images?.[0] || '/images/placeholder.jpg'} 
+                          src={item.product_images?.[0] || '/images/placeholder.jpg'}
                           alt={item.product_name}
                           className="w-16 h-16 object-cover rounded-lg"
                         />
@@ -595,15 +442,15 @@ const CheckoutPage: React.FC = () => {
                   ))}
                 </div>
                 
-                {/* Price Breakdown */}
-                <div className="border-t pt-4 space-y-2">
+                {/* Order Totals */}
+                <div className="space-y-2 mb-6 text-sm">
                   <div className="flex justify-between text-gray-600">
                     <span>Subtotal</span>
                     <span>${subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-gray-600">
                     <span>Shipping</span>
-                    <span>{shipping === 0 ? 'Free' : `${shipping.toFixed(2)}`}</span>
+                    <span>{shipping === 0 ? 'Free' : `$${shipping.toFixed(2)}`}</span>
                   </div>
                   <div className="flex justify-between text-gray-600">
                     <span>Tax</span>
@@ -617,17 +464,26 @@ const CheckoutPage: React.FC = () => {
                 
                 {/* Free Shipping Notice */}
                 {subtotal < 100 && (
-                  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                  <div className="mb-6 p-3 bg-blue-50 rounded-lg">
                     <p className="text-sm text-travel-blue">
                       Add ${(100 - subtotal).toFixed(2)} more for free shipping!
                     </p>
                   </div>
                 )}
                 
-                {/* Security Notice */}
-                <div className="mt-6 flex items-center space-x-2 text-sm text-gray-500">
-                  <Lock className="h-4 w-4" />
-                  <span>Your payment information is encrypted and secure</span>
+                {/* Security Features */}
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center space-x-2 text-sm text-gray-600 mb-2">
+                    <Shield className="h-4 w-4" />
+                    <span>Secure Checkout</span>
+                  </div>
+                  <div className="text-xs text-gray-500 space-y-1">
+                    <p>✓ Powered by Zoho Commerce</p>
+                    <p>✓ PCI DSS Compliant</p>
+                    <p>✓ 256-bit SSL Encrypted</p>
+                    <p>✓ Multiple Payment Options</p>
+                    <p>✓ No payment data stored on our servers</p>
+                  </div>
                 </div>
               </div>
             </div>
