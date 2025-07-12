@@ -1,20 +1,19 @@
 // ===== src/lib/zoho-api.ts ===== (Replace your existing file)
 interface ZohoProduct {
   product_id: string;
-  name: string; // Note: Zoho uses 'name' not 'product_name'
+  name: string;
   product_description: string;
   description: string;
-  min_rate: number; // Note: Zoho uses 'min_rate' for price
+  min_rate: number;
   max_rate: number;
   documents: Array<{
     document_id: string;
-    document_name: string;
     file_name: string;
-    file_size: number;
+    attachment_order: number;
     file_type: string;
-    is_default_image: boolean;
-    image_url?: string;
-  }>; // Zoho uses 'documents' for images
+    alter_text: string;
+    uploaded_on: string;
+  }>;
   variants: Array<{
     variant_id: string;
     name: string;
@@ -26,7 +25,8 @@ interface ZohoProduct {
   status: string;
   show_in_storefront: boolean;
   category_name: string;
-  url: string; // SEO URL
+  category_id: string;
+  url: string;
   overall_stock: string;
   // Compatibility fields added by transformation
   product_name?: string;
@@ -89,7 +89,7 @@ class ZohoCommerceAPI {
       }
 
       this.accessToken = data.access_token;
-      this.tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000; // 1 min buffer
+      this.tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000;
       
       return data.access_token;
     } catch (error) {
@@ -139,18 +139,57 @@ class ZohoCommerceAPI {
     }
   }
 
+  // NEW: Extract image URLs from Zoho's documents using the discovered URL pattern
+  private extractImageUrls(product: any): string[] {
+    const images: string[] = [];
+    
+    // Check main product documents
+    if (product.documents && Array.isArray(product.documents)) {
+      for (const doc of product.documents) {
+        if (doc.document_id && doc.file_name) {
+          // Use the discovered URL pattern from your live site
+          const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`;
+          images.push(imageUrl);
+        }
+      }
+    }
+    
+    // Check variant documents as fallback
+    if (images.length === 0 && product.variants && Array.isArray(product.variants)) {
+      for (const variant of product.variants) {
+        if (variant.documents && Array.isArray(variant.documents)) {
+          for (const doc of variant.documents) {
+            if (doc.document_id && doc.file_name) {
+              const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`;
+              images.push(imageUrl);
+            }
+          }
+        }
+      }
+    }
+    
+    return images;
+  }
+
+  // Helper method to parse stock information
+  private parseStock(stockString: string): number {
+    if (!stockString) return 0;
+    const parsed = parseInt(stockString, 10);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+
   async getProducts(): Promise<ZohoProduct[]> {
     try {
       const response = await this.apiRequest('/products');
       const products = response.products || [];
       
-      // Transform products to match expected interface
+      // Transform products to match expected interface AND extract images
       return products.map((product: any) => ({
         ...product,
         // Map Zoho fields to expected fields for backward compatibility
         product_name: product.name,
         product_price: product.min_rate || product.max_rate || 0,
-        product_images: this.extractImageUrls(product),
+        product_images: this.extractImageUrls(product), // 🎯 This is the key change!
         inventory_count: this.parseStock(product.overall_stock),
         product_category: product.category_name || '',
         seo_url: product.url || product.product_id
@@ -168,12 +207,12 @@ class ZohoCommerceAPI {
       
       if (!product) return null;
       
-      // Transform product to match expected interface
+      // Transform product to match expected interface AND extract images
       return {
         ...product,
         product_name: product.name,
         product_price: product.min_rate || product.max_rate || 0,
-        product_images: this.extractImageUrls(product),
+        product_images: this.extractImageUrls(product), // 🎯 This is the key change!
         inventory_count: this.parseStock(product.overall_stock),
         product_category: product.category_name || '',
         seo_url: product.url || product.product_id
@@ -185,47 +224,6 @@ class ZohoCommerceAPI {
       }
       throw error;
     }
-  }
-
-  // Helper method to extract image URLs from Zoho's documents structure
-  private extractImageUrls(product: any): string[] {
-    const images: string[] = [];
-    
-    // Check main product documents
-    if (product.documents && Array.isArray(product.documents)) {
-      for (const doc of product.documents) {
-        if (doc.image_url) {
-          images.push(doc.image_url);
-        } else if (doc.document_id) {
-          // Construct image URL from document ID (this might need adjustment based on Zoho's URL pattern)
-          images.push(`https://commerce.zoho.com/store/api/v1/documents/${doc.document_id}/image`);
-        }
-      }
-    }
-    
-    // Check variant documents as fallback
-    if (images.length === 0 && product.variants && Array.isArray(product.variants)) {
-      for (const variant of product.variants) {
-        if (variant.documents && Array.isArray(variant.documents)) {
-          for (const doc of variant.documents) {
-            if (doc.image_url) {
-              images.push(doc.image_url);
-            } else if (doc.document_id) {
-              images.push(`https://commerce.zoho.com/store/api/v1/documents/${doc.document_id}/image`);
-            }
-          }
-        }
-      }
-    }
-    
-    return images;
-  }
-
-  // Helper method to parse stock information
-  private parseStock(stockString: string): number {
-    if (!stockString) return 0;
-    const parsed = parseInt(stockString, 10);
-    return isNaN(parsed) ? 0 : parsed;
   }
 
   async createOrder(orderData: Partial<ZohoOrder>): Promise<ZohoOrder> {
