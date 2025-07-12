@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     console.log(`Successfully fetched ${categories.length} categories`);
     
     // Transform categories to include useful fields
-    const transformedCategories = categories.map((category: any) => ({
+    const transformedCategories = categories.map((category) => ({
       ...category,
       // Add URL-friendly slug if not present
       slug: category.url || category.name?.toLowerCase().replace(/[^a-z0-9]/g, '-'),
@@ -26,7 +26,7 @@ export default async function handler(req, res) {
     }));
     
     // Filter active categories only
-    const activeCategories = transformedCategories.filter((category: any) => 
+    const activeCategories = transformedCategories.filter((category) => 
       category.status !== 'inactive'
     );
     

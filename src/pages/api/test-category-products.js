@@ -148,7 +148,7 @@ export default async function handler(req, res) {
       
       // Show top categories with products
       const sortedCategories = Object.entries(results.productAnalysis.categoryDistribution)
-        .sort(([,a], [,b]) => (b as number) - (a as number))
+        .sort(([,a], [,b]) => b - a)
         .slice(0, 5);
       
       if (sortedCategories.length > 0) {
