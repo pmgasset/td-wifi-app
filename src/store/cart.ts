@@ -1,4 +1,4 @@
-// ===== src/store/cart.ts =====
+// ===== src/store/cart.ts (Fixed) =====
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
@@ -13,6 +13,7 @@ interface CartItem {
 interface CartStore {
   items: CartItem[];
   isOpen: boolean;
+  isHydrated: boolean;
   addItem: (product: any, quantity?: number) => void;
   removeItem: (productId: string) => void;
   updateQuantity: (productId: string, quantity: number) => void;
@@ -21,6 +22,7 @@ interface CartStore {
   closeCart: () => void;
   getTotalItems: () => number;
   getTotalPrice: () => number;
+  setHydrated: () => void;
 }
 
 export const useCartStore = create<CartStore>()(
@@ -28,6 +30,9 @@ export const useCartStore = create<CartStore>()(
     (set, get) => ({
       items: [],
       isOpen: false,
+      isHydrated: false,
+      
+      setHydrated: () => set({ isHydrated: true }),
       
       addItem: (product, quantity = 1) => {
         set((state) => {
@@ -46,10 +51,10 @@ export const useCartStore = create<CartStore>()(
           return {
             items: [...state.items, {
               product_id: product.product_id,
-              product_name: product.product_name,
-              product_price: product.product_price,
+              product_name: product.product_name || product.name,
+              product_price: product.product_price || product.price,
               quantity,
-              product_images: product.product_images
+              product_images: product.product_images || product.images || ['/images/placeholder.jpg']
             }]
           };
         });
@@ -90,6 +95,10 @@ export const useCartStore = create<CartStore>()(
     }),
     {
       name: 'travel-data-cart',
+      onRehydrateStorage: () => (state) => {
+        // Set hydrated flag when storage is rehydrated
+        state?.setHydrated();
+      },
     }
   )
 );

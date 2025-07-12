@@ -1,22 +1,17 @@
-// ===== src/pages/checkout.tsx (Fixed - No Redirect Loop) =====
-import React, { useState } from 'react';
+// ===== src/pages/checkout.tsx (Final Fix - No Routing Issues) =====
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
 import { 
-  CreditCard, 
-  Lock, 
   ShoppingCart, 
   MapPin, 
   User, 
   Mail, 
   Phone, 
   AlertCircle, 
-  CheckCircle, 
   Loader2,
   ArrowLeft,
-  Truck,
-  Settings,
   ExternalLink,
   Shield
 } from 'lucide-react';
@@ -24,7 +19,10 @@ import toast from 'react-hot-toast';
 
 const CheckoutPage: React.FC = () => {
   const router = useRouter();
-  const { items, getTotalPrice, clearCart } = useCartStore();
+  const { items, getTotalPrice, isHydrated } = useCartStore();
+  
+  // Component state
+  const [isLoading, setIsLoading] = useState(true);
   
   // Form state - only collect shipping info since payment is handled by Zoho
   const [customerInfo, setCustomerInfo] = useState({
@@ -50,8 +48,15 @@ const CheckoutPage: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  // Calculate totals
-  const subtotal = items.reduce((sum, item) => sum + (item.product_price * item.quantity), 0);
+  // Wait for cart to hydrate before showing content
+  useEffect(() => {
+    if (isHydrated) {
+      setIsLoading(false);
+    }
+  }, [isHydrated]);
+
+  // Calculate totals (safe with empty items array)
+  const subtotal = items?.reduce((sum, item) => sum + (item.product_price * item.quantity), 0) || 0;
   const shipping = subtotal >= 100 ? 0 : 9.99;
   const tax = Math.round(subtotal * 0.0875 * 100) / 100; // 8.75% tax rate
   const total = subtotal + shipping + tax;
@@ -127,8 +132,23 @@ const CheckoutPage: React.FC = () => {
     }
   };
 
-  // Show empty cart message instead of redirecting
-  if (items.length === 0) {
+  // Show loading while hydrating
+  if (isLoading) {
+    return (
+      <Layout title="Loading Checkout - Travel Data WiFi">
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 animate-spin text-travel-blue mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Checkout</h2>
+            <p className="text-gray-600">Please wait...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Show empty cart message instead of redirecting (prevents infinite loops)
+  if (!items || items.length === 0) {
     return (
       <Layout title="Checkout - Travel Data WiFi">
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -428,7 +448,7 @@ const CheckoutPage: React.FC = () => {
                 
                 {/* Cart Items */}
                 <div className="space-y-4 mb-6">
-                  {items.map((item) => (
+                  {items?.map((item) => (
                     <div key={item.product_id} className="flex items-center space-x-4">
                       <div className="relative">
                         <img 
