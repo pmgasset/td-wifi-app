@@ -1,59 +1,145 @@
-// ===== src/pages/api/zoho-checkout.js ===== (WORKING SOLUTION)
+// ===== src/pages/api/zoho-checkout.js ===== (REAL ZOHO WITH VERBOSE LOGGING)
 import { zohoAPI } from '../../lib/zoho-api';
 
 export default async function handler(req, res) {
-  console.log('=== ZOHO COMMERCE CHECKOUT (FIXED) ===');
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+  
+  console.log(`\n=== ZOHO CHECKOUT REQUEST [${requestId}] ===`);
+  console.log('Timestamp:', new Date().toISOString());
+  console.log('Method:', req.method);
+  console.log('URL:', req.url);
+  console.log('User-Agent:', req.headers['user-agent']);
+  console.log('Origin:', req.headers.origin);
   
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    console.log('❌ Method not allowed:', req.method);
+    return res.status(405).json({ 
+      error: 'Method not allowed',
+      requestId 
+    });
   }
 
   try {
+    console.log('\n--- STEP 1: PARSING REQUEST DATA ---');
     const { customerInfo, shippingAddress, cartItems, orderNotes, checkoutType = 'hosted' } = req.body;
-
-    console.log('Processing checkout request:', {
-      customerEmail: customerInfo?.email,
-      itemCount: cartItems?.length,
-      checkoutType
+    
+    console.log('Request body structure:', {
+      hasCustomerInfo: !!customerInfo,
+      hasShippingAddress: !!shippingAddress,
+      hasCartItems: !!cartItems,
+      cartItemCount: cartItems?.length || 0,
+      checkoutType,
+      orderNotesLength: orderNotes?.length || 0
     });
 
-    // Validate request data
-    const validationErrors = validateCheckoutData({ customerInfo, shippingAddress, cartItems });
-    if (validationErrors.length > 0) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: validationErrors
+    if (customerInfo) {
+      console.log('Customer info:', {
+        email: customerInfo.email,
+        firstName: customerInfo.firstName,
+        lastName: customerInfo.lastName,
+        hasPhone: !!customerInfo.phone
       });
     }
 
-    // Calculate totals
+    if (shippingAddress) {
+      console.log('Shipping address:', {
+        city: shippingAddress.city,
+        state: shippingAddress.state,
+        zipCode: shippingAddress.zipCode,
+        country: shippingAddress.country,
+        hasAddress1: !!shippingAddress.address1
+      });
+    }
+
+    if (cartItems && cartItems.length > 0) {
+      console.log('Cart items detail:');
+      cartItems.forEach((item, index) => {
+        console.log(`  Item ${index + 1}:`, {
+          product_id: item.product_id,
+          product_name: item.product_name,
+          quantity: item.quantity,
+          product_price: item.product_price,
+          hasImages: !!item.product_images?.length
+        });
+      });
+    }
+
+    console.log('\n--- STEP 2: VALIDATION ---');
+    const validationErrors = validateCheckoutData({ customerInfo, shippingAddress, cartItems });
+    if (validationErrors.length > 0) {
+      console.log('❌ Validation failed:', validationErrors);
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: validationErrors,
+        requestId
+      });
+    }
+    console.log('✅ Validation passed');
+
+    console.log('\n--- STEP 3: CALCULATING TOTALS ---');
     const subtotal = cartItems.reduce((sum, item) => sum + (item.product_price * item.quantity), 0);
     const tax = calculateTax(subtotal, shippingAddress.state);
     const shipping = calculateShipping(cartItems, shippingAddress);
     const total = subtotal + tax + shipping;
 
-    console.log('Order totals:', { subtotal, tax, shipping, total });
+    console.log('Order calculations:', {
+      subtotal: `$${subtotal.toFixed(2)}`,
+      tax: `$${tax.toFixed(2)}`,
+      shipping: `$${shipping.toFixed(2)}`,
+      total: `$${total.toFixed(2)}`,
+      taxRate: `${((tax / subtotal) * 100).toFixed(2)}%`
+    });
 
-    // OPTION 1: Try to create a Zoho Sales Order (most likely to work)
+    console.log('\n--- STEP 4: ZOHO API AUTHENTICATION TEST ---');
+    let accessToken;
     try {
-      console.log('Attempting to create Zoho Sales Order...');
+      accessToken = await zohoAPI.getAccessToken();
+      console.log('✅ Authentication successful:', {
+        tokenLength: accessToken?.length || 0,
+        tokenPrefix: accessToken?.substring(0, 10) + '...'
+      });
+    } catch (authError) {
+      console.log('❌ Authentication failed:', {
+        error: authError.message,
+        name: authError.name,
+        stack: authError.stack?.split('\n')[0]
+      });
+      return res.status(500).json({
+        error: 'Zoho authentication failed',
+        details: authError.message,
+        type: 'AUTH_ERROR',
+        requestId,
+        suggestions: [
+          'Check ZOHO_REFRESH_TOKEN validity',
+          'Verify ZOHO_CLIENT_ID and ZOHO_CLIENT_SECRET',
+          'Ensure Zoho OAuth app has correct scopes'
+        ]
+      });
+    }
+
+    console.log('\n--- STEP 5: ZOHO COMMERCE ORDER CREATION ---');
+    
+    // Try Method 1: Zoho Commerce Sales Order
+    try {
+      console.log('Attempting Method 1: Zoho Sales Order creation...');
       
       const salesOrderData = {
         customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
         customer_email: customerInfo.email,
         customer_phone: customerInfo.phone || '',
         
-        // Line items (products)
-        line_items: cartItems.map(item => ({
-          item_name: item.product_name,
-          item_id: item.product_id,
-          quantity: item.quantity,
-          rate: item.product_price,
-          amount: item.product_price * item.quantity,
-          description: item.product_description || ''
-        })),
+        line_items: cartItems.map((item, index) => {
+          console.log(`  Processing line item ${index + 1}:`, item.product_name);
+          return {
+            item_name: item.product_name,
+            item_id: item.product_id,
+            quantity: item.quantity,
+            rate: item.product_price,
+            amount: item.product_price * item.quantity,
+            description: item.product_description || ''
+          };
+        }),
         
-        // Shipping address
         shipping_address: {
           attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
           address: shippingAddress.address1,
@@ -65,7 +151,6 @@ export default async function handler(req, res) {
           phone: customerInfo.phone || ''
         },
         
-        // Billing address (same as shipping for now)
         billing_address: {
           attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
           address: shippingAddress.address1,
@@ -77,89 +162,138 @@ export default async function handler(req, res) {
           phone: customerInfo.phone || ''
         },
         
-        // Order details
-        date: new Date().toISOString().split('T')[0], // YYYY-MM-DD format
-        shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 days from now
+        date: new Date().toISOString().split('T')[0],
+        shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         
-        // Pricing
         sub_total: subtotal,
         tax_total: tax,
         shipping_charge: shipping,
         total: total,
         
-        // Additional info
         notes: orderNotes || '',
         terms: 'Payment due upon receipt',
         
-        // Custom fields
         custom_fields: [
-          {
-            label: 'Source',
-            value: 'Travel Data WiFi Website'
-          },
-          {
-            label: 'Checkout Type',
-            value: checkoutType
-          }
+          { label: 'Source', value: 'Travel Data WiFi Website' },
+          { label: 'Checkout Type', value: checkoutType },
+          { label: 'Request ID', value: requestId }
         ]
       };
 
-      console.log('Creating sales order with data:', JSON.stringify(salesOrderData, null, 2));
-      
-      const salesOrder = await zohoAPI.createOrder(salesOrderData);
-      
-      console.log('Sales order created successfully:', {
-        orderId: salesOrder.salesorder_id || salesOrder.id,
-        orderNumber: salesOrder.salesorder_number || salesOrder.number,
-        status: salesOrder.status
+      console.log('Sales order data prepared:', {
+        customerName: salesOrderData.customer_name,
+        itemCount: salesOrderData.line_items.length,
+        totalAmount: salesOrderData.total,
+        hasShippingAddress: !!salesOrderData.shipping_address,
+        hasBillingAddress: !!salesOrderData.billing_address
       });
 
-      // OPTION 1A: If Zoho supports payment links, create one
+      console.log('Calling zohoAPI.createOrder...');
+      const salesOrder = await zohoAPI.createOrder(salesOrderData);
+      
+      console.log('✅ Sales order created successfully:', {
+        orderId: salesOrder.salesorder_id || salesOrder.id,
+        orderNumber: salesOrder.salesorder_number || salesOrder.number,
+        status: salesOrder.status,
+        total: salesOrder.total,
+        responseKeys: Object.keys(salesOrder)
+      });
+
+      // Try to create payment link
+      console.log('\n--- STEP 6: PAYMENT LINK CREATION ---');
       let paymentUrl;
+      
       try {
+        console.log('Attempting to create Zoho payment link...');
+        
         const paymentLinkData = {
-          salesorder_id: salesOrder.salesorder_id || salesOrder.id,
+          reference_number: salesOrder.salesorder_number || salesOrder.number || `ORDER-${Date.now()}`,
           amount: total,
           currency_code: 'USD',
-          expiry_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 24 hours
-          notes: `Payment for order ${salesOrder.salesorder_number || salesOrder.number}`,
-          customer_email: customerInfo.email,
-          payment_methods: ['card', 'paypal', 'bank_transfer']
+          expiry_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 7 days
+          description: `Payment for Travel Data WiFi Order ${salesOrder.salesorder_number || salesOrder.number}`,
+          customer: {
+            customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+            email: customerInfo.email,
+            phone: customerInfo.phone || ''
+          },
+          notes: orderNotes || '',
+          redirect_url: `${req.headers.origin}/checkout/success?order_id=${salesOrder.salesorder_id || salesOrder.id}`,
+          payment_options: {
+            payment_gateways: [
+              { configured: true, additional_field1: 'standard' }
+            ]
+          }
         };
-        
-        const paymentLink = await zohoAPI.apiRequest('/paymentlinks', {
-          method: 'POST',
-          body: JSON.stringify(paymentLinkData)
+
+        console.log('Payment link data:', {
+          amount: paymentLinkData.amount,
+          currency: paymentLinkData.currency_code,
+          customerEmail: paymentLinkData.customer.email,
+          redirectUrl: paymentLinkData.redirect_url
         });
+
+        // Try different payment link endpoints
+        const paymentEndpoints = [
+          '/paymentlinks',
+          '/payment_links', 
+          '/invoices/paymentlinks',
+          `/salesorders/${salesOrder.salesorder_id || salesOrder.id}/paymentlinks`
+        ];
+
+        let paymentResponse;
+        for (const endpoint of paymentEndpoints) {
+          try {
+            console.log(`Trying payment link endpoint: ${endpoint}`);
+            paymentResponse = await zohoAPI.apiRequest(endpoint, {
+              method: 'POST',
+              body: JSON.stringify(paymentLinkData)
+            });
+            console.log(`✅ Payment link created at ${endpoint}:`, {
+              paymentLinkId: paymentResponse.paymentlink_id || paymentResponse.id,
+              paymentUrl: paymentResponse.payment_url || paymentResponse.url,
+              status: paymentResponse.status
+            });
+            paymentUrl = paymentResponse.payment_url || paymentResponse.url;
+            break;
+          } catch (endpointError) {
+            console.log(`❌ Payment endpoint ${endpoint} failed:`, endpointError.message);
+          }
+        }
+
+        if (!paymentUrl) {
+          throw new Error('All payment link endpoints failed');
+        }
+
+      } catch (paymentError) {
+        console.log('❌ Payment link creation failed:', paymentError.message);
+        console.log('Creating fallback invoice URL...');
         
-        paymentUrl = paymentLink.payment_url || paymentLink.url;
-        console.log('Payment link created:', paymentUrl);
-        
-      } catch (paymentLinkError) {
-        console.log('Payment link creation failed (trying alternative):', paymentLinkError.message);
-        
-        // OPTION 1B: Generate a custom payment page URL
-        const orderParams = new URLSearchParams({
+        // Fallback: Create invoice-style URL
+        const invoiceParams = new URLSearchParams({
           order_id: salesOrder.salesorder_id || salesOrder.id,
+          order_number: salesOrder.salesorder_number || salesOrder.number,
           amount: total.toString(),
           currency: 'USD',
           customer_email: customerInfo.email,
-          return_url: `${req.headers.origin}/checkout/success`
+          customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+          return_url: `${req.headers.origin}/checkout/success`,
+          request_id: requestId
         });
         
-        paymentUrl = `${req.headers.origin}/payment/zoho?${orderParams.toString()}`;
-        console.log('Using custom payment URL:', paymentUrl);
+        paymentUrl = `${req.headers.origin}/payment/invoice?${invoiceParams.toString()}`;
+        console.log('Fallback payment URL created:', paymentUrl);
       }
 
-      // Return successful response
-      return res.status(200).json({
+      console.log('\n--- STEP 7: SUCCESS RESPONSE ---');
+      const successResponse = {
         type: 'hosted',
         success: true,
         checkout_url: paymentUrl,
         order_id: salesOrder.salesorder_id || salesOrder.id,
         order_number: salesOrder.salesorder_number || salesOrder.number,
-        session_id: `order_${salesOrder.salesorder_id || salesOrder.id}`,
-        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+        session_id: `zoho_${salesOrder.salesorder_id || salesOrder.id}`,
+        expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
         total_amount: total,
         currency: 'USD',
         order_details: {
@@ -168,130 +302,191 @@ export default async function handler(req, res) {
           shipping,
           total,
           items: cartItems.length,
-          customer: `${customerInfo.firstName} ${customerInfo.lastName}`
-        }
+          customer: `${customerInfo.firstName} ${customerInfo.lastName}`,
+          created_via: 'zoho_sales_order'
+        },
+        request_id: requestId
+      };
+
+      console.log('Sending success response:', {
+        checkoutUrl: successResponse.checkout_url,
+        orderId: successResponse.order_id,
+        orderNumber: successResponse.order_number,
+        totalAmount: successResponse.total_amount
       });
 
+      return res.status(200).json(successResponse);
+
     } catch (salesOrderError) {
-      console.error('Sales order creation failed:', salesOrderError.message);
-      
-      // OPTION 2: Fallback to simple order creation
-      console.log('Attempting fallback order creation...');
+      console.log('\n❌ Method 1 (Sales Order) failed:', {
+        error: salesOrderError.message,
+        name: salesOrderError.name,
+        stack: salesOrderError.stack?.split('\n').slice(0, 3)
+      });
+
+      // Try Method 2: Direct Zoho Commerce Order
+      console.log('\n--- TRYING METHOD 2: DIRECT COMMERCE ORDER ---');
       
       try {
-        const simpleOrderData = {
-          customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-          email: customerInfo.email,
-          phone: customerInfo.phone || '',
+        const directOrderData = {
+          customer: {
+            name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+            email: customerInfo.email,
+            phone: customerInfo.phone || ''
+          },
           
-          order_items: cartItems.map(item => ({
+          items: cartItems.map(item => ({
+            product_id: item.product_id,
             name: item.product_name,
             quantity: item.quantity,
             price: item.product_price,
             total: item.product_price * item.quantity
           })),
           
-          shipping_address: `${shippingAddress.address1}, ${shippingAddress.city}, ${shippingAddress.state} ${shippingAddress.zipCode}`,
+          shipping_address: {
+            name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+            line1: shippingAddress.address1,
+            line2: shippingAddress.address2 || '',
+            city: shippingAddress.city,
+            state: shippingAddress.state,
+            postal_code: shippingAddress.zipCode,
+            country: 'US',
+            phone: customerInfo.phone || ''
+          },
           
-          subtotal: subtotal,
-          tax: tax,
-          shipping: shipping,
-          total: total,
+          totals: {
+            subtotal,
+            tax,
+            shipping,
+            total
+          },
           
-          notes: orderNotes || '',
-          status: 'pending_payment',
-          created_at: new Date().toISOString()
+          metadata: {
+            source: 'travel_data_wifi',
+            checkout_type: checkoutType,
+            request_id: requestId,
+            notes: orderNotes || ''
+          }
         };
 
-        // Try different order endpoints
+        console.log('Direct order data prepared:', {
+          customerEmail: directOrderData.customer.email,
+          itemCount: directOrderData.items.length,
+          total: directOrderData.totals.total
+        });
+
+        // Try different order creation endpoints
+        const orderEndpoints = [
+          '/orders',
+          '/commerce/orders', 
+          `/stores/${process.env.ZOHO_STORE_ID}/orders`,
+          '/salesorders'
+        ];
+
         let orderResponse;
-        const orderEndpoints = ['/orders', '/salesorders', `/stores/${process.env.ZOHO_STORE_ID}/orders`];
-        
         for (const endpoint of orderEndpoints) {
           try {
-            console.log(`Trying order creation at: ${endpoint}`);
+            console.log(`Trying direct order endpoint: ${endpoint}`);
             orderResponse = await zohoAPI.apiRequest(endpoint, {
               method: 'POST',
-              body: JSON.stringify(simpleOrderData)
+              body: JSON.stringify(directOrderData)
             });
-            console.log(`Order created successfully at ${endpoint}`);
+            console.log(`✅ Order created at ${endpoint}:`, {
+              orderId: orderResponse.order_id || orderResponse.id,
+              status: orderResponse.status,
+              responseKeys: Object.keys(orderResponse)
+            });
             break;
           } catch (endpointError) {
-            console.log(`Endpoint ${endpoint} failed:`, endpointError.message);
-            continue;
+            console.log(`❌ Order endpoint ${endpoint} failed:`, endpointError.message);
           }
         }
 
         if (!orderResponse) {
-          throw new Error('All order creation endpoints failed');
+          throw new Error('All direct order endpoints failed');
         }
 
-        // Create a simple checkout URL
-        const checkoutParams = new URLSearchParams({
-          order_id: orderResponse.order_id || orderResponse.id || Date.now().toString(),
+        // Create payment URL for direct order
+        const paymentParams = new URLSearchParams({
+          order_id: orderResponse.order_id || orderResponse.id,
           amount: total.toString(),
           currency: 'USD',
-          customer_email: customerInfo.email
+          customer_email: customerInfo.email,
+          method: 'direct_order',
+          request_id: requestId
         });
 
-        const checkoutUrl = `${req.headers.origin}/payment/simple?${checkoutParams.toString()}`;
+        const directPaymentUrl = `${req.headers.origin}/payment/direct?${paymentParams.toString()}`;
 
+        console.log('✅ Method 2 successful - returning response');
         return res.status(200).json({
           type: 'hosted',
           success: true,
-          checkout_url: checkoutUrl,
-          order_id: orderResponse.order_id || orderResponse.id || Date.now().toString(),
-          order_number: `TDW-${Date.now()}`,
-          session_id: `fallback_${Date.now()}`,
-          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+          checkout_url: directPaymentUrl,
+          order_id: orderResponse.order_id || orderResponse.id,
+          order_number: `TDW-${orderResponse.order_id || orderResponse.id}`,
+          session_id: `direct_${orderResponse.order_id || orderResponse.id}`,
+          expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
           total_amount: total,
           currency: 'USD',
-          note: 'Using fallback order creation method'
+          order_details: {
+            subtotal, tax, shipping, total,
+            items: cartItems.length,
+            customer: `${customerInfo.firstName} ${customerInfo.lastName}`,
+            created_via: 'direct_commerce_order'
+          },
+          request_id: requestId
         });
 
-      } catch (fallbackError) {
-        console.error('Fallback order creation also failed:', fallbackError.message);
+      } catch (directOrderError) {
+        console.log('\n❌ Method 2 (Direct Order) also failed:', {
+          error: directOrderError.message,
+          name: directOrderError.name,
+          stack: directOrderError.stack?.split('\n').slice(0, 3)
+        });
+
+        // If all Zoho methods fail, provide detailed error info
+        console.log('\n❌ ALL ZOHO METHODS FAILED - Providing detailed error response');
         
-        // OPTION 3: Complete fallback - create mock order for testing
-        console.log('Using mock order for testing...');
-        
-        const mockOrderId = `MOCK_${Date.now()}`;
-        const mockCheckoutUrl = `${req.headers.origin}/checkout/mock?order_id=${mockOrderId}&amount=${total}`;
-        
-        return res.status(200).json({
-          type: 'hosted',
-          success: true,
-          checkout_url: mockCheckoutUrl,
-          order_id: mockOrderId,
-          order_number: `TDW-MOCK-${Date.now().toString().slice(-6)}`,
-          session_id: `mock_${mockOrderId}`,
-          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-          total_amount: total,
-          currency: 'USD',
-          note: 'Mock checkout for testing - replace with actual payment processor when Zoho API is configured',
-          warning: 'This is a test checkout. No actual payment will be processed.'
+        return res.status(500).json({
+          error: 'Zoho Commerce integration failed',
+          details: 'Both sales order and direct order creation methods failed',
+          type: 'ZOHO_API_ERROR',
+          request_id: requestId,
+          errors: {
+            salesOrder: salesOrderError.message,
+            directOrder: directOrderError.message
+          },
+          suggestions: [
+            'Check Zoho Commerce API documentation for correct endpoints',
+            'Verify API permissions and scopes',
+            'Test API endpoints directly using Postman or curl',
+            'Contact Zoho support for API guidance',
+            'Check if Zoho Commerce is properly configured for your account'
+          ],
+          debug_info: {
+            storeId: process.env.ZOHO_STORE_ID,
+            hasAuth: !!accessToken,
+            timestamp: new Date().toISOString()
+          }
         });
       }
     }
 
   } catch (error) {
-    console.error('Checkout processing failed:', {
+    console.log('\n❌ CATASTROPHIC ERROR:', {
       message: error.message,
-      stack: error.stack,
-      requestBody: req.body
+      name: error.name,
+      stack: error.stack?.split('\n').slice(0, 5)
     });
     
     return res.status(500).json({
       error: 'Checkout processing failed',
       details: error.message,
       type: 'INTERNAL_ERROR',
+      request_id: requestId,
       timestamp: new Date().toISOString(),
-      suggestions: [
-        'Check server logs for detailed error information',
-        'Verify Zoho API configuration and permissions',
-        'Test Zoho API endpoints separately',
-        'Consider using mock checkout for testing'
-      ]
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
@@ -300,7 +495,6 @@ export default async function handler(req, res) {
 function validateCheckoutData({ customerInfo, shippingAddress, cartItems }) {
   const errors = [];
 
-  // Customer info validation
   if (!customerInfo?.email) {
     errors.push('Email is required');
   } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerInfo.email)) {
@@ -310,7 +504,6 @@ function validateCheckoutData({ customerInfo, shippingAddress, cartItems }) {
   if (!customerInfo?.firstName) errors.push('First name is required');
   if (!customerInfo?.lastName) errors.push('Last name is required');
   
-  // Shipping address validation
   if (!shippingAddress?.address1) errors.push('Street address is required');
   if (!shippingAddress?.city) errors.push('City is required');
   if (!shippingAddress?.state) errors.push('State is required');
@@ -320,7 +513,6 @@ function validateCheckoutData({ customerInfo, shippingAddress, cartItems }) {
     errors.push('Please enter a valid ZIP code');
   }
   
-  // Cart validation
   if (!cartItems || cartItems.length === 0) {
     errors.push('Cart is empty');
   }
@@ -335,22 +527,16 @@ function validateCheckoutData({ customerInfo, shippingAddress, cartItems }) {
   return errors;
 }
 
-// Calculate tax based on state
 function calculateTax(subtotal, state) {
   const taxRates = {
     'CA': 0.0875, 'NY': 0.08, 'TX': 0.0625, 'FL': 0.06, 'WA': 0.065
   };
-  const taxRate = taxRates[state] || 0.07; // Default 7% tax
+  const taxRate = taxRates[state] || 0.07;
   return Math.round(subtotal * taxRate * 100) / 100;
 }
 
-// Calculate shipping costs
 function calculateShipping(cartItems, shippingAddress) {
   const totalValue = cartItems.reduce((sum, item) => sum + (item.product_price * item.quantity), 0);
-  
-  // Free shipping over $100
   if (totalValue >= 100) return 0;
-  
-  // $9.99 standard shipping
   return 9.99;
 }
