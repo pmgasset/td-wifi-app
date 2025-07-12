@@ -1,5 +1,5 @@
-// ===== src/pages/checkout.tsx (Updated for Zoho Hosted Only) =====
-import React, { useState, useEffect } from 'react';
+// ===== src/pages/checkout.tsx (Fixed - No Redirect Loop) =====
+import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
@@ -49,13 +49,6 @@ const CheckoutPage: React.FC = () => {
   // UI state
   const [isProcessing, setIsProcessing] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  
-  // Redirect if cart is empty
-  useEffect(() => {
-    if (items.length === 0) {
-      router.push('/products');
-    }
-  }, [items.length, router]);
 
   // Calculate totals
   const subtotal = items.reduce((sum, item) => sum + (item.product_price * item.quantity), 0);
@@ -134,20 +127,33 @@ const CheckoutPage: React.FC = () => {
     }
   };
 
+  // Show empty cart message instead of redirecting
   if (items.length === 0) {
     return (
       <Layout title="Checkout - Travel Data WiFi">
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="text-center">
-            <ShoppingCart className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-            <h2 className="text-2xl font-semibold text-gray-900 mb-2">Your cart is empty</h2>
-            <p className="text-gray-600 mb-6">Add some products to get started</p>
-            <button
-              onClick={() => router.push('/products')}
-              className="bg-travel-blue text-white px-6 py-3 rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Browse Products
-            </button>
+          <div className="max-w-md mx-auto text-center">
+            <div className="bg-white rounded-lg shadow-lg p-8">
+              <ShoppingCart className="h-16 w-16 text-gray-400 mx-auto mb-6" />
+              <h1 className="text-2xl font-bold text-gray-900 mb-4">Your Cart is Empty</h1>
+              <p className="text-gray-600 mb-6">Add some products to your cart before proceeding to checkout.</p>
+              
+              <div className="space-y-3">
+                <button
+                  onClick={() => router.push('/products')}
+                  className="w-full bg-travel-blue text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                >
+                  Browse Products
+                </button>
+                
+                <button
+                  onClick={() => router.back()}
+                  className="w-full bg-gray-100 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+                >
+                  Go Back
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </Layout>
