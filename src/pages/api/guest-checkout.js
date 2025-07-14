@@ -1,4 +1,4 @@
-// ===== src/pages/api/guest-checkout.js ===== (FIXED VERSION)
+// ===== src/pages/api/guest-checkout.js ===== (FIXED VERSION FOR TYPESCRIPT)
 
 export default async function handler(req, res) {
   const requestId = `guest_${Date.now()}_${Math.random().toString(36).substring(7)}`;
@@ -10,25 +10,27 @@ export default async function handler(req, res) {
   }
 
   try {
-    // ✅ FIXED: Import zohoAPI with proper error handling
+    // ✅ FIXED: Import from TypeScript file with proper error handling
     let zohoAPI;
     try {
+      // Import the existing TypeScript module
       const zohoModule = await import('../../lib/zoho-api');
-      zohoAPI = zohoModule.zohoAPI;
+      zohoAPI = zohoModule.zohoAPI || zohoModule.simpleZohoAPI;
       
       if (!zohoAPI) {
         throw new Error('zohoAPI is undefined after import');
       }
       
-      console.log('✓ zohoAPI imported successfully');
+      console.log('✓ zohoAPI imported successfully from TypeScript module');
     } catch (importError) {
       console.error('❌ Failed to import zohoAPI:', importError);
       return res.status(500).json({
         error: 'API configuration error',
-        details: 'Could not load Zoho API client',
+        details: 'Could not load Zoho API client from TypeScript module',
         type: 'IMPORT_ERROR',
         request_id: requestId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        suggestion: 'Check if src/lib/zoho-api.ts exists and exports zohoAPI'
       });
     }
 
@@ -79,7 +81,7 @@ export default async function handler(req, res) {
 
     console.log('Order totals calculated:', { subtotal, tax, shipping, total });
 
-    // ✅ FIXED: Create order data without customer_id (this was causing issues)
+    // ✅ FIXED: Guest order data format (no customer_id field)
     const orderData = {
       customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
       customer_email: customerInfo.email,
@@ -101,16 +103,28 @@ export default async function handler(req, res) {
       
       notes: orderNotes || `Guest checkout via Travel Data WiFi website`,
       
-      // Add shipping address
+      // ✅ FIXED: Proper address format for Zoho
       shipping_address: {
-        first_name: customerInfo.firstName,
-        last_name: customerInfo.lastName,
+        attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
         address1: shippingAddress.address1,
         address2: shippingAddress.address2 || '',
         city: shippingAddress.city,
         state: shippingAddress.state,
         zip: shippingAddress.zipCode,
-        country: shippingAddress.country || 'US'
+        country: shippingAddress.country || 'US',
+        phone: customerInfo.phone || ''
+      },
+      
+      // Use shipping address as billing address for guest orders
+      billing_address: {
+        attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
+        address1: shippingAddress.address1,
+        address2: shippingAddress.address2 || '',
+        city: shippingAddress.city,
+        state: shippingAddress.state,
+        zip: shippingAddress.zipCode,
+        country: shippingAddress.country || 'US',
+        phone: customerInfo.phone || ''
       },
       
       custom_fields: [
@@ -123,8 +137,8 @@ export default async function handler(req, res) {
     console.log('Creating guest order with data:', JSON.stringify(orderData, null, 2));
 
     // ✅ FIXED: Test that createOrder method exists before calling
-    if (typeof zohoAPI.createOrder !== 'function') {
-      throw new Error('zohoAPI.createOrder is not a function');
+    if (!zohoAPI.createOrder || typeof zohoAPI.createOrder !== 'function') {
+      throw new Error(`zohoAPI.createOrder is not a function. Available methods: ${Object.keys(zohoAPI).join(', ')}`);
     }
 
     // Create order in Zoho Commerce
@@ -199,7 +213,7 @@ export default async function handler(req, res) {
     // Add specific error context
     if (error.message?.includes('zohoAPI')) {
       errorResponse.type = 'API_IMPORT_ERROR';
-      errorResponse.suggestion = 'Check Zoho API configuration and imports';
+      errorResponse.suggestion = 'Check Zoho API TypeScript configuration and exports';
     } else if (error.message?.includes('Authentication')) {
       errorResponse.type = 'AUTH_ERROR';
       errorResponse.suggestion = 'Check Zoho OAuth credentials';
