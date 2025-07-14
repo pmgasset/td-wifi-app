@@ -1,213 +1,213 @@
-// ===== src/pages/api/guest-checkout.js ===== (CREATE THIS FILE)
-import { zohoAPI } from '../../lib/zoho-api-guest';
+// ===== src/pages/api/guest-checkout.js ===== (FIXED VERSION)
 
 export default async function handler(req, res) {
   const requestId = `guest_${Date.now()}_${Math.random().toString(36).substring(7)}`;
   
-  console.log(`\n=== GUEST-ONLY CHECKOUT [${requestId}] ===`);
+  console.log(`\n=== GUEST CHECKOUT [${requestId}] ===`);
   
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed', requestId });
   }
 
   try {
-    const { customerInfo, shippingAddress, cartItems, orderNotes } = req.body;
+    // ✅ FIXED: Import zohoAPI with proper error handling
+    let zohoAPI;
+    try {
+      const zohoModule = await import('../../lib/zoho-api');
+      zohoAPI = zohoModule.zohoAPI;
+      
+      if (!zohoAPI) {
+        throw new Error('zohoAPI is undefined after import');
+      }
+      
+      console.log('✓ zohoAPI imported successfully');
+    } catch (importError) {
+      console.error('❌ Failed to import zohoAPI:', importError);
+      return res.status(500).json({
+        error: 'API configuration error',
+        details: 'Could not load Zoho API client',
+        type: 'IMPORT_ERROR',
+        request_id: requestId,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    const { customerInfo, shippingAddress, cartItems, orderNotes, checkoutType = 'guest' } = req.body;
     
     console.log('Processing guest checkout for:', customerInfo?.email);
+    console.log('Cart items count:', cartItems?.length || 0);
 
-    // Validate input
-    if (!customerInfo?.email || !customerInfo?.firstName || !customerInfo?.lastName) {
-      return res.status(400).json({
-        error: 'Missing customer information',
-        details: ['Email, first name, and last name are required'],
-        requestId
-      });
-    }
+    // Validate required fields
+    const validationErrors = [];
 
+    if (!customerInfo?.email) validationErrors.push('Email is required');
+    if (!customerInfo?.firstName) validationErrors.push('First name is required');  
+    if (!customerInfo?.lastName) validationErrors.push('Last name is required');
+    
+    if (!shippingAddress?.address1) validationErrors.push('Shipping address is required');
+    if (!shippingAddress?.city) validationErrors.push('City is required');
+    if (!shippingAddress?.state) validationErrors.push('State is required');
+    if (!shippingAddress?.zipCode) validationErrors.push('ZIP code is required');
+    
     if (!cartItems || cartItems.length === 0) {
+      validationErrors.push('Cart is empty');
+    }
+
+    // Basic email validation
+    if (customerInfo?.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerInfo.email)) {
+      validationErrors.push('Valid email address is required');
+    }
+
+    if (validationErrors.length > 0) {
       return res.status(400).json({
-        error: 'Cart is empty',
-        details: ['Please add items to your cart'],
-        requestId
+        error: 'Validation failed',
+        details: validationErrors,
+        request_id: requestId
       });
     }
 
-    // Calculate totals
-    const subtotal = cartItems.reduce((sum, item) => sum + (item.product_price * item.quantity), 0);
-    const tax = Math.round(subtotal * 0.0875 * 100) / 100;
-    const shipping = subtotal >= 100 ? 0 : 9.99;
+    // Calculate order totals
+    const subtotal = cartItems.reduce((sum, item) => {
+      const price = item.product_price || item.price || 0;
+      const quantity = item.quantity || 1;
+      return sum + (price * quantity);
+    }, 0);
+    
+    const tax = Math.round(subtotal * 0.0875 * 100) / 100; // 8.75% tax
+    const shipping = subtotal >= 100 ? 0 : 9.99; // Free shipping over $100
     const total = subtotal + tax + shipping;
 
-    console.log('Order totals:', { subtotal, tax, shipping, total });
+    console.log('Order totals calculated:', { subtotal, tax, shipping, total });
 
-    // ✅ CRITICAL: Create order data WITHOUT any customer_id fields
+    // ✅ FIXED: Create order data without customer_id (this was causing issues)
     const orderData = {
-      // Customer information (but NO customer_id field)
       customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
       customer_email: customerInfo.email,
       customer_phone: customerInfo.phone || '',
       
-      // Line items
       line_items: cartItems.map(item => ({
-        item_name: item.product_name,
-        quantity: item.quantity,
-        rate: item.product_price,
-        amount: item.product_price * item.quantity
+        item_name: item.product_name || item.name,
+        quantity: item.quantity || 1,
+        rate: item.product_price || item.price || 0,
+        amount: (item.product_price || item.price || 0) * (item.quantity || 1)
       })),
       
-      // Order details
       date: new Date().toISOString().split('T')[0],
+      
       sub_total: subtotal,
       tax_total: tax,
       shipping_charge: shipping,
       total: total,
-      notes: orderNotes || '',
       
-      // ✅ IMPORTANT: Include shipping address directly in order
+      notes: orderNotes || `Guest checkout via Travel Data WiFi website`,
+      
+      // Add shipping address
       shipping_address: {
-        attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
+        first_name: customerInfo.firstName,
+        last_name: customerInfo.lastName,
         address1: shippingAddress.address1,
         address2: shippingAddress.address2 || '',
         city: shippingAddress.city,
         state: shippingAddress.state,
         zip: shippingAddress.zipCode,
-        country: shippingAddress.country || 'US',
-        phone: customerInfo.phone || ''
+        country: shippingAddress.country || 'US'
       },
       
-      // Billing address (same as shipping for most cases)
-      billing_address: {
-        attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        address1: shippingAddress.address1,
-        address2: shippingAddress.address2 || '',
-        city: shippingAddress.city,
-        state: shippingAddress.state,
-        zip: shippingAddress.zipCode,
-        country: shippingAddress.country || 'US',
-        phone: customerInfo.phone || ''
-      },
-      
-      // Metadata
       custom_fields: [
+        { label: 'Checkout Type', value: 'Guest Checkout' },
         { label: 'Source', value: 'Travel Data WiFi Website' },
-        { label: 'Request ID', value: requestId },
-        { label: 'Order Type', value: 'Guest Order' },
-        { label: 'API Version', value: 'Guest-Only v1.0' }
+        { label: 'Request ID', value: requestId }
       ]
     };
 
-    console.log('✅ Creating GUEST order (NO customer_id):', JSON.stringify(orderData, null, 2));
+    console.log('Creating guest order with data:', JSON.stringify(orderData, null, 2));
 
-    // ✅ CRITICAL: Verify no customer_id is present
-    if ('customer_id' in orderData) {
-      console.error('❌ CRITICAL ERROR: customer_id found in order data!');
-      delete orderData.customer_id;
-      console.log('✅ Removed customer_id from order data');
+    // ✅ FIXED: Test that createOrder method exists before calling
+    if (typeof zohoAPI.createOrder !== 'function') {
+      throw new Error('zohoAPI.createOrder is not a function');
     }
 
-    // Create order in Zoho (should work without customer_id)
+    // Create order in Zoho Commerce
     const zohoOrder = await zohoAPI.createOrder(orderData);
     
-    console.log('✅ Guest order created successfully:', {
-      orderId: zohoOrder.salesorder_id || zohoOrder.id,
-      orderNumber: zohoOrder.salesorder_number || zohoOrder.number
-    });
-
-    // Create payment URL
-    const orderId = zohoOrder.salesorder_id || zohoOrder.id;
-    const orderNumber = zohoOrder.salesorder_number || zohoOrder.number || `TDW-${orderId}`;
+    const orderId = zohoOrder.salesorder_id || zohoOrder.id || zohoOrder.order_id;
+    const orderNumber = zohoOrder.salesorder_number || zohoOrder.number || `TDW-GUEST-${orderId}`;
     
-    const paymentParams = new URLSearchParams({
-      order_id: orderId,
-      order_number: orderNumber,
-      amount: total.toString(),
-      currency: 'USD',
-      customer_email: customerInfo.email,
-      customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-      customer_type: 'guest',
-      return_url: `${req.headers.origin}/checkout/success`,
-      request_id: requestId
+    console.log('✅ Guest order created successfully:', {
+      orderId: orderId,
+      orderNumber: orderNumber,
+      customerEmail: customerInfo.email
     });
 
-    const paymentUrl = `${req.headers.origin}/payment/invoice?${paymentParams.toString()}`;
-
-    // Return success response
+    // Create guest checkout success response
     const successResponse = {
       success: true,
       type: 'guest_checkout',
-      checkout_url: paymentUrl,
-      
-      // Order details
       order_id: orderId,
       order_number: orderNumber,
-      session_id: `guest_${orderId}`,
-      expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-      
-      // Customer details
-      customer_created: false,
-      customer_id: null,
-      customer_type: 'guest',
-      
-      // Financial details
       total_amount: total,
       currency: 'USD',
+      
+      // Payment URL for guest checkout
+      payment_url: `${req.headers.origin}/payment/invoice?${new URLSearchParams({
+        order_id: orderId,
+        order_number: orderNumber,
+        amount: total.toString(),
+        currency: 'USD',
+        customer_email: customerInfo.email,
+        customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+        return_url: `${req.headers.origin}/checkout/success`,
+        request_id: requestId
+      }).toString()}`,
+      
       order_details: {
         subtotal,
         tax,
         shipping,
         total,
         items: cartItems.length,
-        customer: `${customerInfo.firstName} ${customerInfo.lastName}`
+        customer: `${customerInfo.firstName} ${customerInfo.lastName}`,
+        email: customerInfo.email,
+        shipping_address: shippingAddress
       },
       
-      // Process metadata
+      next_steps: [
+        'You will be redirected to secure payment',
+        'Complete payment to confirm your order',
+        'You will receive confirmation via email'
+      ],
+      
       request_id: requestId,
-      process_notes: [
-        '✅ Guest order created successfully (no customer_id)',
-        '✅ All customer information included in order directly',
-        '✅ Shipping and billing addresses included',
-        '✅ Payment URL generated successfully'
-      ]
+      checkout_type: 'guest'
     };
 
-    console.log('✅ Guest checkout completed successfully');
-    console.log('Process summary:', {
-      orderType: 'guest',
-      orderId: orderId,
-      total: total,
-      hasCustomerId: false
-    });
-
+    console.log('✅ Guest checkout successful');
     return res.status(200).json(successResponse);
 
   } catch (error) {
     console.error('❌ Guest checkout failed:', error);
     
-    // Enhanced error response
-    return res.status(500).json({
+    // Enhanced error reporting
+    const errorResponse = {
       error: 'Guest checkout processing failed',
       details: error.message || 'An unexpected error occurred',
       type: 'GUEST_CHECKOUT_ERROR',
-      
-      // Additional debugging information
-      error_context: {
-        message: error.message,
-        name: error.name,
-        stack: error.stack?.split('\n')[0],
-        hasCustomerId: error.message?.includes('customer ID'),
-        isGuestOrder: true
-      },
-      
       request_id: requestId,
-      timestamp: new Date().toISOString(),
-      
-      // Suggestions for debugging
-      debug_suggestions: [
-        'Verify order data contains no customer_id field',
-        'Check that all required fields are present',
-        'Ensure shipping_address format is correct',
-        'Review Zoho API response for additional error details'
-      ]
-    });
+      timestamp: new Date().toISOString()
+    };
+
+    // Add specific error context
+    if (error.message?.includes('zohoAPI')) {
+      errorResponse.type = 'API_IMPORT_ERROR';
+      errorResponse.suggestion = 'Check Zoho API configuration and imports';
+    } else if (error.message?.includes('Authentication')) {
+      errorResponse.type = 'AUTH_ERROR';
+      errorResponse.suggestion = 'Check Zoho OAuth credentials';
+    } else if (error.message?.includes('createOrder')) {
+      errorResponse.type = 'ORDER_CREATION_ERROR';
+      errorResponse.suggestion = 'Check order data format and Zoho API permissions';
+    }
+
+    return res.status(500).json(errorResponse);
   }
 }
