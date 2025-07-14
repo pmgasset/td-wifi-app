@@ -1,4 +1,4 @@
-// ===== src/pages/api/zoho-checkout.js ===== (FINAL WORKING VERSION)
+// ===== src/pages/api/zoho-checkout.js ===== (ROBUST VERSION WITH FALLBACKS)
 import { zohoAPI } from '../../lib/zoho-api';
 
 export default async function handler(req, res) {
@@ -54,108 +54,211 @@ export default async function handler(req, res) {
       });
     }
 
-    // Step 4: Create or find customer in Zoho
-    console.log('Creating/finding customer in Zoho...');
-    let customerId;
-    try {
-      // First, try to find existing customer
-      console.log('Searching for existing customer...');
-      const existingCustomer = await findCustomerByEmail(accessToken, customerInfo.email);
-      
-      if (existingCustomer) {
-        customerId = existingCustomer.customer_id;
-        console.log('✅ Found existing customer:', customerId);
-      } else {
-        // Create new customer
-        console.log('Creating new customer...');
-        const newCustomer = await createCustomer(accessToken, customerInfo, shippingAddress);
-        customerId = newCustomer.customer_id;
-        console.log('✅ Created new customer:', customerId);
-      }
-    } catch (customerError) {
-      console.error('❌ Customer creation/lookup failed:', customerError.message);
-      return res.status(500).json({
-        error: 'Customer creation failed',
-        details: 'Unable to create customer record in Zoho',
-        type: 'CUSTOMER_ERROR',
-        requestId
-      });
-    }
-
-    // Step 5: Create order in Zoho Commerce
-    console.log('Creating order with customer ID:', customerId);
+    // Step 4: Try different order creation approaches
+    console.log('Attempting order creation with multiple approaches...');
     
-    const orderData = {
-      customer_id: customerId, // ✅ This is the key fix!
-      
-      line_items: cartItems.map(item => ({
-        item_name: item.product_name,
-        item_id: item.product_id,
-        quantity: item.quantity,
-        rate: item.product_price,
-        amount: item.product_price * item.quantity
-      })),
-      
-      shipping_address: {
-        attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        address: shippingAddress.address1,
-        street2: shippingAddress.address2 || '',
-        city: shippingAddress.city,
-        state: shippingAddress.state,
-        zip: shippingAddress.zipCode,
-        country: 'United States',
-        phone: customerInfo.phone || ''
-      },
-      
-      billing_address: {
-        attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        address: shippingAddress.address1,
-        street2: shippingAddress.address2 || '',
-        city: shippingAddress.city,
-        state: shippingAddress.state,
-        zip: shippingAddress.zipCode,
-        country: 'United States',
-        phone: customerInfo.phone || ''
-      },
-      
-      date: new Date().toISOString().split('T')[0],
-      shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      
-      sub_total: subtotal,
-      tax_total: tax,
-      shipping_charge: shipping,
-      total: total,
-      
-      notes: orderNotes || '',
-      terms: 'Payment due upon receipt',
-      
-      custom_fields: [
-        { label: 'Source', value: 'Travel Data WiFi Website' },
-        { label: 'Request ID', value: requestId }
-      ]
-    };
+    let zohoOrder = null;
+    let orderCreationMethod = 'unknown';
 
-    let zohoOrder;
+    // APPROACH 1: Try order creation without customer requirement (contact-based)
+    console.log('Approach 1: Creating order with contact information...');
     try {
-      zohoOrder = await zohoAPI.createOrder(orderData);
-      console.log('✅ Order created successfully:', {
-        orderId: zohoOrder.salesorder_id || zohoOrder.id,
-        orderNumber: zohoOrder.salesorder_number || zohoOrder.number
-      });
-    } catch (orderError) {
-      console.error('❌ Order creation failed:', orderError.message);
-      return res.status(500).json({
-        error: 'Order creation failed',
-        details: orderError.message,
-        type: 'ORDER_ERROR',
-        requestId
-      });
+      const contactOrderData = {
+        // Use contact information instead of customer_id
+        customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+        customer_email: customerInfo.email,
+        customer_phone: customerInfo.phone || '',
+        
+        line_items: cartItems.map(item => ({
+          item_name: item.product_name,
+          item_id: item.product_id,
+          quantity: item.quantity,
+          rate: item.product_price,
+          amount: item.product_price * item.quantity
+        })),
+        
+        shipping_address: {
+          attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
+          address: shippingAddress.address1,
+          street2: shippingAddress.address2 || '',
+          city: shippingAddress.city,
+          state: shippingAddress.state,
+          zip: shippingAddress.zipCode,
+          country: 'United States',
+          phone: customerInfo.phone || ''
+        },
+        
+        billing_address: {
+          attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
+          address: shippingAddress.address1,
+          street2: shippingAddress.address2 || '',
+          city: shippingAddress.city,
+          state: shippingAddress.state,
+          zip: shippingAddress.zipCode,
+          country: 'United States',
+          phone: customerInfo.phone || ''
+        },
+        
+        date: new Date().toISOString().split('T')[0],
+        shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        
+        sub_total: subtotal,
+        tax_total: tax,
+        shipping_charge: shipping,
+        total: total,
+        
+        notes: orderNotes || '',
+        terms: 'Payment due upon receipt',
+        
+        custom_fields: [
+          { label: 'Source', value: 'Travel Data WiFi Website' },
+          { label: 'Request ID', value: requestId }
+        ]
+      };
+
+      zohoOrder = await zohoAPI.createOrder(contactOrderData);
+      orderCreationMethod = 'contact_based';
+      console.log('✅ Approach 1 successful - Contact-based order created');
+
+    } catch (contactOrderError) {
+      console.log('❌ Approach 1 failed:', contactOrderError.message);
+
+      // APPROACH 2: Try with customer creation first
+      console.log('Approach 2: Creating customer first, then order...');
+      try {
+        let customerId = null;
+        
+        // Try to find existing customer
+        console.log('Searching for existing customer...');
+        try {
+          const existingCustomer = await findCustomerByEmail(accessToken, customerInfo.email);
+          if (existingCustomer) {
+            customerId = existingCustomer.customer_id;
+            console.log('✅ Found existing customer:', customerId);
+          }
+        } catch (searchError) {
+          console.log('Customer search failed, will try to create new one');
+        }
+
+        // Create customer if not found
+        if (!customerId) {
+          console.log('Creating new customer...');
+          try {
+            const newCustomer = await createCustomerRobust(accessToken, customerInfo, shippingAddress);
+            customerId = newCustomer.customer_id;
+            console.log('✅ Created new customer:', customerId);
+          } catch (customerCreateError) {
+            console.log('❌ Customer creation failed:', customerCreateError.message);
+            throw new Error(`Customer creation failed: ${customerCreateError.message}`);
+          }
+        }
+
+        // Create order with customer ID
+        if (customerId) {
+          console.log('Creating order with customer ID:', customerId);
+          const customerOrderData = {
+            customer_id: customerId,
+            
+            line_items: cartItems.map(item => ({
+              item_name: item.product_name,
+              item_id: item.product_id,
+              quantity: item.quantity,
+              rate: item.product_price,
+              amount: item.product_price * item.quantity
+            })),
+            
+            shipping_address: {
+              attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
+              address: shippingAddress.address1,
+              street2: shippingAddress.address2 || '',
+              city: shippingAddress.city,
+              state: shippingAddress.state,
+              zip: shippingAddress.zipCode,
+              country: 'United States',
+              phone: customerInfo.phone || ''
+            },
+            
+            billing_address: {
+              attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
+              address: shippingAddress.address1,
+              street2: shippingAddress.address2 || '',
+              city: shippingAddress.city,
+              state: shippingAddress.state,
+              zip: shippingAddress.zipCode,
+              country: 'United States',
+              phone: customerInfo.phone || ''
+            },
+            
+            date: new Date().toISOString().split('T')[0],
+            shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            
+            sub_total: subtotal,
+            tax_total: tax,
+            shipping_charge: shipping,
+            total: total,
+            
+            notes: orderNotes || '',
+            terms: 'Payment due upon receipt',
+            
+            custom_fields: [
+              { label: 'Source', value: 'Travel Data WiFi Website' },
+              { label: 'Request ID', value: requestId },
+              { label: 'Customer ID', value: customerId }
+            ]
+          };
+
+          zohoOrder = await zohoAPI.createOrder(customerOrderData);
+          orderCreationMethod = 'customer_based';
+          console.log('✅ Approach 2 successful - Customer-based order created');
+        }
+
+      } catch (customerOrderError) {
+        console.log('❌ Approach 2 failed:', customerOrderError.message);
+
+        // APPROACH 3: Simplified order creation (minimal fields)
+        console.log('Approach 3: Minimal order creation...');
+        try {
+          const minimalOrderData = {
+            customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+            customer_email: customerInfo.email,
+            
+            line_items: cartItems.map(item => ({
+              item_name: item.product_name,
+              quantity: item.quantity,
+              rate: item.product_price
+            })),
+            
+            date: new Date().toISOString().split('T')[0],
+            sub_total: subtotal,
+            total: total
+          };
+
+          zohoOrder = await zohoAPI.createOrder(minimalOrderData);
+          orderCreationMethod = 'minimal';
+          console.log('✅ Approach 3 successful - Minimal order created');
+
+        } catch (minimalOrderError) {
+          console.log('❌ Approach 3 failed:', minimalOrderError.message);
+          
+          // All approaches failed
+          throw new Error(`All order creation approaches failed. Last error: ${minimalOrderError.message}`);
+        }
+      }
     }
 
-    // Step 6: Create payment URL
+    if (!zohoOrder) {
+      throw new Error('Order creation failed - no successful approach');
+    }
+
+    // Step 5: Create payment URL
     const orderId = zohoOrder.salesorder_id || zohoOrder.id;
     const orderNumber = zohoOrder.salesorder_number || zohoOrder.number || `TDW-${orderId}`;
     
+    console.log(`✅ Order created successfully using ${orderCreationMethod} method:`, {
+      orderId,
+      orderNumber
+    });
+
     const paymentParams = new URLSearchParams({
       order_id: orderId,
       order_number: orderNumber,
@@ -169,14 +272,13 @@ export default async function handler(req, res) {
 
     const paymentUrl = `${req.headers.origin}/payment/invoice?${paymentParams.toString()}`;
 
-    // Step 7: Return success response
+    // Step 6: Return success response
     const successResponse = {
       success: true,
       type: 'hosted',
       checkout_url: paymentUrl,
       order_id: orderId,
       order_number: orderNumber,
-      customer_id: customerId,
       session_id: `zoho_${orderId}`,
       expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
       total_amount: total,
@@ -187,7 +289,8 @@ export default async function handler(req, res) {
         shipping,
         total,
         items: cartItems.length,
-        customer: `${customerInfo.firstName} ${customerInfo.lastName}`
+        customer: `${customerInfo.firstName} ${customerInfo.lastName}`,
+        creation_method: orderCreationMethod
       },
       request_id: requestId
     };
@@ -199,92 +302,136 @@ export default async function handler(req, res) {
     console.error('❌ Checkout failed:', error);
     return res.status(500).json({
       error: 'Checkout processing failed',
-      details: 'An unexpected error occurred',
-      type: 'INTERNAL_ERROR',
+      details: error.message || 'An unexpected error occurred',
+      type: 'CHECKOUT_ERROR',
       request_id: requestId,
       timestamp: new Date().toISOString()
     });
   }
 }
 
-// Helper function to find customer by email
-async function findCustomerByEmail(accessToken, email) {
-  try {
-    const response = await fetch(`https://commerce.zoho.com/store/api/v1/customers?search_text=${encodeURIComponent(email)}`, {
-      headers: {
-        'Authorization': `Zoho-oauthtoken ${accessToken}`,
-        'Content-Type': 'application/json',
-        'X-com-zoho-store-organizationid': process.env.ZOHO_STORE_ID,
+// Robust customer creation with multiple attempts
+async function createCustomerRobust(accessToken, customerInfo, shippingAddress) {
+  const customerDataVariations = [
+    // Variation 1: Full customer data
+    {
+      customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+      email: customerInfo.email,
+      phone: customerInfo.phone || '',
+      first_name: customerInfo.firstName,
+      last_name: customerInfo.lastName,
+      
+      billing_address: {
+        attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
+        address: shippingAddress.address1,
+        street2: shippingAddress.address2 || '',
+        city: shippingAddress.city,
+        state: shippingAddress.state,
+        zip: shippingAddress.zipCode,
+        country: 'United States',
+        phone: customerInfo.phone || ''
       },
-    });
-
-    if (!response.ok) {
-      console.log('Customer search failed:', response.status);
-      return null;
+      
+      shipping_address: {
+        attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
+        address: shippingAddress.address1,
+        street2: shippingAddress.address2 || '',
+        city: shippingAddress.city,
+        state: shippingAddress.state,
+        zip: shippingAddress.zipCode,
+        country: 'United States',
+        phone: customerInfo.phone || ''
+      }
+    },
+    
+    // Variation 2: Minimal customer data
+    {
+      customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+      email: customerInfo.email,
+      phone: customerInfo.phone || ''
+    },
+    
+    // Variation 3: Just name and email
+    {
+      customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+      email: customerInfo.email
     }
+  ];
 
-    const data = await response.json();
-    const customers = data.customers || [];
-    
-    // Find exact email match
-    const exactMatch = customers.find(customer => 
-      customer.email && customer.email.toLowerCase() === email.toLowerCase()
-    );
-    
-    return exactMatch || null;
-  } catch (error) {
-    console.error('Customer search error:', error);
-    return null;
+  const customerEndpoints = [
+    'https://commerce.zoho.com/store/api/v1/customers',
+    'https://www.zohoapis.com/commerce/v1/customers'
+  ];
+
+  // Try each combination
+  for (const endpoint of customerEndpoints) {
+    for (let i = 0; i < customerDataVariations.length; i++) {
+      try {
+        console.log(`Trying customer creation: endpoint ${endpoint}, variation ${i + 1}`);
+        
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Zoho-oauthtoken ${accessToken}`,
+            'Content-Type': 'application/json',
+            'X-com-zoho-store-organizationid': process.env.ZOHO_STORE_ID,
+          },
+          body: JSON.stringify(customerDataVariations[i])
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          console.log(`✅ Customer created with variation ${i + 1}`);
+          return data.customer || data;
+        } else {
+          const errorText = await response.text();
+          console.log(`❌ Variation ${i + 1} failed: ${response.status} - ${errorText}`);
+        }
+      } catch (error) {
+        console.log(`❌ Variation ${i + 1} error:`, error.message);
+      }
+    }
   }
+
+  throw new Error('All customer creation attempts failed');
 }
 
-// Helper function to create customer
-async function createCustomer(accessToken, customerInfo, shippingAddress) {
-  const customerData = {
-    customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-    email: customerInfo.email,
-    phone: customerInfo.phone || '',
-    
-    billing_address: {
-      attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
-      address: shippingAddress.address1,
-      street2: shippingAddress.address2 || '',
-      city: shippingAddress.city,
-      state: shippingAddress.state,
-      zip: shippingAddress.zipCode,
-      country: 'United States',
-      phone: customerInfo.phone || ''
-    },
-    
-    shipping_address: {
-      attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
-      address: shippingAddress.address1,
-      street2: shippingAddress.address2 || '',
-      city: shippingAddress.city,
-      state: shippingAddress.state,
-      zip: shippingAddress.zipCode,
-      country: 'United States',
-      phone: customerInfo.phone || ''
+// Helper function to find customer by email
+async function findCustomerByEmail(accessToken, email) {
+  const searchEndpoints = [
+    `https://commerce.zoho.com/store/api/v1/customers?search_text=${encodeURIComponent(email)}`,
+    `https://commerce.zoho.com/store/api/v1/customers?email=${encodeURIComponent(email)}`,
+    `https://www.zohoapis.com/commerce/v1/customers?search_text=${encodeURIComponent(email)}`
+  ];
+
+  for (const endpoint of searchEndpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        headers: {
+          'Authorization': `Zoho-oauthtoken ${accessToken}`,
+          'Content-Type': 'application/json',
+          'X-com-zoho-store-organizationid': process.env.ZOHO_STORE_ID,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const customers = data.customers || [];
+        
+        const exactMatch = customers.find(customer => 
+          customer.email && customer.email.toLowerCase() === email.toLowerCase()
+        );
+        
+        if (exactMatch) {
+          return exactMatch;
+        }
+      }
+    } catch (error) {
+      console.log(`Customer search endpoint failed: ${endpoint}`);
     }
-  };
-
-  const response = await fetch('https://commerce.zoho.com/store/api/v1/customers', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Zoho-oauthtoken ${accessToken}`,
-      'Content-Type': 'application/json',
-      'X-com-zoho-store-organizationid': process.env.ZOHO_STORE_ID,
-    },
-    body: JSON.stringify(customerData)
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Customer creation failed: ${response.status} - ${errorText}`);
   }
 
-  const data = await response.json();
-  return data.customer || data;
+  return null;
 }
 
 // Validation helper function
