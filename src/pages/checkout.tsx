@@ -94,7 +94,7 @@ const CheckoutPage = () => {
     setValidationErrors([]);
     
     try {
-      const response = await fetch('/api/guest-checkout', {
+      const response = await fetch('/api/guest-checkout-inventory', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
