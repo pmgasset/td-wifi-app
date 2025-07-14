@@ -62,17 +62,17 @@ export default async function handler(req, res) {
       
       notes: orderNotes || '',
       
-      // Add shipping address if provided
+      // Add shipping address if provided (with field length limits)
       ...(shippingAddress && {
         shipping_address: {
-          attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
-          address: shippingAddress.address1,
-          street2: shippingAddress.address2 || '',
-          city: shippingAddress.city,
-          state: shippingAddress.state,
-          zip: shippingAddress.zipCode,
-          country: 'United States',
-          phone: customerInfo.phone || ''
+          attention: `${customerInfo.firstName} ${customerInfo.lastName}`.substring(0, 50),
+          address: shippingAddress.address1.substring(0, 95), // Keep under 100 chars
+          street2: (shippingAddress.address2 || '').substring(0, 50),
+          city: shippingAddress.city.substring(0, 50),
+          state: shippingAddress.state.substring(0, 10),
+          zip: shippingAddress.zipCode.substring(0, 15),
+          country: 'US', // Shortened from 'United States'
+          phone: (customerInfo.phone || '').substring(0, 20)
         }
       }),
       
