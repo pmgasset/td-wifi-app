@@ -1,14 +1,13 @@
-// ===== src/pages/api/guest-checkout.js ===== (FIXED - CORRECT API FORMAT)
+// ===== src/pages/api/guest-checkout.js ===== (COMPREHENSIVE DEBUG VERSION)
 
 /**
- * Guest checkout using correct Storefront API format
- * FIXES: quantity as string, proper headers, URL format
+ * Debug version to identify why "Invalid input" is occurring
  */
 
 export default async function handler(req, res) {
   const requestId = `guest_${Date.now()}_${Math.random().toString(36).substring(7)}`;
   
-  console.log(`\n=== GUEST CHECKOUT (STOREFRONT API) [${requestId}] ===`);
+  console.log(`\n=== GUEST CHECKOUT DEBUG (STOREFRONT API) [${requestId}] ===`);
   
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed', requestId });
@@ -19,144 +18,222 @@ export default async function handler(req, res) {
     
     console.log('Processing guest checkout for:', customerInfo?.email);
     console.log('Cart items count:', cartItems?.length || 0);
-    console.log('Cart items structure:', cartItems?.map(item => ({
-      product_id: item.product_id,
-      variant_id: item.variant_id,
-      quantity: item.quantity,
-      name: item.product_name || item.name
-    })));
 
-    // Validation
-    const validationErrors = [];
-    if (!customerInfo?.email) validationErrors.push('Email is required');
-    if (!customerInfo?.firstName) validationErrors.push('First name is required');  
-    if (!customerInfo?.lastName) validationErrors.push('Last name is required');
-    if (!shippingAddress?.address1) validationErrors.push('Shipping address is required');
-    if (!shippingAddress?.city) validationErrors.push('City is required');
-    if (!shippingAddress?.state) validationErrors.push('State is required');
-    if (!shippingAddress?.zipCode) validationErrors.push('ZIP code is required');
-    if (!cartItems || cartItems.length === 0) validationErrors.push('Cart is empty');
-
-    if (customerInfo?.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerInfo.email)) {
-      validationErrors.push('Valid email address is required');
-    }
-
-    if (validationErrors.length > 0) {
+    // Basic validation
+    if (!cartItems || cartItems.length === 0) {
       return res.status(400).json({
-        error: 'Validation failed',
-        details: validationErrors,
+        error: 'Cart is empty',
         request_id: requestId
       });
     }
 
-    // ===== GET PRODUCT VARIANT IDs =====
-    
-    // Import Zoho API to get product variant information
+    // Import Zoho API
     let zohoAPI;
     try {
       const hybridModule = await import('../../lib/zoho-api-hybrid');
       zohoAPI = hybridModule.hybridZohoAPI || hybridModule.zohoAPI;
-    } catch {
+      console.log('✓ Zoho API imported successfully');
+    } catch (importError) {
+      console.log('⚠️ Could not import Zoho API:', importError.message);
+    }
+
+    // Process first cart item for debugging
+    const item = cartItems[0];
+    console.log('Processing item:', {
+      product_id: item.product_id,
+      variant_id: item.variant_id,
+      quantity: item.quantity,
+      name: item.product_name || item.name
+    });
+
+    // ===== COMPREHENSIVE PRODUCT DEBUGGING =====
+    
+    let variantId = item.variant_id || item.product_variant_id;
+    let productDetails = null;
+
+    if (!variantId && zohoAPI) {
       try {
-        const existingModule = await import('../../lib/zoho-api');
-        zohoAPI = existingModule.zohoAPI;
-      } catch (importError) {
-        console.error('Could not import Zoho API for product lookup');
-        // Continue without product lookup - use fallback IDs
+        console.log('\n=== PRODUCT LOOKUP VIA ADMIN API ===');
+        productDetails = await zohoAPI.getProduct(item.product_id);
+        
+        if (productDetails) {
+          console.log('Product found via Admin API:', {
+            product_id: productDetails.product_id,
+            name: productDetails.name,
+            status: productDetails.status,
+            show_in_storefront: productDetails.show_in_storefront,
+            category_name: productDetails.category_name,
+            variants_count: productDetails.variants?.length || 0
+          });
+
+          // Analyze variants
+          if (productDetails.variants && productDetails.variants.length > 0) {
+            console.log('Available variants:');
+            productDetails.variants.forEach((variant, index) => {
+              console.log(`  Variant ${index + 1}:`, {
+                variant_id: variant.variant_id,
+                name: variant.name,
+                status: variant.status,
+                rate: variant.rate,
+                stock_on_hand: variant.stock_on_hand,
+                available_stock: variant.available_stock,
+                is_default: variant.is_default
+              });
+            });
+
+            // Use first variant
+            variantId = productDetails.variants[0].variant_id;
+            console.log(`✓ Using variant ID: ${variantId}`);
+          } else {
+            console.log('⚠️ No variants found - using product_id as fallback');
+            variantId = item.product_id;
+          }
+        } else {
+          console.log('❌ Product not found via Admin API');
+          variantId = item.product_id;
+        }
+      } catch (productError) {
+        console.log('❌ Product lookup failed:', productError.message);
+        variantId = item.product_id;
+      }
+    } else if (!variantId) {
+      variantId = item.product_id;
+    }
+
+    // ===== STOREFRONT API PRODUCT CHECK =====
+    
+    console.log('\n=== CHECKING STOREFRONT API PRODUCT ACCESS ===');
+    try {
+      const storefrontProductResponse = await storefrontApiRequest(`/products/${item.product_id}?`, {
+        method: 'GET'
+      });
+      
+      const storefrontProduct = storefrontProductResponse.payload?.product;
+      if (storefrontProduct) {
+        console.log('✓ Product accessible via Storefront API:', {
+          product_id: storefrontProduct.product_id,
+          name: storefrontProduct.name,
+          status: storefrontProduct.status,
+          variants_count: storefrontProduct.variants?.length || 0
+        });
+
+        // Check storefront variants
+        if (storefrontProduct.variants && storefrontProduct.variants.length > 0) {
+          console.log('Storefront variants:');
+          storefrontProduct.variants.forEach((variant, index) => {
+            console.log(`  Storefront Variant ${index + 1}:`, {
+              variant_id: variant.variant_id,
+              name: variant.name,
+              available_stock: variant.available_stock,
+              rate: variant.rate
+            });
+          });
+        }
+      } else {
+        console.log('❌ Product payload empty from Storefront API');
+      }
+    } catch (storefrontProductError) {
+      console.log('❌ Product NOT accessible via Storefront API:', storefrontProductError.message);
+      console.log('This might mean the product is not published to the storefront');
+    }
+
+    // ===== CART ADDITION ATTEMPTS =====
+    
+    console.log('\n=== ATTEMPTING CART ADDITION WITH DIFFERENT FORMATS ===');
+    
+    // Try different payload formats
+    const payloadFormats = [
+      {
+        name: 'Standard format with variant_id',
+        data: {
+          product_variant_id: variantId,
+          quantity: "1"
+        }
+      },
+      {
+        name: 'Format with empty custom_fields',
+        data: {
+          product_variant_id: variantId,
+          quantity: "1",
+          custom_fields: []
+        }
+      },
+      {
+        name: 'Format with explicit cart_id null',
+        data: {
+          product_variant_id: variantId,
+          quantity: "1",
+          cart_id: null
+        }
+      },
+      {
+        name: 'Fallback with product_id',
+        data: {
+          product_variant_id: item.product_id,
+          quantity: "1"
+        }
+      }
+    ];
+
+    let cartResponse = null;
+    let successfulFormat = null;
+
+    for (const format of payloadFormats) {
+      try {
+        console.log(`\n--- Trying: ${format.name} ---`);
+        console.log('Payload:', JSON.stringify(format.data, null, 2));
+        
+        cartResponse = await storefrontApiRequest('/cart?', {
+          method: 'POST',
+          body: JSON.stringify(format.data)
+        });
+        
+        console.log(`🎉 SUCCESS with ${format.name}!`);
+        console.log('Response:', JSON.stringify(cartResponse, null, 2));
+        successfulFormat = format.name;
+        break;
+        
+      } catch (formatError) {
+        console.log(`❌ Failed with ${format.name}:`, formatError.message);
+        
+        // Log additional error details if available
+        if (formatError.message.includes('400')) {
+          console.log('This is a client error - check payload format or product availability');
+        }
       }
     }
 
-    // ===== RESOLVE VARIANT IDs =====
-    
-    const resolvedCartItems = [];
-    
-    for (const item of cartItems) {
-      let variantId = item.variant_id || item.product_variant_id;
+    if (!successfulFormat) {
+      console.log('\n=== ALL CART FORMATS FAILED ===');
       
-      // If we don't have a variant_id, try to get it from the product
-      if (!variantId && zohoAPI) {
-        try {
-          console.log(`Looking up variants for product: ${item.product_id}`);
-          const product = await zohoAPI.getProduct(item.product_id);
-          
-          if (product && product.variants && product.variants.length > 0) {
-            // Use the first variant or find a matching one
-            const variant = product.variants[0];
-            variantId = variant.variant_id;
-            console.log(`✓ Found variant ID: ${variantId} for product: ${item.product_id}`);
-          } else {
-            console.log(`⚠️ No variants found for product: ${item.product_id}, using product_id as fallback`);
-            variantId = item.product_id; // Fallback: some products might not have separate variants
-          }
-        } catch (productError) {
-          console.log(`⚠️ Product lookup failed for ${item.product_id}:`, productError.message);
-          variantId = item.product_id; // Fallback
+      // Return detailed debugging information
+      return res.status(500).json({
+        error: 'All cart addition formats failed',
+        debug_info: {
+          request_id: requestId,
+          product_id: item.product_id,
+          resolved_variant_id: variantId,
+          admin_api_product_found: !!productDetails,
+          product_show_in_storefront: productDetails?.show_in_storefront,
+          product_status: productDetails?.status,
+          variants_available: productDetails?.variants?.length || 0,
+          attempted_formats: payloadFormats.map(f => f.name),
+          suggestion: 'Check if product is published to storefront and has available stock'
         }
-      } else if (!variantId) {
-        // No Zoho API available, use product_id as fallback
-        variantId = item.product_id;
-      }
-
-      resolvedCartItems.push({
-        product_variant_id: variantId,
-        quantity: String(item.quantity || 1), // FIXED: Convert to string
-        // Keep original item data for reference
-        original_product_id: item.product_id,
-        product_name: item.product_name || item.name,
-        product_price: item.product_price || item.price
       });
     }
 
-    console.log('Resolved cart items for Storefront API:', resolvedCartItems);
+    // If we got here, cart creation succeeded!
+    const cartId = cartResponse.payload?.cart_id;
+    const checkoutId = cartId;
 
-    // ===== STOREFRONT API GUEST CHECKOUT FLOW =====
-    
-    let cartId = null;
-    let checkoutId = null;
-    let sessionCookie = null;
+    console.log(`\n=== CART CREATED SUCCESSFULLY ===`);
+    console.log(`Cart ID: ${cartId}`);
+    console.log(`Used format: ${successfulFormat}`);
 
+    // Continue with address and checkout completion...
     try {
-      // STEP 1: Add items to cart (creates anonymous cart for guest)
-      console.log('Step 1: Adding items to cart...');
-      
-      for (const [index, item] of resolvedCartItems.entries()) {
-        console.log(`Adding item ${index + 1}: variant_id=${item.product_variant_id}, quantity=${item.quantity}`);
-        
-        const addToCartData = {
-          product_variant_id: item.product_variant_id,
-          quantity: item.quantity // Now as string
-        };
-
-        console.log(`Cart API payload for item ${index + 1}:`, JSON.stringify(addToCartData));
-
-        const cartResponse = await storefrontApiRequest('/cart?', { // FIXED: Added ? at end
-          method: 'POST',
-          body: JSON.stringify(addToCartData),
-          sessionCookie: sessionCookie // Pass any existing session
-        });
-
-        // Get cart ID and session from first item
-        if (!cartId && cartResponse.payload) {
-          cartId = cartResponse.payload.cart_id;
-          checkoutId = cartId; // Cart ID and checkout ID are the same
-          console.log('✓ Cart created with ID:', cartId);
-          
-          // Extract session cookie if provided in response
-          if (cartResponse.sessionCookie) {
-            sessionCookie = cartResponse.sessionCookie;
-            console.log('✓ Session cookie established');
-          }
-        }
-
-        console.log(`✓ Item ${index + 1} added to cart`);
-      }
-
-      if (!cartId) {
-        throw new Error('Failed to create cart - no cart ID received from any item');
-      }
-
-      // STEP 2: Add address to checkout
-      console.log('Step 2: Adding address to checkout...');
+      console.log('\n=== ADDING ADDRESS ===');
       
       const addressData = {
         shipping_address: {
@@ -164,7 +241,6 @@ export default async function handler(req, res) {
           last_name: customerInfo.lastName,
           email_address: customerInfo.email,
           address: shippingAddress.address1,
-          address2: shippingAddress.address2 || '',
           city: shippingAddress.city,
           state: shippingAddress.state,
           postal_code: shippingAddress.zipCode,
@@ -174,228 +250,93 @@ export default async function handler(req, res) {
         }
       };
 
-      // Add billing address (copy of shipping for guests)
       addressData.billing_address = { ...addressData.shipping_address };
 
       await storefrontApiRequest(`/checkout/address?checkout_id=${checkoutId}`, {
         method: 'POST',
-        body: JSON.stringify(addressData),
-        sessionCookie: sessionCookie
+        body: JSON.stringify(addressData)
       });
 
-      console.log('✓ Address added to checkout');
+      console.log('✓ Address added successfully');
 
-      // STEP 3: Get available shipping methods and select one
-      console.log('Step 3: Setting up shipping...');
-      
-      try {
-        // Get checkout details including shipping methods
-        const checkoutDetailsResponse = await storefrontApiRequest(`/checkout?checkout_id=${checkoutId}`, {
-          method: 'GET',
-          sessionCookie: sessionCookie
-        });
-
-        const shippingMethods = checkoutDetailsResponse.payload?.checkout?.shipping_methods || [];
-        
-        if (shippingMethods.length > 0) {
-          // Select first available shipping method
-          const selectedShipping = shippingMethods[0];
-          
-          const shippingData = {
-            shipping: selectedShipping.shipping_id || selectedShipping.id
-          };
-
-          await storefrontApiRequest(`/checkout/shipping-methods?checkout_id=${checkoutId}`, {
-            method: 'POST',
-            body: JSON.stringify(shippingData),
-            sessionCookie: sessionCookie
-          });
-
-          console.log('✓ Shipping method selected:', selectedShipping.name || selectedShipping.shipping_id);
-        } else {
-          console.log('⚠️ No shipping methods available, continuing without specific shipping selection...');
-        }
-      } catch (shippingError) {
-        console.log('⚠️ Shipping setup failed, continuing:', shippingError.message);
-        // Continue with checkout - shipping might be configured differently
-      }
-
-      // STEP 4: Place the order
-      console.log('Step 4: Placing order...');
+      // Complete the order
+      console.log('\n=== COMPLETING ORDER ===');
       
       const orderResponse = await storefrontApiRequest(`/checkout/offlinepayment?checkout_id=${checkoutId}`, {
-        method: 'POST',
-        sessionCookie: sessionCookie
+        method: 'POST'
       });
 
-      // Extract order information
       const order = orderResponse.payload;
-      const orderId = order?.salesorder?.salesorder_id || order?.order_id || order?.id || checkoutId;
-      const orderNumber = order?.salesorder?.salesorder_number || order?.order_number || `TDW-SF-${orderId}`;
-      
-      // Get order summary for totals
-      const orderSummary = order?.checkout_order_summary?.order || order?.order || {};
-      const total = orderSummary.total_amount || orderSummary.total || 0;
+      const orderId = order?.salesorder?.salesorder_id || order?.order_id || checkoutId;
+      const orderNumber = order?.salesorder?.salesorder_number || `TDW-${orderId}`;
 
-      console.log('✅ Guest checkout completed successfully via Storefront API');
+      console.log('🎉 ORDER COMPLETED SUCCESSFULLY!');
 
-      // ===== SUCCESS RESPONSE =====
-
-      const successResponse = {
+      return res.status(200).json({
         success: true,
-        type: 'guest_checkout_storefront',
         order_id: orderId,
         order_number: orderNumber,
-        total_amount: total,
-        currency: 'USD',
-        api_used: 'storefront',
-        
-        // Payment information
-        payment_url: order?.payment_url || orderSummary.payment_url ||
-                    `${req.headers.origin}/payment/invoice?${new URLSearchParams({
-                      order_id: orderId,
-                      order_number: orderNumber,
-                      amount: total.toString(),
-                      currency: 'USD',
-                      customer_email: customerInfo.email,
-                      customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-                      return_url: `${req.headers.origin}/checkout/success`,
-                      request_id: requestId,
-                      api_type: 'storefront'
-                    }).toString()}`,
-        
-        // Order details
-        order_details: {
-          subtotal: orderSummary.sub_total || 0,
-          tax: orderSummary.tax_amount || 0,
-          shipping: orderSummary.shipping_charge || 0,
-          total: total,
-          items: cartItems.length,
-          customer: `${customerInfo.firstName} ${customerInfo.lastName}`,
-          email: customerInfo.email,
-          shipping_address: shippingAddress
-        },
-        
-        next_steps: [
-          'Order created successfully via Storefront API',
-          'You will be redirected to secure payment',
-          'Complete payment to confirm your order',
-          'You will receive confirmation via email'
-        ],
-        
-        // Technical details
-        request_id: requestId,
         cart_id: cartId,
-        checkout_id: checkoutId,
-        resolved_variants: resolvedCartItems.map(item => ({
-          original_product_id: item.original_product_id,
-          used_variant_id: item.product_variant_id
-        })),
-        timestamp: new Date().toISOString()
-      };
-
-      return res.status(200).json(successResponse);
-
-    } catch (storefrontError) {
-      console.error('❌ Storefront API checkout failed:', storefrontError);
-      
-      // Enhanced error response with debugging info
-      const errorResponse = {
-        error: 'Storefront API checkout failed',
-        details: storefrontError.message || 'Storefront API error occurred',
-        type: 'STOREFRONT_API_ERROR',
-        request_id: requestId,
-        timestamp: new Date().toISOString(),
-        suggestion: getErrorSuggestion(storefrontError.message),
-        
-        // Debugging information
+        successful_format: successfulFormat,
         debug_info: {
-          cart_id: cartId,
-          checkout_id: checkoutId,
-          session_cookie: !!sessionCookie,
-          step_reached: cartId ? 'address_or_shipping' : 'cart_creation',
-          resolved_variants: resolvedCartItems.map(item => ({
-            original_product_id: item.original_product_id,
-            resolved_variant_id: item.product_variant_id,
-            quantity_type: typeof item.quantity
-          })),
-          original_cart_items: cartItems.map(item => ({
-            product_id: item.product_id,
-            variant_id: item.variant_id,
-            quantity: item.quantity,
-            quantity_type: typeof item.quantity
-          }))
+          product_id: item.product_id,
+          variant_id: variantId,
+          request_id: requestId
         }
-      };
+      });
 
-      return res.status(500).json(errorResponse);
+    } catch (checkoutError) {
+      console.log('❌ Checkout completion failed:', checkoutError.message);
+      
+      return res.status(500).json({
+        error: 'Cart created but checkout failed',
+        details: checkoutError.message,
+        cart_id: cartId,
+        successful_cart_format: successfulFormat,
+        request_id: requestId
+      });
     }
 
   } catch (error) {
-    console.error('❌ Unexpected error in guest checkout:', error);
+    console.error('❌ Unexpected error:', error);
     
     return res.status(500).json({
-      error: 'Unexpected checkout error',
-      details: error.message || 'An unexpected error occurred',
-      type: 'UNEXPECTED_ERROR',
-      request_id: requestId,
-      timestamp: new Date().toISOString()
+      error: 'Unexpected error',
+      details: error.message,
+      request_id: requestId
     });
   }
 }
 
-// ===== HELPER FUNCTIONS =====
-
+// Helper function
 async function storefrontApiRequest(endpoint, options = {}) {
   const url = `https://commerce.zoho.com/storefront/api/v1${endpoint}`;
   
   const defaultHeaders = {
     'Content-Type': 'application/json',
-    'domain-name': process.env.ZOHO_STORE_DOMAIN || 'traveldatawifi.zohostore.com',
+    'domain-name': 'traveldatawifi.com', // Your custom domain
     'Accept': 'application/json'
   };
 
-  // Add session cookie if available (for cart continuity)
-  if (options.sessionCookie) {
-    defaultHeaders['Cookie'] = options.sessionCookie;
-  }
-
-  // Add CSRF token for POST requests
   if (options.method === 'POST') {
-    // Generate a basic CSRF token
     defaultHeaders['X-ZCSRF-TOKEN'] = `csrfp=${Date.now()}-${Math.random().toString(36).substring(7)}`;
   }
 
-  // Remove sessionCookie from options before passing to fetch
-  const { sessionCookie, ...fetchOptions } = options;
-
-  console.log(`Storefront API Request: ${fetchOptions.method || 'GET'} ${url}`);
-  console.log(`Request headers:`, JSON.stringify(defaultHeaders, null, 2));
-  console.log(`Request payload:`, fetchOptions.body || 'No body');
+  console.log(`API Request: ${options.method || 'GET'} ${url}`);
 
   const response = await fetch(url, {
-    ...fetchOptions,
+    ...options,
     headers: {
       ...defaultHeaders,
-      ...fetchOptions.headers
+      ...options.headers
     }
   });
 
   const responseText = await response.text();
-  console.log(`Storefront API Response (${response.status}):`, responseText);
-
-  // Extract session cookie from response headers for future requests
-  let responseSessionCookie = null;
-  const setCookieHeader = response.headers.get('set-cookie');
-  if (setCookieHeader && setCookieHeader.includes('zcid=')) {
-    const zcidMatch = setCookieHeader.match(/zcid=([^;]+)/);
-    if (zcidMatch) {
-      responseSessionCookie = `zcid=${zcidMatch[1]}`;
-    }
-  }
+  console.log(`API Response (${response.status}):`, responseText);
 
   if (!response.ok) {
-    throw new Error(`Storefront API error: ${response.status} - ${responseText || response.statusText}`);
+    throw new Error(`Storefront API error: ${response.status} - ${responseText}`);
   }
 
   try {
@@ -405,40 +346,11 @@ async function storefrontApiRequest(endpoint, options = {}) {
       throw new Error(`Storefront API error: ${jsonResponse.status_message || jsonResponse.developer_message || 'Unknown error'}`);
     }
     
-    // Attach session cookie to response for next request
-    if (responseSessionCookie) {
-      jsonResponse.sessionCookie = responseSessionCookie;
-    }
-    
     return jsonResponse;
   } catch (parseError) {
     if (parseError.message.includes('Storefront API error:')) {
       throw parseError;
     }
     throw new Error(`Invalid JSON response: ${responseText}`);
-  }
-}
-
-function getErrorSuggestion(errorMessage) {
-  if (errorMessage?.includes('Invalid input')) {
-    return 'Check data format - quantity should be string, product_variant_id should be valid';
-  } else if (errorMessage?.includes('insufficient stock')) {
-    return 'Product is out of stock or requested quantity exceeds available inventory';
-  } else if (errorMessage?.includes('404')) {
-    return 'API endpoint not found - check ZOHO_STORE_DOMAIN and endpoint URLs';
-  } else if (errorMessage?.includes('domain-name')) {
-    return 'Check ZOHO_STORE_DOMAIN environment variable is set correctly';
-  } else if (errorMessage?.includes('CSRF')) {
-    return 'CSRF token issue - this should be automatically handled';
-  } else if (errorMessage?.includes('product_variant_id')) {
-    return 'Product variant ID issue - check if products have valid variants in Zoho';
-  } else if (errorMessage?.includes('cart_id')) {
-    return 'Cart creation failed - check product variant IDs and quantities';
-  } else if (errorMessage?.includes('address')) {
-    return 'Address validation failed - check required address fields';
-  } else if (errorMessage?.includes('shipping')) {
-    return 'Shipping method selection failed - this is optional for checkout';
-  } else {
-    return 'Check Zoho Commerce Storefront API configuration and product setup';
   }
 }
