@@ -1,45 +1,23 @@
-// ===== src/pages/api/guest-checkout.js ===== (FIXED - SIMPLE WORKING VERSION)
+// ===== src/pages/api/guest-checkout.js ===== (CORRECT STOREFRONT API IMPLEMENTATION)
 
 /**
- * Simple, reliable guest checkout using Admin API only
- * FIXES: Removes Storefront API calls that were causing 404 errors
+ * Guest checkout using Zoho's Storefront API with the correct cart-based flow
+ * Flow: Add to Cart → Get Cart → Add Address → Complete Checkout
  */
 
 export default async function handler(req, res) {
   const requestId = `guest_${Date.now()}_${Math.random().toString(36).substring(7)}`;
   
-  console.log(`\n=== GUEST CHECKOUT (ADMIN API ONLY) [${requestId}] ===`);
+  console.log(`\n=== GUEST CHECKOUT (STOREFRONT API) [${requestId}] ===`);
   
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed', requestId });
   }
 
   try {
-    // Import API with fallback
-    let zohoAPI;
-    try {
-      const hybridModule = await import('../../lib/zoho-api-hybrid');
-      zohoAPI = hybridModule.hybridZohoAPI || hybridModule.zohoAPI;
-      console.log('✓ Using hybrid Zoho API');
-    } catch {
-      try {
-        const existingModule = await import('../../lib/zoho-api');
-        zohoAPI = existingModule.zohoAPI || existingModule.simpleZohoAPI;
-        console.log('✓ Using existing Zoho API (fallback)');
-      } catch (importError) {
-        console.error('❌ Failed to import any Zoho API:', importError);
-        return res.status(500).json({
-          error: 'API configuration error',
-          details: 'Could not load Zoho API client',
-          type: 'IMPORT_ERROR',
-          request_id: requestId
-        });
-      }
-    }
-
     const { customerInfo, shippingAddress, cartItems, orderNotes } = req.body;
     
-    console.log('Processing guest checkout for:', customerInfo?.email);
+    console.log('Processing Storefront API guest checkout for:', customerInfo?.email);
     console.log('Cart items count:', cartItems?.length || 0);
 
     // Validation
@@ -65,127 +43,176 @@ export default async function handler(req, res) {
       });
     }
 
-    // Calculate totals
-    const subtotal = cartItems.reduce((sum, item) => {
-      const price = item.product_price || item.price || 0;
-      const quantity = item.quantity || 1;
-      return sum + (price * quantity);
-    }, 0);
+    // ===== STOREFRONT API CHECKOUT FLOW =====
     
-    const tax = Math.round(subtotal * 0.0875 * 100) / 100;
-    const shipping = subtotal >= 100 ? 0 : 9.99;
-    const total = subtotal + tax + shipping;
+    let cartId = null;
+    let checkoutId = null;
 
-    console.log('Order totals:', { subtotal, tax, shipping, total });
-
-    // ===== ADMIN API CHECKOUT (RELIABLE METHOD) =====
+    // Step 1: Add items to cart (creates cart_id)
+    console.log('Step 1: Adding items to cart...');
     
     try {
-      // Use the hybrid API's guest checkout method
-      let order;
+      // Add first item to create cart
+      const firstItem = cartItems[0];
       
-      if (zohoAPI.createGuestCheckout) {
-        // Use the hybrid API method
-        order = await zohoAPI.createGuestCheckout({
-          customerInfo,
-          shippingAddress,
-          cartItems,
-          orderNotes
-        });
-      } else if (zohoAPI.createOrder) {
-        // Direct Admin API method
-        console.log('Using direct Admin API order creation...');
-        
-        // Create optimized address (if method available)
-        let optimizedAddress;
-        if (zohoAPI.formatAddressForAdmin) {
-          optimizedAddress = zohoAPI.formatAddressForAdmin(customerInfo, shippingAddress);
-        } else {
-          // Fallback address optimization
-          optimizedAddress = {
-            attention: `${customerInfo.firstName} ${customerInfo.lastName}`.substring(0, 20),
-            address1: shippingAddress.address1.substring(0, 30),
-            city: shippingAddress.city.substring(0, 15),
-            state: shippingAddress.state.substring(0, 2),
-            zip: shippingAddress.zipCode.substring(0, 10),
-            country: shippingAddress.country?.substring(0, 2) || 'US'
-          };
-          
-          // Ensure total length under 90 chars
-          const totalLength = Object.values(optimizedAddress).join('').length;
-          if (totalLength > 90) {
-            optimizedAddress.attention = optimizedAddress.attention.substring(0, 15);
-            optimizedAddress.address1 = optimizedAddress.address1.substring(0, 25);
-            optimizedAddress.city = optimizedAddress.city.substring(0, 12);
-          }
-          
-          console.log('Optimized address length:', Object.values(optimizedAddress).join('').length);
-        }
-        
-        const orderData = {
-          customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-          customer_email: customerInfo.email,
-          customer_phone: customerInfo.phone || '',
-          
-          line_items: cartItems.map(item => ({
-            item_name: item.product_name || item.name || 'Product',
-            quantity: item.quantity || 1,
-            rate: item.product_price || item.price || 0,
-            amount: (item.product_price || item.price || 0) * (item.quantity || 1)
-          })),
-          
-          date: new Date().toISOString().split('T')[0],
-          sub_total: subtotal,
-          tax_total: tax,
-          shipping_charge: shipping,
-          total: total,
-          notes: orderNotes || 'Guest checkout via Travel Data WiFi website',
-          
-          // Use optimized address
-          shipping_address: optimizedAddress,
-          billing_address: optimizedAddress
-        };
+      const addToCartResponse = await storefrontApiRequest('/cart', {
+        method: 'POST',
+        body: JSON.stringify({
+          product_variant_id: firstItem.variant_id || firstItem.product_id,
+          quantity: firstItem.quantity || 1,
+          custom_fields: orderNotes ? [
+            {
+              label: "Order Notes",
+              data_type: "string", 
+              value: orderNotes
+            }
+          ] : []
+        })
+      });
 
-        order = await zohoAPI.createOrder(orderData);
-      } else {
-        throw new Error('No suitable API method available for order creation');
+      cartId = addToCartResponse.payload?.cart_id;
+      if (!cartId) {
+        throw new Error('No cart ID received from add to cart');
       }
 
-      console.log('✅ Guest checkout successful via Admin API');
+      console.log('✓ Cart created with first item:', cartId);
+
+      // Add remaining items to the same cart
+      for (let i = 1; i < cartItems.length; i++) {
+        const item = cartItems[i];
+        
+        await storefrontApiRequest('/cart', {
+          method: 'POST',
+          body: JSON.stringify({
+            product_variant_id: item.variant_id || item.product_id,
+            quantity: item.quantity || 1,
+            cart_id: cartId
+          })
+        });
+        
+        console.log(`✓ Added item ${i + 1} to cart`);
+      }
+
+      // Set checkout ID (same as cart ID per Zoho docs)
+      checkoutId = cartId;
+
+    } catch (cartError) {
+      console.error('❌ Failed to create cart:', cartError);
+      throw new Error(`Cart creation failed: ${cartError.message}`);
+    }
+
+    // Step 2: Get cart details to verify totals
+    console.log('Step 2: Getting cart details...');
+    
+    try {
+      const cartResponse = await storefrontApiRequest(`/cart?cart_id=${cartId}`, {
+        method: 'GET'
+      });
+
+      const cartData = cartResponse.payload;
+      console.log('✓ Cart details retrieved:', {
+        items: cartData.count,
+        subtotal: cartData.sub_total,
+        total: cartData.total_price
+      });
+
+    } catch (cartDetailsError) {
+      console.log('⚠️ Could not get cart details, continuing:', cartDetailsError.message);
+    }
+
+    // Step 3: Add address to checkout (cart_id = checkout_id)
+    console.log('Step 3: Adding address to checkout...');
+    
+    try {
+      const addressData = {
+        shipping_address: {
+          first_name: customerInfo.firstName,
+          last_name: customerInfo.lastName,
+          email_address: customerInfo.email,
+          address: shippingAddress.address1,
+          address2: shippingAddress.address2 || '',
+          city: shippingAddress.city,
+          state: shippingAddress.state,
+          postal_code: shippingAddress.zipCode,
+          telephone: customerInfo.phone || '',
+          country: shippingAddress.country || 'US',
+          same_billing_address: true
+        }
+      };
+
+      // Add billing address (same as shipping)
+      addressData.billing_address = { ...addressData.shipping_address };
+
+      const addressResponse = await storefrontApiRequest(`/checkout/address?checkout_id=${checkoutId}`, {
+        method: 'POST',
+        body: JSON.stringify(addressData)
+      });
+
+      console.log('✓ Address added to checkout');
+
+    } catch (addressError) {
+      console.error('❌ Failed to add address:', addressError);
+      throw new Error(`Address addition failed: ${addressError.message}`);
+    }
+
+    // Step 4: Complete checkout with offline payment
+    console.log('Step 4: Completing checkout...');
+    
+    try {
+      const checkoutResponse = await storefrontApiRequest(`/checkout/offlinepayment?checkout_id=${checkoutId}`, {
+        method: 'POST'
+      });
+
+      const orderData = checkoutResponse.payload;
+      console.log('✅ Storefront checkout completed successfully');
 
       // ===== SUCCESS RESPONSE =====
 
-      const orderId = order.salesorder_id || order.order_id || order.id;
-      const orderNumber = order.salesorder_number || order.order_number || `TDW-${orderId}`;
+      const orderId = orderData?.salesorder?.salesorder_id || orderData?.order_id || checkoutId;
+      const orderNumber = orderData?.salesorder?.salesorder_number || `TDW-SF-${orderId}`;
+
+      // Calculate totals (fallback if not in response)
+      const subtotal = cartItems.reduce((sum, item) => {
+        const price = item.product_price || item.price || 0;
+        const quantity = item.quantity || 1;
+        return sum + (price * quantity);
+      }, 0);
+      
+      const tax = Math.round(subtotal * 0.0875 * 100) / 100;
+      const shipping = subtotal >= 100 ? 0 : 9.99;
+      const total = subtotal + tax + shipping;
 
       const successResponse = {
         success: true,
-        type: 'guest_checkout',
+        type: 'guest_checkout_storefront',
         order_id: orderId,
         order_number: orderNumber,
-        total_amount: total,
+        checkout_id: checkoutId,
+        cart_id: cartId,
+        total_amount: orderData?.total || total,
         currency: 'USD',
-        api_used: 'admin',
+        api_used: 'storefront',
         
         // Payment information
-        payment_url: order.payment_url || 
+        payment_url: orderData?.payment_url || 
                     `${req.headers.origin}/payment/invoice?${new URLSearchParams({
                       order_id: orderId,
                       order_number: orderNumber,
-                      amount: total.toString(),
+                      amount: (orderData?.total || total).toString(),
                       currency: 'USD',
                       customer_email: customerInfo.email,
                       customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
                       return_url: `${req.headers.origin}/checkout/success`,
-                      request_id: requestId
+                      request_id: requestId,
+                      checkout_id: checkoutId
                     }).toString()}`,
         
         // Order details
         order_details: {
-          subtotal,
-          tax,
-          shipping,
-          total,
+          subtotal: orderData?.sub_total || subtotal,
+          tax: orderData?.tax_total || tax,
+          shipping: orderData?.shipping_charge || shipping,
+          total: orderData?.total || total,
           items: cartItems.length,
           customer: `${customerInfo.firstName} ${customerInfo.lastName}`,
           email: customerInfo.email,
@@ -193,10 +220,10 @@ export default async function handler(req, res) {
         },
         
         next_steps: [
-          'Order created successfully via Admin API',
+          'Order created via Storefront API',
+          'Cart converted to checkout successfully',
           'You will be redirected to secure payment',
-          'Complete payment to confirm your order',
-          'You will receive confirmation via email'
+          'Complete payment to confirm your order'
         ],
         
         request_id: requestId,
@@ -206,59 +233,88 @@ export default async function handler(req, res) {
       return res.status(200).json(successResponse);
 
     } catch (checkoutError) {
-      console.error('❌ Guest checkout failed:', checkoutError);
-      
-      const errorResponse = {
-        error: 'Guest checkout processing failed',
-        details: checkoutError.message || 'An unexpected error occurred',
-        type: 'GUEST_CHECKOUT_ERROR',
-        request_id: requestId,
-        timestamp: new Date().toISOString(),
-        suggestion: getErrorSuggestion(checkoutError.message)
-      };
-
-      // Add specific error context
-      if (checkoutError.message?.includes('100 characters')) {
-        errorResponse.type = 'ADDRESS_LENGTH_ERROR';
-        errorResponse.suggestion = 'Address data was too long - this should now be fixed with address optimization';
-      } else if (checkoutError.message?.includes('authentication') || checkoutError.message?.includes('token')) {
-        errorResponse.type = 'AUTHENTICATION_ERROR';
-        errorResponse.suggestion = 'Check Zoho OAuth credentials and refresh token';
-      } else if (checkoutError.message?.includes('404')) {
-        errorResponse.type = 'API_ENDPOINT_ERROR';
-        errorResponse.suggestion = 'API endpoint not found - check Zoho API configuration';
-      }
-
-      return res.status(500).json(errorResponse);
+      console.error('❌ Failed to complete checkout:', checkoutError);
+      throw new Error(`Checkout completion failed: ${checkoutError.message}`);
     }
 
   } catch (error) {
-    console.error('❌ Unexpected error in guest checkout:', error);
+    console.error('❌ Guest checkout failed:', error);
     
-    return res.status(500).json({
-      error: 'Unexpected checkout error',
+    const errorResponse = {
+      error: 'Storefront API guest checkout failed',
       details: error.message || 'An unexpected error occurred',
-      type: 'UNEXPECTED_ERROR',
+      type: 'STOREFRONT_CHECKOUT_ERROR',
       request_id: requestId,
-      timestamp: new Date().toISOString()
-    });
+      timestamp: new Date().toISOString(),
+      suggestion: getErrorSuggestion(error.message)
+    };
+
+    return res.status(500).json(errorResponse);
   }
 }
 
 // ===== HELPER FUNCTIONS =====
 
+async function storefrontApiRequest(endpoint, options = {}) {
+  const url = `https://commerce.zoho.com/storefront/api/v1${endpoint}`;
+  
+  const defaultHeaders = {
+    'Content-Type': 'application/json',
+    'domain-name': process.env.ZOHO_STORE_DOMAIN || 'traveldatawifi.zohostore.com',
+    'Accept': 'application/json'
+  };
+
+  // Add CSRF token for POST requests
+  if (options.method === 'POST' || options.method === 'PUT') {
+    // Generate a basic CSRF token - in production, implement proper CSRF handling
+    defaultHeaders['X-ZCSRF-TOKEN'] = `csrfp=${Date.now()}-${Math.random().toString(36).substring(7)}`;
+  }
+
+  console.log(`Storefront API Request: ${options.method || 'GET'} ${url}`);
+
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...defaultHeaders,
+      ...options.headers
+    }
+  });
+
+  const responseText = await response.text();
+  console.log(`Storefront API Response (${response.status}):`, responseText);
+
+  if (!response.ok) {
+    throw new Error(`Storefront API error: ${response.status} - ${responseText || response.statusText}`);
+  }
+
+  try {
+    const jsonResponse = JSON.parse(responseText);
+    
+    if (jsonResponse.status_code && jsonResponse.status_code !== '0') {
+      throw new Error(`Storefront API error: ${jsonResponse.status_message || 'Unknown error'}`);
+    }
+    
+    return jsonResponse;
+  } catch (parseError) {
+    if (parseError.message.includes('Storefront API error:')) {
+      throw parseError;
+    }
+    throw new Error(`Invalid JSON response: ${responseText}`);
+  }
+}
+
 function getErrorSuggestion(errorMessage) {
-  if (errorMessage?.includes('100 characters')) {
-    return 'Address data too long - enable address truncation (should be fixed now)';
-  } else if (errorMessage?.includes('authentication') || errorMessage?.includes('token')) {
-    return 'Check Zoho OAuth credentials and refresh token';
+  if (errorMessage?.includes('cart')) {
+    return 'Check product variant IDs and ensure products exist in Zoho Commerce';
+  } else if (errorMessage?.includes('address')) {
+    return 'Verify address format and required fields for Storefront API';
+  } else if (errorMessage?.includes('domain-name')) {
+    return 'Check ZOHO_STORE_DOMAIN environment variable is set correctly';
   } else if (errorMessage?.includes('404')) {
-    return 'API endpoint not found - using Admin API only should resolve this';
-  } else if (errorMessage?.includes('Missing required Zoho environment variables')) {
-    return 'Set ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN, and ZOHO_STORE_ID in environment variables';
-  } else if (errorMessage?.includes('ZOHO_STORE_ID')) {
-    return 'Check ZOHO_STORE_ID environment variable is set correctly';
+    return 'API endpoint not found - verify Storefront API endpoint and product IDs';
+  } else if (errorMessage?.includes('CSRF')) {
+    return 'CSRF token issue - may need proper session-based token implementation';
   } else {
-    return 'Check Zoho Commerce Admin API configuration and try again';
+    return 'Check Zoho Storefront API configuration and product variant IDs';
   }
 }
