@@ -79,7 +79,7 @@ const InvoicePaymentPage = () => {
         setOrderDetails({
           order_id: Array.isArray(order_id) ? order_id[0] : order_id || '',
           order_number: Array.isArray(order_number) ? order_number[0] : order_number || `ORDER-${order_id}`,
-          total: parseFloat(Array.isArray(amount) ? amount[0] : amount as string) || 0,
+          total: getAmountValue(),
           currency: Array.isArray(currency) ? currency[0] : currency,
           customer_email: Array.isArray(customer_email) ? customer_email[0] : customer_email || '',
           customer_name: Array.isArray(customer_name) ? customer_name[0] : customer_name || '',
@@ -105,7 +105,7 @@ const InvoicePaymentPage = () => {
       
       const paymentData = {
         order_id,
-        amount: parseFloat(Array.isArray(amount) ? amount[0] : amount as string),
+        amount: getAmountValue(),
         currency,
         payment_method: paymentMethod,
         customer_email,
@@ -141,12 +141,21 @@ const InvoicePaymentPage = () => {
     }
   };
 
-  const formatCurrency = (amount: number | string) => {
+  const formatCurrency = (amount: number | string | undefined) => {
+    if (!amount) return '$0.00';
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
       currency: Array.isArray(currency) ? currency[0] : currency || 'USD'
     }).format(num);
+  };
+
+  // Helper function to safely get amount value
+  const getAmountValue = (): number => {
+    if (orderDetails?.total) return orderDetails.total;
+    if (Array.isArray(amount)) return parseFloat(amount[0] || '0');
+    if (amount) return parseFloat(amount as string);
+    return 0;
   };
 
   if (loading) {
@@ -206,7 +215,7 @@ const InvoicePaymentPage = () => {
                 <div className="flex justify-between items-center text-lg font-semibold pt-4">
                   <span>Total Amount</span>
                   <span className="text-travel-blue">
-                    {formatCurrency(orderDetails?.total || Array.isArray(amount) ? amount[0] : amount || 0)}
+                    {formatCurrency(getAmountValue())}
                   </span>
                 </div>
               </div>
@@ -330,7 +339,7 @@ const InvoicePaymentPage = () => {
                 ) : (
                   <>
                     <DollarSign className="h-4 w-4" />
-                    <span>Pay {formatCurrency(orderDetails?.total || Array.isArray(amount) ? amount[0] : amount || 0)}</span>
+                    <span>Pay {formatCurrency(getAmountValue())}</span>
                   </>
                 )}
               </button>
