@@ -1,4 +1,4 @@
-// ===== src/pages/payment/invoice.tsx ===== (CREATE THIS FILE)
+// ===== src/pages/payment/invoice.tsx ===== (FIXED TypeScript Types)
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
@@ -19,6 +19,17 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+// Define the order details interface
+interface OrderDetails {
+  order_id: string;
+  order_number: string;
+  total: number;
+  currency: string;
+  customer_email: string;
+  customer_name: string;
+  status: string;
+}
+
 const InvoicePaymentPage = () => {
   const router = useRouter();
   const { clearCart } = useCartStore();
@@ -36,7 +47,8 @@ const InvoicePaymentPage = () => {
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('card');
-  const [orderDetails, setOrderDetails] = useState(null);
+  // ✅ FIXED: Properly typed useState with interface
+  const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Fetch order details on component mount
@@ -63,14 +75,14 @@ const InvoicePaymentPage = () => {
         console.log('Order details loaded:', data);
       } else {
         console.log('Order details not found, using URL parameters');
-        // Fallback to URL parameters
+        // ✅ FIXED: Now TypeScript knows this object matches OrderDetails interface
         setOrderDetails({
-          order_id,
-          order_number: order_number || `ORDER-${order_id}`,
-          total: parseFloat(amount as string) || 0,
-          currency,
-          customer_email,
-          customer_name,
+          order_id: Array.isArray(order_id) ? order_id[0] : order_id || '',
+          order_number: Array.isArray(order_number) ? order_number[0] : order_number || `ORDER-${order_id}`,
+          total: parseFloat(Array.isArray(amount) ? amount[0] : amount as string) || 0,
+          currency: Array.isArray(currency) ? currency[0] : currency,
+          customer_email: Array.isArray(customer_email) ? customer_email[0] : customer_email || '',
+          customer_name: Array.isArray(customer_name) ? customer_name[0] : customer_name || '',
           status: 'pending_payment'
         });
       }
@@ -93,7 +105,7 @@ const InvoicePaymentPage = () => {
       
       const paymentData = {
         order_id,
-        amount: parseFloat(amount as string),
+        amount: parseFloat(Array.isArray(amount) ? amount[0] : amount as string),
         currency,
         payment_method: paymentMethod,
         customer_email,
@@ -133,7 +145,7 @@ const InvoicePaymentPage = () => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
-      currency: currency as string || 'USD'
+      currency: Array.isArray(currency) ? currency[0] : currency || 'USD'
     }).format(num);
   };
 
@@ -194,7 +206,7 @@ const InvoicePaymentPage = () => {
                 <div className="flex justify-between items-center text-lg font-semibold pt-4">
                   <span>Total Amount</span>
                   <span className="text-travel-blue">
-                    {formatCurrency(orderDetails?.total || amount || 0)}
+                    {formatCurrency(orderDetails?.total || Array.isArray(amount) ? amount[0] : amount || 0)}
                   </span>
                 </div>
               </div>
@@ -297,7 +309,7 @@ const InvoicePaymentPage = () => {
                     <input
                       type="text"
                       placeholder="John Doe"
-                      defaultValue={customer_name as string}
+                      defaultValue={Array.isArray(customer_name) ? customer_name[0] : customer_name as string}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                     />
                   </div>
@@ -318,7 +330,7 @@ const InvoicePaymentPage = () => {
                 ) : (
                   <>
                     <DollarSign className="h-4 w-4" />
-                    <span>Pay {formatCurrency(orderDetails?.total || amount || 0)}</span>
+                    <span>Pay {formatCurrency(orderDetails?.total || Array.isArray(amount) ? amount[0] : amount || 0)}</span>
                   </>
                 )}
               </button>
