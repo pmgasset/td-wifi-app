@@ -1,4 +1,5 @@
-// ===== src/pages/checkout-enhanced.tsx ===== (CREATE THIS FILE)
+// ===== src/pages/checkout-enhanced.tsx ===== (UPDATED FOR UNIFIED APPROACH)
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
@@ -14,7 +15,9 @@ import {
   ArrowLeft,
   Shield,
   UserPlus,
-  UserCheck
+  UserCheck,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -45,10 +48,14 @@ const EnhancedCheckoutPage = () => {
   const [orderNotes, setOrderNotes] = useState('');
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   
+  // NEW: Account creation options for unified approach
+  const [createAccount, setCreateAccount] = useState(false);
+  const [customerPassword, setCustomerPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  
   // UI state
   const [isProcessing, setIsProcessing] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
-  const [customerCreated, setCustomerCreated] = useState<boolean | null>(null);
   const [processStep, setProcessStep] = useState<'form' | 'processing' | 'success'>('form');
 
   // Wait for cart to hydrate
@@ -85,6 +92,7 @@ const EnhancedCheckoutPage = () => {
     { code: 'WI', name: 'Wisconsin' }, { code: 'WY', name: 'Wyoming' }
   ];
 
+  // NEW: Unified checkout submission handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -93,24 +101,37 @@ const EnhancedCheckoutPage = () => {
       return;
     }
     
+    // Validate password if creating account
+    if (createAccount && (!customerPassword || customerPassword.length < 6)) {
+      toast.error('Password must be at least 6 characters long');
+      return;
+    }
+    
     setIsProcessing(true);
     setValidationErrors([]);
     setProcessStep('processing');
     
     try {
-      console.log('Starting customer-first checkout...');
+      console.log('Starting unified checkout...');
       
-      const response = await fetch('/api/customer-first-checkout', {
+      // NEW: Prepare unified checkout data
+      const checkoutData = {
+        customerInfo,
+        shippingAddress,
+        cartItems: items,
+        orderNotes,
+        // NEW: Specify checkout type based on user choice
+        checkoutType: createAccount ? 'create_account' : 'guest',
+        customerPassword: createAccount ? customerPassword : null
+      };
+      
+      // NEW: Use unified endpoint
+      const response = await fetch('/api/unified-checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          customerInfo,
-          shippingAddress,
-          cartItems: items,
-          orderNotes
-        }),
+        body: JSON.stringify(checkoutData),
       });
       
       const result = await response.json();
@@ -119,160 +140,92 @@ const EnhancedCheckoutPage = () => {
         if (result.details && Array.isArray(result.details)) {
           setValidationErrors(result.details);
         }
-        throw new Error(result.error || 'Customer-first checkout failed');
+        throw new Error(result.error || 'Unified checkout failed');
       }
       
-      console.log('✅ Customer-first checkout successful:', result);
+      console.log('✅ Unified checkout successful:', result);
       
-      // Show success message with customer creation status
-      if (result.customer_created) {
-        toast.success(`Customer account created! Redirecting to payment...`);
-        setCustomerCreated(true);
-      } else {
-        toast.success('Order created! Redirecting to payment...');
-        setCustomerCreated(false);
+      // NEW: Handle different customer statuses with appropriate messages
+      switch (result.customer_status) {
+        case 'new_account':
+          toast.success('Account created! Redirecting to payment...');
+          break;
+        case 'existing_account':
+          toast.success('Welcome back! Redirecting to payment...');
+          break;
+        case 'guest':
+          toast.success('Order created! Redirecting to payment...');
+          break;
+        default:
+          toast.success('Order processed! Redirecting to payment...');
       }
+      
+      setProcessStep('success');
       
       // Redirect to payment page
-      if (result.checkout_url) {
+      if (result.payment_url) {
         setTimeout(() => {
-          window.location.href = result.checkout_url;
+          window.location.href = result.payment_url;
         }, 2000);
       } else {
         throw new Error('No payment URL received');
       }
       
     } catch (error: any) {
-      console.error('Customer-first checkout error:', error);
+      console.error('Unified checkout error:', error);
       toast.error(error.message || 'Something went wrong. Please try again.');
-      setIsProcessing(false);
       setProcessStep('form');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  // Show loading while hydrating
-  if (isLoading) {
+  // Handle back to cart
+  const handleBackToCart = () => {
+    router.push('/cart');
+  };
+
+  // Show loading state
+  if (isLoading || !isHydrated) {
     return (
-      <Layout title="Loading Checkout - Travel Data WiFi">
+      <Layout>
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
           <div className="text-center">
-            <Loader2 className="h-12 w-12 animate-spin text-travel-blue mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Enhanced Checkout</h2>
-            <p className="text-gray-600">Please wait...</p>
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-travel-blue" />
+            <p className="text-gray-600">Loading checkout...</p>
           </div>
         </div>
       </Layout>
     );
   }
 
-  // Show empty cart message
+  // Redirect if cart is empty
   if (!items || items.length === 0) {
-    return (
-      <Layout title="Enhanced Checkout - Travel Data WiFi">
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="max-w-md mx-auto text-center">
-            <div className="bg-white rounded-lg shadow-lg p-8">
-              <ShoppingCart className="h-16 w-16 text-gray-400 mx-auto mb-6" />
-              <h1 className="text-2xl font-bold text-gray-900 mb-4">Your Cart is Empty</h1>
-              <p className="text-gray-600 mb-6">Add some products to your cart before proceeding to checkout.</p>
-              
-              <div className="space-y-3">
-                <button
-                  onClick={() => router.push('/products')}
-                  className="w-full bg-travel-blue text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
-                >
-                  Browse Products
-                </button>
-                
-                <button
-                  onClick={() => router.back()}
-                  className="w-full bg-gray-100 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-200 transition-colors"
-                >
-                  Go Back
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </Layout>
-    );
-  }
-
-  // Show processing state
-  if (processStep === 'processing') {
-    return (
-      <Layout title="Processing Checkout - Travel Data WiFi">
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-          <div className="max-w-md mx-auto text-center">
-            <div className="bg-white rounded-lg shadow-lg p-8">
-              <div className="mb-6">
-                {customerCreated === null ? (
-                  <Loader2 className="h-16 w-16 animate-spin text-travel-blue mx-auto" />
-                ) : customerCreated ? (
-                  <UserPlus className="h-16 w-16 text-green-500 mx-auto" />
-                ) : (
-                  <UserCheck className="h-16 w-16 text-blue-500 mx-auto" />
-                )}
-              </div>
-              
-              <h1 className="text-2xl font-bold text-gray-900 mb-4">
-                {customerCreated === null ? 'Processing Your Order...' : 
-                 customerCreated ? 'Customer Account Created!' : 'Order Created!'}
-              </h1>
-              
-              <p className="text-gray-600 mb-6">
-                {customerCreated === null ? 'Please wait while we set up your order...' :
-                 'Redirecting you to secure payment...'}
-              </p>
-              
-              {customerCreated !== null && (
-                <div className="text-sm text-gray-500">
-                  {customerCreated ? 
-                    'Your customer account has been created for faster future checkouts.' :
-                    'Your order has been created as a guest order.'
-                  }
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </Layout>
-    );
+    router.push('/');
+    return null;
   }
 
   return (
-    <Layout title="Enhanced Checkout - Travel Data WiFi">
-      <div className="min-h-screen bg-gray-50 py-12">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+    <Layout>
+      <div className="min-h-screen bg-gray-50 py-8">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
           <div className="mb-8">
             <button
-              onClick={() => router.back()}
-              className="flex items-center space-x-2 text-travel-blue hover:text-blue-700 mb-6"
+              onClick={handleBackToCart}
+              className="flex items-center text-travel-blue hover:text-blue-700 mb-4 transition-colors"
             >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Back to Cart</span>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Cart
             </button>
             
             <div className="text-center">
-              <h1 className="text-3xl font-bold text-gray-900 mb-4">Enhanced Checkout</h1>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                Enhanced Checkout
+              </h1>
               <p className="text-gray-600">
-                We'll create your customer account automatically for faster future checkouts
+                Unified checkout with optional account creation
               </p>
-            </div>
-          </div>
-
-          {/* Enhanced Features Notice */}
-          <div className="mb-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-start space-x-3">
-              <UserPlus className="h-5 w-5 text-blue-600 mt-0.5" />
-              <div className="text-sm text-blue-800">
-                <div className="font-medium mb-1">Enhanced Customer Experience</div>
-                <div>
-                  This checkout process will automatically create your customer account, 
-                  avoiding common checkout errors and making future purchases faster.
-                </div>
-              </div>
             </div>
           </div>
 
@@ -364,6 +317,67 @@ const EnhancedCheckoutPage = () => {
                 </div>
               </div>
 
+              {/* NEW: Account Creation Section */}
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="flex items-center mb-4">
+                  <UserPlus className="h-5 w-5 text-travel-blue mr-2" />
+                  <h2 className="text-lg font-semibold text-gray-900">Account Options</h2>
+                </div>
+                
+                <div className="space-y-4">
+                  <label className="flex items-start space-x-3">
+                    <input
+                      type="checkbox"
+                      checked={createAccount}
+                      onChange={(e) => setCreateAccount(e.target.checked)}
+                      className="mt-1 h-4 w-4 text-travel-blue focus:ring-travel-blue border-gray-300 rounded"
+                    />
+                    <div className="flex-1">
+                      <div className="font-medium text-gray-900">Create an account for faster future checkout</div>
+                      <div className="text-sm text-gray-600">
+                        Save your information and track your orders easily
+                      </div>
+                    </div>
+                  </label>
+                  
+                  {createAccount && (
+                    <div className="ml-7 space-y-4 p-4 bg-gray-50 rounded-lg">
+                      <div>
+                        <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                          Password *
+                        </label>
+                        <div className="relative">
+                          <input
+                            type={showPassword ? "text" : "password"}
+                            id="password"
+                            required={createAccount}
+                            value={customerPassword}
+                            onChange={(e) => setCustomerPassword(e.target.value)}
+                            className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                            placeholder="Minimum 6 characters"
+                            minLength={6}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword(!showPassword)}
+                            className="absolute inset-y-0 right-0 pr-3 flex items-center"
+                          >
+                            {showPassword ? (
+                              <EyeOff className="h-4 w-4 text-gray-400" />
+                            ) : (
+                              <Eye className="h-4 w-4 text-gray-400" />
+                            )}
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Password must be at least 6 characters long
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Shipping Address */}
               <div className="bg-white rounded-lg shadow-sm p-6">
                 <div className="flex items-center mb-4">
@@ -389,7 +403,7 @@ const EnhancedCheckoutPage = () => {
                   
                   <div>
                     <label htmlFor="address2" className="block text-sm font-medium text-gray-700 mb-2">
-                      Apartment, suite, etc. (optional)
+                      Apartment, suite, etc.
                     </label>
                     <input
                       type="text"
@@ -397,7 +411,7 @@ const EnhancedCheckoutPage = () => {
                       value={shippingAddress.address2}
                       onChange={(e) => setShippingAddress(prev => ({ ...prev, address2: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                      placeholder="Apt 4B"
+                      placeholder="Apt 2B"
                     />
                   </div>
                   
@@ -426,7 +440,7 @@ const EnhancedCheckoutPage = () => {
                         required
                         value={shippingAddress.state}
                         onChange={(e) => setShippingAddress(prev => ({ ...prev, state: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent bg-white"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                       >
                         <option value="">Select State</option>
                         {states.map(state => (
@@ -448,7 +462,7 @@ const EnhancedCheckoutPage = () => {
                         value={shippingAddress.zipCode}
                         onChange={(e) => setShippingAddress(prev => ({ ...prev, zipCode: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                        placeholder="10001"
+                        placeholder="12345"
                       />
                     </div>
                   </div>
@@ -457,40 +471,42 @@ const EnhancedCheckoutPage = () => {
 
               {/* Order Notes */}
               <div className="bg-white rounded-lg shadow-sm p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Notes (Optional)</h2>
+                <div className="flex items-center mb-4">
+                  <Mail className="h-5 w-5 text-travel-blue mr-2" />
+                  <h2 className="text-lg font-semibold text-gray-900">Order Notes</h2>
+                </div>
+                
                 <textarea
                   value={orderNotes}
                   onChange={(e) => setOrderNotes(e.target.value)}
                   rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                  placeholder="Special delivery instructions, questions, or comments..."
+                  placeholder="Any special instructions for your order..."
                 />
               </div>
             </div>
 
             {/* Right Column - Order Summary */}
             <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg shadow-sm p-6 sticky top-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h2>
+              <div className="bg-white rounded-lg shadow-sm p-6 sticky top-8">
+                <div className="flex items-center mb-4">
+                  <ShoppingCart className="h-5 w-5 text-travel-blue mr-2" />
+                  <h2 className="text-lg font-semibold text-gray-900">Order Summary</h2>
+                </div>
                 
                 {/* Cart Items */}
                 <div className="space-y-3 mb-6">
-                  {items?.map((item) => (
-                    <div key={item.product_id} className="flex items-center space-x-3">
-                      <img
-                        src={item.product_images?.[0] || '/placeholder-product.png'}
-                        alt={item.product_name}
-                        className="w-12 h-12 object-cover rounded"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">
+                  {items.map((item) => (
+                    <div key={item.product_id} className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900 text-sm">
                           {item.product_name}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          Qty: {item.quantity} × ${item.product_price}
-                        </p>
+                        </div>
+                        <div className="text-gray-500 text-xs">
+                          Qty: {item.quantity}
+                        </div>
                       </div>
-                      <div className="text-sm font-medium text-gray-900">
+                      <div className="text-gray-900 font-medium text-sm">
                         ${(item.product_price * item.quantity).toFixed(2)}
                       </div>
                     </div>
@@ -498,7 +514,7 @@ const EnhancedCheckoutPage = () => {
                 </div>
                 
                 {/* Totals */}
-                <div className="border-t pt-4 space-y-2">
+                <div className="space-y-2 border-t pt-4">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Subtotal</span>
                     <span className="text-gray-900">${subtotal.toFixed(2)}</span>
@@ -506,7 +522,7 @@ const EnhancedCheckoutPage = () => {
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Shipping</span>
                     <span className="text-gray-900">
-                      {shipping === 0 ? 'FREE' : `${shipping.toFixed(2)}`}
+                      {shipping === 0 ? 'FREE' : `$${shipping.toFixed(2)}`}
                     </span>
                   </div>
                   <div className="flex justify-between text-sm">
@@ -519,13 +535,13 @@ const EnhancedCheckoutPage = () => {
                   </div>
                 </div>
                 
-                {/* Enhanced Features Notice */}
-                <div className="mt-6 p-4 bg-green-50 rounded-lg">
+                {/* NEW: Enhanced Features Notice */}
+                <div className="mt-6 p-4 bg-blue-50 rounded-lg">
                   <div className="flex items-start space-x-3">
-                    <UserPlus className="h-5 w-5 text-green-600 mt-0.5" />
-                    <div className="text-sm text-green-800">
-                      <div className="font-medium mb-1">Customer Account Creation</div>
-                      <div>We'll automatically create your customer account to avoid checkout errors and speed up future purchases.</div>
+                    <Shield className="h-5 w-5 text-blue-600 mt-0.5" />
+                    <div className="text-sm text-blue-800">
+                      <div className="font-medium mb-1">Unified Checkout</div>
+                      <div>One endpoint handles both guest and account checkout with Storefront API - no address character limits!</div>
                     </div>
                   </div>
                 </div>
@@ -559,38 +575,45 @@ const EnhancedCheckoutPage = () => {
                     {isProcessing ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Creating Account & Order...</span>
+                        <span>
+                          {createAccount ? 'Creating Account & Order...' : 'Processing Order...'}
+                        </span>
                       </>
                     ) : (
                       <>
                         <Shield className="h-4 w-4" />
-                        <span>Create Account & Continue</span>
+                        <span>
+                          {createAccount ? 'Create Account & Continue' : 'Continue as Guest'}
+                        </span>
                       </>
                     )}
                   </button>
                   
                   <p className="text-xs text-gray-500 text-center mt-3">
-                    Your customer account will be created automatically. You'll then be redirected to secure payment.
+                    {createAccount 
+                      ? "Your customer account will be created automatically. You'll then be redirected to secure payment."
+                      : "You'll be redirected to secure payment. No account required."
+                    }
                   </p>
                 </div>
               </div>
             </div>
           </form>
           
-          {/* Process Steps */}
+          {/* NEW: Process Steps - Updated for Unified Approach */}
           <div className="mt-12 bg-white rounded-lg shadow-sm p-8">
             <h3 className="text-lg font-semibold text-gray-900 mb-6 text-center">
-              Enhanced Checkout Process
+              Unified Checkout Process
             </h3>
             
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
               <div className="text-center">
                 <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <span className="text-blue-600 font-bold">1</span>
                 </div>
-                <h4 className="font-medium text-gray-900 mb-2">Create Account</h4>
+                <h4 className="font-medium text-gray-900 mb-2">Choose Option</h4>
                 <p className="text-sm text-gray-600">
-                  We automatically create your customer account to avoid checkout errors
+                  Select guest checkout or create account for future convenience
                 </p>
               </div>
               
@@ -600,7 +623,7 @@ const EnhancedCheckoutPage = () => {
                 </div>
                 <h4 className="font-medium text-gray-900 mb-2">Process Order</h4>
                 <p className="text-sm text-gray-600">
-                  Your order is created in our system with all customer details
+                  Unified API handles both guest and customer orders seamlessly
                 </p>
               </div>
               
@@ -608,10 +631,39 @@ const EnhancedCheckoutPage = () => {
                 <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
                   <span className="text-purple-600 font-bold">3</span>
                 </div>
+                <h4 className="font-medium text-gray-900 mb-2">Account Setup</h4>
+                <p className="text-sm text-gray-600">
+                  If selected, your account is created automatically with order
+                </p>
+              </div>
+              
+              <div className="text-center">
+                <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-orange-600 font-bold">4</span>
+                </div>
                 <h4 className="font-medium text-gray-900 mb-2">Secure Payment</h4>
                 <p className="text-sm text-gray-600">
                   Complete your purchase with our secure payment processor
                 </p>
+              </div>
+            </div>
+            
+            {/* NEW: Benefits of Unified Approach */}
+            <div className="mt-8 pt-8 border-t">
+              <h4 className="text-center font-medium text-gray-900 mb-4">Benefits of Our Unified Checkout</h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div className="flex items-center justify-center space-x-2 text-green-600">
+                  <UserCheck className="h-4 w-4" />
+                  <span>No address character limits</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 text-blue-600">
+                  <Shield className="h-4 w-4" />
+                  <span>Storefront API reliability</span>
+                </div>
+                <div className="flex items-center justify-center space-x-2 text-purple-600">
+                  <UserPlus className="h-4 w-4" />
+                  <span>Optional account creation</span>
+                </div>
               </div>
             </div>
           </div>
