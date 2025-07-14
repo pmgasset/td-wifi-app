@@ -94,7 +94,7 @@ const CheckoutPage = () => {
     setValidationErrors([]);
     
     try {
-      const response = await fetch('/api/zoho-checkout', {
+      const response = await fetch('/api/guest-checkout', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
