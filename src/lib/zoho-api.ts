@@ -1,4 +1,4 @@
-// ===== src/lib/zoho-api.ts ===== (Replace your existing file)
+// ===== src/lib/zoho-api.ts ===== (FIXED VERSION - REPLACE YOUR EXISTING FILE)
 interface ZohoProduct {
   product_id: string;
   name: string;
@@ -139,7 +139,7 @@ class ZohoCommerceAPI {
     }
   }
 
-  // NEW: Extract image URLs from Zoho's documents using the discovered URL pattern
+  // FIXED: Extract image URLs from Zoho's documents using the discovered URL pattern
   private extractImageUrls(product: any): string[] {
     const images: string[] = [];
     
@@ -147,7 +147,6 @@ class ZohoCommerceAPI {
     if (product.documents && Array.isArray(product.documents)) {
       for (const doc of product.documents) {
         if (doc.document_id && doc.file_name) {
-          // Use the discovered URL pattern from your live site
           const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`;
           images.push(imageUrl);
         }
@@ -171,7 +170,6 @@ class ZohoCommerceAPI {
     return images;
   }
 
-  // Helper method to parse stock information
   private parseStock(stockString: string): number {
     if (!stockString) return 0;
     const parsed = parseInt(stockString, 10);
@@ -183,13 +181,11 @@ class ZohoCommerceAPI {
       const response = await this.apiRequest('/products');
       const products = response.products || [];
       
-      // Transform products to match expected interface AND extract images
       return products.map((product: any) => ({
         ...product,
-        // Map Zoho fields to expected fields for backward compatibility
         product_name: product.name,
         product_price: product.min_rate || product.max_rate || 0,
-        product_images: this.extractImageUrls(product), // 🎯 This is the key change!
+        product_images: this.extractImageUrls(product),
         inventory_count: this.parseStock(product.overall_stock),
         product_category: product.category_name || '',
         seo_url: product.url || product.product_id
@@ -207,12 +203,11 @@ class ZohoCommerceAPI {
       
       if (!product) return null;
       
-      // Transform product to match expected interface AND extract images
       return {
         ...product,
         product_name: product.name,
         product_price: product.min_rate || product.max_rate || 0,
-        product_images: this.extractImageUrls(product), // 🎯 This is the key change!
+        product_images: this.extractImageUrls(product),
         inventory_count: this.parseStock(product.overall_stock),
         product_category: product.category_name || '',
         seo_url: product.url || product.product_id
@@ -226,11 +221,17 @@ class ZohoCommerceAPI {
     }
   }
 
+  // ✅ FIXED: Create order without automatically adding customer_id
   async createOrder(orderData: Partial<ZohoOrder>): Promise<ZohoOrder> {
+    console.log('Creating order in Zoho with data:', JSON.stringify(orderData, null, 2));
+    
+    // ✅ CRITICAL FIX: Use the orderData exactly as provided - don't modify it
     const response = await this.apiRequest('/salesorders', {
       method: 'POST',
-      body: JSON.stringify(orderData),
+      body: JSON.stringify(orderData), // Send data exactly as provided
     });
+    
+    console.log('Zoho order creation response:', JSON.stringify(response, null, 2));
     return response.salesorder || response;
   }
 }
