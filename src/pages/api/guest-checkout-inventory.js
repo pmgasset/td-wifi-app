@@ -1,8 +1,11 @@
-// ===== src/pages/api/guest-checkout-inventory.js ===== (ZOHO INVENTORY COMPLETE FLOW)
+// ===== src/pages/api/guest-checkout-inventory.js ===== (FIXED VERSION)
 
 /**
  * Complete guest checkout flow using Zoho Inventory
  * Flow: Contact → Sales Order → Invoice → Payment Collection
+ * 
+ * FIXED: Billing address 100-character limit error
+ * Solution: Use address_id instead of full address objects
  */
 
 export default async function handler(req, res) {
@@ -57,27 +60,21 @@ export default async function handler(req, res) {
 
     console.log('Order totals:', { subtotal, tax, shipping, total });
 
-    // ===== ZOHO INVENTORY GUEST CHECKOUT FLOW =====
+    // ===== ZOHO INVENTORY GUEST CHECKOUT FLOW (FIXED) =====
     
-    let contactId = null;
+    let contactInfo = null;
     let salesOrderId = null;
     let invoiceId = null;
 
     try {
-      // STEP 1: Create or find contact in Zoho Inventory
+      // STEP 1: Create or find contact in Zoho Inventory (FIXED)
       console.log('Step 1: Creating guest contact in Zoho Inventory...');
       
-      const contactData = {
-        contact_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        contact_type: 'customer',
-        customer_sub_type: 'individual',
-        first_name: customerInfo.firstName,
-        last_name: customerInfo.lastName,
+      contactInfo = await createOrFindContact({
+        firstName: customerInfo.firstName,
+        lastName: customerInfo.lastName,
         email: customerInfo.email,
         phone: customerInfo.phone || '',
-        website: '',
-        
-        // Billing address (default)
         billing_address: {
           address: shippingAddress.address1,
           address2: shippingAddress.address2 || '',
@@ -87,8 +84,6 @@ export default async function handler(req, res) {
           country: shippingAddress.country || 'US',
           phone: customerInfo.phone || ''
         },
-        
-        // Shipping address
         shipping_address: {
           address: shippingAddress.address1,
           address2: shippingAddress.address2 || '',
@@ -98,26 +93,20 @@ export default async function handler(req, res) {
           country: shippingAddress.country || 'US',
           phone: customerInfo.phone || ''
         },
-        
-        // Guest-specific settings
-        notes: `Guest customer - Order ${requestId}`,
-        payment_terms: 0, // Net 0 (immediate payment)
-        currency_code: 'USD'
-      };
-
-      const contactResponse = await inventoryApiRequest('/contacts', {
-        method: 'POST',
-        body: JSON.stringify(contactData)
+        requestId
       });
 
-      contactId = contactResponse.contact?.contact_id;
-      console.log('✓ Guest contact created:', contactId);
+      console.log('✓ Contact created/found:', contactInfo.contact_id);
+      console.log('✓ Billing address ID:', contactInfo.billing_address_id);
+      console.log('✓ Shipping address ID:', contactInfo.shipping_address_id);
 
-      // STEP 2: Create sales order
+      // STEP 2: Create sales order (FIXED - using address_id)
       console.log('Step 2: Creating sales order...');
       
       const salesOrderData = {
-        customer_id: contactId,
+        customer_id: contactInfo.contact_id,
+        billing_address_id: contactInfo.billing_address_id, // FIXED: Use address_id
+        shipping_address_id: contactInfo.shipping_address_id, // FIXED: Use address_id
         date: new Date().toISOString().split('T')[0],
         shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 days from now
         
@@ -132,22 +121,9 @@ export default async function handler(req, res) {
           item_order: index
         })),
         
-        // Addresses
-        billing_address: {
-          address: shippingAddress.address1,
-          city: shippingAddress.city,
-          state: shippingAddress.state,
-          zip: shippingAddress.zipCode,
-          country: shippingAddress.country || 'US'
-        },
-        
-        shipping_address: {
-          address: shippingAddress.address1,
-          city: shippingAddress.city,
-          state: shippingAddress.state,
-          zip: shippingAddress.zipCode,
-          country: shippingAddress.country || 'US'
-        },
+        // REMOVED: billing_address and shipping_address objects (this was causing the error)
+        // billing_address: { ... }, // <-- This caused the 100-character limit error
+        // shipping_address: { ... }, // <-- This caused the 100-character limit error
         
         // Order details
         notes: orderNotes || `Guest order from Travel Data WiFi website - ${requestId}`,
@@ -169,14 +145,16 @@ export default async function handler(req, res) {
         body: JSON.stringify(salesOrderData)
       });
 
-      salesOrderId = salesOrderResponse.sales_order?.salesorder_id;
+      salesOrderId = salesOrderResponse.salesorder?.salesorder_id;
       console.log('✓ Sales order created:', salesOrderId);
 
-      // STEP 3: Create invoice from sales order
+      // STEP 3: Create invoice from sales order (FIXED - using address_id)
       console.log('Step 3: Creating invoice from sales order...');
       
       const invoiceData = {
-        customer_id: contactId,
+        customer_id: contactInfo.contact_id,
+        billing_address_id: contactInfo.billing_address_id, // FIXED: Use address_id
+        shipping_address_id: contactInfo.shipping_address_id, // FIXED: Use address_id
         salesorder_id: salesOrderId,
         date: new Date().toISOString().split('T')[0],
         due_date: new Date().toISOString().split('T')[0], // Due today (guest checkout)
@@ -191,6 +169,10 @@ export default async function handler(req, res) {
           unit: 'qty',
           item_order: index
         })),
+        
+        // REMOVED: billing_address and shipping_address objects (this was causing the error)
+        // billing_address: { ... }, // <-- This caused the 100-character limit error
+        // shipping_address: { ... }, // <-- This caused the 100-character limit error
         
         // Invoice settings
         payment_terms: 0, // Net 0 (immediate)
@@ -240,7 +222,7 @@ export default async function handler(req, res) {
         paymentUrl = `${req.headers.origin}/payment/invoice?${new URLSearchParams({
           invoice_id: invoiceId,
           invoice_number: invoiceNumber,
-          contact_id: contactId,
+          contact_id: contactInfo.contact_id,
           amount: total.toString(),
           currency: 'USD',
           customer_email: customerInfo.email,
@@ -260,10 +242,14 @@ export default async function handler(req, res) {
         type: 'guest_checkout_inventory',
         
         // Order identifiers
-        contact_id: contactId,
+        contact_id: contactInfo.contact_id,
         sales_order_id: salesOrderId,
         invoice_id: invoiceId,
         invoice_number: invoiceNumber,
+        
+        // Address identifiers (for reference)
+        billing_address_id: contactInfo.billing_address_id,
+        shipping_address_id: contactInfo.shipping_address_id,
         
         // Financial details
         total_amount: total,
@@ -325,17 +311,21 @@ export default async function handler(req, res) {
         
         // Progress tracking
         progress: {
-          contact_created: !!contactId,
+          contact_created: !!contactInfo?.contact_id,
+          address_ids_captured: !!(contactInfo?.billing_address_id && contactInfo?.shipping_address_id),
           sales_order_created: !!salesOrderId,
           invoice_created: !!invoiceId,
-          step_failed: !contactId ? 'contact_creation' : 
+          step_failed: !contactInfo?.contact_id ? 'contact_creation' : 
+                       !contactInfo?.billing_address_id ? 'address_id_extraction' :
                        !salesOrderId ? 'sales_order_creation' : 
                        !invoiceId ? 'invoice_creation' : 'payment_setup'
         },
         
         // Debugging information
         debug_info: {
-          contact_id: contactId,
+          contact_id: contactInfo?.contact_id,
+          billing_address_id: contactInfo?.billing_address_id,
+          shipping_address_id: contactInfo?.shipping_address_id,
           sales_order_id: salesOrderId,
           invoice_id: invoiceId,
           cart_items_count: cartItems.length,
@@ -361,7 +351,110 @@ export default async function handler(req, res) {
   }
 }
 
-// ===== HELPER FUNCTIONS =====
+// ===== HELPER FUNCTIONS (FIXED) =====
+
+/**
+ * Create or find contact in Zoho Inventory and extract address IDs
+ * FIXED: Properly captures billing_address_id and shipping_address_id
+ */
+async function createOrFindContact(customerData) {
+  const contactName = `${customerData.firstName} ${customerData.lastName}`;
+  
+  try {
+    // First, try to find existing contact by email
+    console.log('Searching for existing contact by email...');
+    
+    try {
+      const searchResponse = await inventoryApiRequest(`/contacts?email=${encodeURIComponent(customerData.email)}`);
+      
+      if (searchResponse.contacts && searchResponse.contacts.length > 0) {
+        const existingContact = searchResponse.contacts[0];
+        console.log('Found existing contact:', existingContact.contact_id);
+        
+        // Return existing contact with address IDs
+        return {
+          contact_id: existingContact.contact_id,
+          billing_address_id: existingContact.billing_address?.address_id,
+          shipping_address_id: existingContact.shipping_address?.address_id || existingContact.billing_address?.address_id
+        };
+      }
+    } catch (searchError) {
+      console.log('Contact search failed, proceeding with creation...');
+    }
+
+    // Create new contact if not found
+    console.log('Creating new contact...');
+    
+    const contactData = {
+      contact_name: contactName,
+      contact_type: 'customer',
+      customer_sub_type: 'individual',
+      first_name: customerData.firstName,
+      last_name: customerData.lastName,
+      email: customerData.email,
+      phone: customerData.phone,
+      website: '',
+      
+      // Billing address (default)
+      billing_address: {
+        address: customerData.billing_address.address,
+        address2: customerData.billing_address.address2,
+        city: customerData.billing_address.city,
+        state: customerData.billing_address.state,
+        zip: customerData.billing_address.zip,
+        country: customerData.billing_address.country,
+        phone: customerData.billing_address.phone
+      },
+      
+      // Shipping address
+      shipping_address: {
+        address: customerData.shipping_address.address,
+        address2: customerData.shipping_address.address2,
+        city: customerData.shipping_address.city,
+        state: customerData.shipping_address.state,
+        zip: customerData.shipping_address.zip,
+        country: customerData.shipping_address.country,
+        phone: customerData.shipping_address.phone
+      },
+      
+      // Guest-specific settings
+      notes: `Guest customer - Order ${customerData.requestId}`,
+      payment_terms: 0, // Net 0 (immediate payment)
+      currency_code: 'USD'
+    };
+
+    const contactResponse = await inventoryApiRequest('/contacts', {
+      method: 'POST',
+      body: JSON.stringify(contactData)
+    });
+
+    const createdContact = contactResponse.contact;
+    
+    if (!createdContact?.contact_id) {
+      throw new Error('Contact creation failed - no contact_id returned');
+    }
+
+    // CRITICAL: Extract address IDs from the response
+    const billingAddressId = createdContact.billing_address?.address_id;
+    const shippingAddressId = createdContact.shipping_address?.address_id || billingAddressId;
+
+    if (!billingAddressId) {
+      throw new Error('Contact created but missing billing_address_id');
+    }
+
+    console.log('✓ Contact created successfully with address IDs');
+
+    return {
+      contact_id: createdContact.contact_id,
+      billing_address_id: billingAddressId,
+      shipping_address_id: shippingAddressId
+    };
+
+  } catch (error) {
+    console.error('Failed to create/find contact:', error);
+    throw new Error(`Contact handling failed: ${error.message}`);
+  }
+}
 
 async function inventoryApiRequest(endpoint, options = {}) {
   const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID || process.env.ZOHO_STORE_ID;
@@ -382,6 +475,9 @@ async function inventoryApiRequest(endpoint, options = {}) {
   };
 
   console.log(`Inventory API Request: ${options.method || 'GET'} ${url}`);
+  if (options.body) {
+    console.log('Request payload length:', options.body.length);
+  }
 
   const response = await fetch(url, {
     ...options,
@@ -402,7 +498,7 @@ async function inventoryApiRequest(endpoint, options = {}) {
     const jsonResponse = JSON.parse(responseText);
     
     if (jsonResponse.code && jsonResponse.code !== 0) {
-      throw new Error(`Inventory API error: ${jsonResponse.message || 'Unknown error'} (Code: ${jsonResponse.code})`);
+      throw new Error(`Inventory API error: ${jsonResponse.code} - ${jsonResponse.message || 'Unknown error'}`);
     }
     
     return jsonResponse;
@@ -454,7 +550,11 @@ async function getZohoAccessToken() {
 }
 
 function getInventoryErrorSuggestion(errorMessage) {
-  if (errorMessage?.includes('organization_id')) {
+  if (errorMessage?.includes('billing_address') && errorMessage?.includes('100 characters')) {
+    return 'FIXED: Now using address_id instead of full billing_address object to avoid 100-character limit';
+  } else if (errorMessage?.includes('address_id')) {
+    return 'Check that contact was created successfully and address_id was extracted properly';
+  } else if (errorMessage?.includes('organization_id')) {
     return 'Check ZOHO_INVENTORY_ORGANIZATION_ID environment variable';
   } else if (errorMessage?.includes('contact')) {
     return 'Contact creation failed - check customer information format';
