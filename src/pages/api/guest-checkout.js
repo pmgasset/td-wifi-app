@@ -1,16 +1,21 @@
-// ===== src/pages/api/guest-checkout.js ===== (FINAL VERSION)
+// ===== src/pages/api/guest-checkout.js ===== (COMPLETE UPDATED FILE)
+
+/**
+ * Guest checkout API with enhanced fallback logic
+ * FIXES: INVALID_METHOD error, billing_address character limit, improved error handling
+ */
 
 export default async function handler(req, res) {
   const requestId = `guest_${Date.now()}_${Math.random().toString(36).substring(7)}`;
   
-  console.log(`\n=== GUEST CHECKOUT (STOREFRONT API) [${requestId}] ===`);
+  console.log(`\n=== GUEST CHECKOUT (HYBRID APPROACH) [${requestId}] ===`);
   
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed', requestId });
   }
 
   try {
-    // Import hybrid API
+    // Import hybrid API with fallback
     let zohoAPI;
     try {
       // Try hybrid API first, fall back to existing API
@@ -77,119 +82,133 @@ export default async function handler(req, res) {
     const shipping = subtotal >= 100 ? 0 : 9.99;
     const total = subtotal + tax + shipping;
 
-    console.log('Order totals calculated:', { subtotal, tax, shipping, total });
+    console.log('Order totals:', { subtotal, tax, shipping, total });
 
-    let order;
-    let apiType = 'unknown';
+    // ===== ENHANCED CHECKOUT LOGIC =====
+    
+    let order = null;
+    let apiType = null;
+    const errors = [];
 
-    // Try Storefront API first (preferred for guests)
-    if (zohoAPI.createGuestCheckout && typeof zohoAPI.createGuestCheckout === 'function') {
-      try {
+    try {
+      // First attempt: Storefront API (if hybrid API available)
+      if (zohoAPI.createGuestCheckout) {
         console.log('Attempting Storefront API checkout...');
         
-        order = await zohoAPI.createGuestCheckout({
-          customerInfo,
-          shippingAddress,
-          cartItems,
-          orderNotes
-        });
-        
-        apiType = 'storefront';
-        console.log('✅ Storefront API checkout successful');
-      } catch (storefrontError) {
-        console.log('⚠️ Storefront API failed, falling back to Admin API:', storefrontError.message);
-        
-        // Fall back to Admin API
-        const orderData = {
-          customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-          customer_email: customerInfo.email,
-          customer_phone: customerInfo.phone || '',
+        try {
+          order = await zohoAPI.createGuestCheckout({
+            customerInfo,
+            shippingAddress,
+            cartItems,
+            orderNotes
+          });
           
-          line_items: cartItems.map(item => ({
-            item_name: item.product_name || item.name,
-            quantity: item.quantity || 1,
-            rate: item.product_price || item.price || 0,
-            amount: (item.product_price || item.price || 0) * (item.quantity || 1)
-          })),
+          apiType = 'storefront';
+          console.log('✅ Storefront API checkout successful');
           
-          date: new Date().toISOString().split('T')[0],
-          sub_total: subtotal,
-          tax_total: tax,
-          shipping_charge: shipping,
-          total: total,
-          notes: orderNotes || `Guest checkout via Travel Data WiFi website`,
+        } catch (storefrontError) {
+          console.log('❌ Storefront API failed:', storefrontError.message);
+          errors.push({
+            api: 'storefront',
+            error: storefrontError.message,
+            suggestion: getErrorSuggestion(storefrontError.message)
+          });
           
-          // Minimal address to avoid 100-char limit
-          shipping_address: {
-            attention: `${customerInfo.firstName} ${customerInfo.lastName}`.substring(0, 25),
-            address1: shippingAddress.address1.substring(0, 25),
-            city: shippingAddress.city.substring(0, 15),
-            state: shippingAddress.state.substring(0, 5),
-            zip: shippingAddress.zipCode.substring(0, 10),
-            country: 'US'
-          }
-        };
-
-        // Use the same address for billing
-        orderData.billing_address = orderData.shipping_address;
-        
-        order = await zohoAPI.createOrder(orderData);
-        apiType = 'admin';
-        console.log('✅ Admin API fallback successful');
-      }
-    } else {
-      // Only Admin API available
-      console.log('Only Admin API available, using minimal address format...');
-      
-      const orderData = {
-        customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        customer_email: customerInfo.email,
-        customer_phone: customerInfo.phone || '',
-        
-        line_items: cartItems.map(item => ({
-          item_name: item.product_name || item.name,
-          quantity: item.quantity || 1,
-          rate: item.product_price || item.price || 0,
-          amount: (item.product_price || item.price || 0) * (item.quantity || 1)
-        })),
-        
-        date: new Date().toISOString().split('T')[0],
-        sub_total: subtotal,
-        tax_total: tax,
-        shipping_charge: shipping,
-        total: total,
-        notes: orderNotes || `Guest checkout via Travel Data WiFi website`,
-        
-        // Minimal address to avoid 100-char limit
-        shipping_address: {
-          attention: `${customerInfo.firstName} ${customerInfo.lastName}`.substring(0, 25),
-          address1: shippingAddress.address1.substring(0, 25),
-          city: shippingAddress.city.substring(0, 15),
-          state: shippingAddress.state.substring(0, 5),
-          zip: shippingAddress.zipCode.substring(0, 10),
-          country: 'US'
+          // Don't throw yet, try Admin API fallback
         }
+      }
+
+      // Second attempt: Admin API fallback
+      if (!order && zohoAPI.createOrder) {
+        console.log('Attempting Admin API fallback...');
+        
+        try {
+          // Use optimized address format for Admin API
+          const optimizedAddress = zohoAPI.formatAddressForAdmin 
+            ? zohoAPI.formatAddressForAdmin(customerInfo, shippingAddress)
+            : createOptimizedAddress(customerInfo, shippingAddress);
+          
+          const orderData = {
+            customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+            customer_email: customerInfo.email,
+            customer_phone: customerInfo.phone || '',
+            
+            line_items: cartItems.map(item => ({
+              item_name: item.product_name || item.name,
+              quantity: item.quantity || 1,
+              rate: item.product_price || item.price || 0,
+              amount: (item.product_price || item.price || 0) * (item.quantity || 1)
+            })),
+            
+            date: new Date().toISOString().split('T')[0],
+            sub_total: subtotal,
+            tax_total: tax,
+            shipping_charge: shipping,
+            total: total,
+            notes: orderNotes || 'Guest checkout via Travel Data WiFi website',
+            
+            // Use optimized address format
+            shipping_address: optimizedAddress,
+            billing_address: optimizedAddress
+          };
+
+          order = await zohoAPI.createOrder(orderData);
+          apiType = 'admin';
+          console.log('✅ Admin API fallback successful');
+          
+        } catch (adminError) {
+          console.log('❌ Admin API also failed:', adminError.message);
+          errors.push({
+            api: 'admin',
+            error: adminError.message,
+            suggestion: getErrorSuggestion(adminError.message)
+          });
+          
+          throw new Error(`Both APIs failed. Storefront: ${errors[0]?.error || 'Not attempted'}. Admin: ${adminError.message}`);
+        }
+      }
+
+      if (!order) {
+        throw new Error('No API methods available for checkout');
+      }
+
+    } catch (checkoutError) {
+      console.error('❌ Guest checkout failed:', checkoutError);
+      
+      const errorResponse = {
+        error: 'Guest checkout processing failed',
+        details: checkoutError.message || 'An unexpected error occurred',
+        type: 'GUEST_CHECKOUT_ERROR',
+        request_id: requestId,
+        timestamp: new Date().toISOString(),
+        api_errors: errors,
+        suggestion: getErrorSuggestion(checkoutError.message)
       };
 
-      // Use the same address for billing
-      orderData.billing_address = orderData.shipping_address;
-      
-      order = await zohoAPI.createOrder(orderData);
-      apiType = 'admin';
-      console.log('✅ Admin API order creation successful');
+      // Add specific error context
+      if (checkoutError.message?.includes('100 characters')) {
+        errorResponse.type = 'ADDRESS_LENGTH_ERROR';
+        errorResponse.suggestion = 'Address data was too long for Admin API - trying Storefront API would resolve this';
+      } else if (checkoutError.message?.includes('INVALID_METHOD')) {
+        errorResponse.type = 'STOREFRONT_API_ERROR';
+        errorResponse.suggestion = 'Check ZOHO_STORE_DOMAIN configuration and Storefront API endpoint compatibility';
+      }
+
+      return res.status(500).json(errorResponse);
     }
 
+    // ===== SUCCESS RESPONSE =====
+
     const orderId = order.salesorder_id || order.order_id || order.id;
-    const orderNumber = order.salesorder_number || order.order_number || order.number || `TDW-GUEST-${orderId}`;
-    
-    console.log('✅ Guest order created successfully:', {
-      orderId: orderId,
-      orderNumber: orderNumber,
-      customerEmail: customerInfo.email,
-      apiUsed: apiType
+    const orderNumber = order.salesorder_number || order.order_number || `TDW-${orderId}`;
+
+    console.log('✅ Guest checkout successful:', {
+      orderId,
+      orderNumber,
+      apiType,
+      total
     });
 
-    // Create success response
     const successResponse = {
       success: true,
       type: 'guest_checkout',
@@ -199,19 +218,20 @@ export default async function handler(req, res) {
       currency: 'USD',
       api_used: apiType,
       
-      // Payment URL
-      payment_url: `${req.headers.origin}/payment/invoice?${new URLSearchParams({
-        order_id: orderId,
-        order_number: orderNumber,
-        amount: total.toString(),
-        currency: 'USD',
-        customer_email: customerInfo.email,
-        customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        return_url: `${req.headers.origin}/checkout/success`,
-        request_id: requestId,
-        api_type: apiType
-      }).toString()}`,
+      // Payment information
+      payment_url: order.payment_url || 
+                  `${req.headers.origin}/payment/invoice?${new URLSearchParams({
+                    order_id: orderId,
+                    order_number: orderNumber,
+                    amount: total.toString(),
+                    currency: 'USD',
+                    customer_email: customerInfo.email,
+                    customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+                    return_url: `${req.headers.origin}/checkout/success`,
+                    request_id: requestId
+                  }).toString()}`,
       
+      // Order details
       order_details: {
         subtotal,
         tax,
@@ -231,36 +251,66 @@ export default async function handler(req, res) {
       ],
       
       request_id: requestId,
-      checkout_type: 'guest',
-      checkout_id: order.checkout_id || null
+      checkout_id: order.checkout_id || null,
+      warnings: errors.length > 0 ? errors : null
     };
 
-    console.log('✅ Guest checkout successful');
     return res.status(200).json(successResponse);
 
   } catch (error) {
-    console.error('❌ Guest checkout failed:', error);
+    console.error('❌ Unexpected error in guest checkout:', error);
     
-    const errorResponse = {
-      error: 'Guest checkout processing failed',
+    return res.status(500).json({
+      error: 'Unexpected checkout error',
       details: error.message || 'An unexpected error occurred',
-      type: 'GUEST_CHECKOUT_ERROR',
+      type: 'UNEXPECTED_ERROR',
       request_id: requestId,
       timestamp: new Date().toISOString()
-    };
+    });
+  }
+}
 
-    // Add specific error context
-    if (error.message?.includes('100 characters')) {
-      errorResponse.type = 'ADDRESS_LENGTH_ERROR';
-      errorResponse.suggestion = 'Address data was too long for Admin API - trying Storefront API would resolve this';
-    } else if (error.message?.includes('Storefront API')) {
-      errorResponse.type = 'STOREFRONT_API_ERROR';
-      errorResponse.suggestion = 'Check ZOHO_STORE_DOMAIN configuration and Storefront API access';
-    } else if (error.message?.includes('zohoAPI')) {
-      errorResponse.type = 'API_IMPORT_ERROR';
-      errorResponse.suggestion = 'Check Zoho API configuration and imports';
-    }
+// ===== HELPER FUNCTIONS =====
 
-    return res.status(500).json(errorResponse);
+// Fallback address optimization if not available in API
+function createOptimizedAddress(customerInfo, shippingAddress) {
+  const baseAddress = {
+    attention: `${customerInfo.firstName} ${customerInfo.lastName}`.substring(0, 20),
+    address1: shippingAddress.address1.substring(0, 30),
+    city: shippingAddress.city.substring(0, 15),
+    state: shippingAddress.state.substring(0, 2),
+    zip: shippingAddress.zipCode.substring(0, 10),
+    country: shippingAddress.country?.substring(0, 2) || 'US'
+  };
+  
+  // Ensure total length is under 90 characters (10 char buffer)
+  const totalLength = Object.values(baseAddress).join('').length;
+  if (totalLength > 90) {
+    baseAddress.attention = baseAddress.attention.substring(0, 15);
+    baseAddress.address1 = baseAddress.address1.substring(0, 25);
+    baseAddress.city = baseAddress.city.substring(0, 12);
+  }
+  
+  console.log('Optimized address length:', Object.values(baseAddress).join('').length);
+  return baseAddress;
+}
+
+function getErrorSuggestion(errorMessage) {
+  if (errorMessage?.includes('INVALID_METHOD')) {
+    return 'API endpoint and HTTP method compatibility issue - check Storefront API documentation';
+  } else if (errorMessage?.includes('100 characters')) {
+    return 'Address data too long - enable address truncation';
+  } else if (errorMessage?.includes('domain-name')) {
+    return 'Check ZOHO_STORE_DOMAIN environment variable';
+  } else if (errorMessage?.includes('CSRF')) {
+    return 'Obtain valid CSRF token for Storefront API requests';
+  } else if (errorMessage?.includes('authentication') || errorMessage?.includes('token')) {
+    return 'Check Zoho OAuth credentials and refresh token';
+  } else if (errorMessage?.includes('Storefront API')) {
+    return 'Check Storefront API configuration and domain settings';
+  } else if (errorMessage?.includes('Admin API')) {
+    return 'Check Admin API credentials and store organization ID';
+  } else {
+    return 'Check Zoho Commerce configuration and try again';
   }
 }

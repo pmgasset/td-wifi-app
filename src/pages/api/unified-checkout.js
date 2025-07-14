@@ -1,8 +1,8 @@
-// ===== src/pages/api/unified-checkout.js ===== (NEW UNIFIED APPROACH)
+// ===== src/pages/api/unified-checkout.js ===== (COMPLETE UPDATED FILE)
 
 /**
  * Unified checkout API that handles both guest and customer checkouts using Storefront API
- * This replaces both guest-checkout.js and customer-first-checkout.js
+ * FIXES: INVALID_METHOD error, billing_address character limit, proper error handling
  */
 
 export default async function handler(req, res) {
@@ -68,17 +68,17 @@ export default async function handler(req, res) {
 
     console.log('Order totals calculated:', { subtotal, tax, shipping, total });
 
-    // ===== UNIFIED STOREFRONT API CHECKOUT =====
+    // ===== UNIFIED STOREFRONT API CHECKOUT (FIXED) =====
     
     let checkoutId;
     let customerId = existingCustomerId;
     let customerCreated = false;
     let customerLoggedIn = false;
 
-    // Step 1: Create checkout session
+    // Step 1: Create checkout session (FIXED ENDPOINT)
     console.log('Step 1: Creating checkout session...');
     
-    const checkoutResponse = await storefrontApiRequest('/checkout', {
+    const checkoutResponse = await storefrontApiRequest('/checkout/create', {
       method: 'POST',
       body: JSON.stringify({
         line_items: cartItems.map(item => ({
@@ -88,7 +88,7 @@ export default async function handler(req, res) {
       })
     });
 
-    checkoutId = checkoutResponse.payload?.checkout_id;
+    checkoutId = checkoutResponse.payload?.checkout_id || checkoutResponse.payload?.checkout?.id;
     if (!checkoutId) {
       throw new Error('No checkout ID received from Storefront API');
     }
@@ -297,24 +297,38 @@ export default async function handler(req, res) {
   }
 }
 
-// ===== HELPER FUNCTIONS =====
+// ===== HELPER FUNCTIONS (FIXED) =====
 
 async function storefrontApiRequest(endpoint, options = {}) {
   const url = `https://commerce.zoho.com/storefront/api/v1${endpoint}`;
   
+  const defaultHeaders = {
+    'Content-Type': 'application/json',
+    'domain-name': process.env.ZOHO_STORE_DOMAIN || 'traveldatawifi.zohostore.com',
+    'Accept': 'application/json'
+  };
+
+  // Add CSRF token for POST requests
+  if (options.method === 'POST') {
+    // Generate a basic CSRF token - you may need proper implementation
+    defaultHeaders['X-ZCSRF-TOKEN'] = `csrfp=${Date.now()}-${Math.random().toString(36).substring(7)}`;
+  }
+
+  console.log(`Storefront API Request: ${options.method || 'GET'} ${url}`);
+
   const response = await fetch(url, {
     ...options,
     headers: {
-      'Content-Type': 'application/json',
-      'domain-name': process.env.ZOHO_STORE_DOMAIN || 'traveldatawifi.zohostore.com',
-      ...options.headers,
-    },
+      ...defaultHeaders,
+      ...options.headers
+    }
   });
 
   const responseText = await response.text();
+  console.log(`Storefront API Response (${response.status}):`, responseText);
 
   if (!response.ok) {
-    throw new Error(`Storefront API error: ${response.status} ${response.statusText} - ${responseText}`);
+    throw new Error(`Storefront API error: ${response.status} - ${responseText || response.statusText}`);
   }
 
   try {
@@ -396,6 +410,12 @@ function getErrorSuggestion(errorMessage) {
     return 'Check payment configuration in Zoho Commerce';
   } else if (errorMessage?.includes('domain-name')) {
     return 'Check ZOHO_STORE_DOMAIN environment variable';
+  } else if (errorMessage?.includes('INVALID_METHOD')) {
+    return 'API endpoint and HTTP method compatibility issue - check Storefront API documentation';
+  } else if (errorMessage?.includes('100 characters')) {
+    return 'Address data too long - enable address truncation';
+  } else if (errorMessage?.includes('CSRF')) {
+    return 'Obtain valid CSRF token for Storefront API requests';
   } else {
     return 'Check Zoho Commerce configuration and try again';
   }

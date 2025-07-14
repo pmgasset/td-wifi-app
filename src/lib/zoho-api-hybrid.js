@@ -234,7 +234,7 @@ class HybridZohoCommerceAPI {
     
     try {
       // Step 1: Create checkout session
-      const checkoutResponse = await this.storefrontApiRequest('/checkout', {
+      const checkoutResponse = await this.storefrontApiRequest('/checkout/create', {
         method: 'POST',
         body: JSON.stringify({
           line_items: checkoutData.cartItems.map(item => ({
