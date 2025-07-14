@@ -81,6 +81,47 @@ export default async function handler(req, res) {
 
     console.log('Order totals calculated:', { subtotal, tax, shipping, total });
 
+    // ✅ Helper function to create Zoho-compliant addresses
+    const createZohoAddress = (customerInfo, shippingAddress) => {
+      const attention = `${customerInfo.firstName} ${customerInfo.lastName}`.substring(0, 50);
+      const address1 = shippingAddress.address1.substring(0, 50);
+      const address2 = (shippingAddress.address2 || '').substring(0, 50);
+      const city = shippingAddress.city.substring(0, 30);
+      const state = shippingAddress.state.substring(0, 20);
+      const zip = shippingAddress.zipCode.substring(0, 10);
+      const country = (shippingAddress.country || 'US').substring(0, 5);
+      const phone = (customerInfo.phone || '').substring(0, 20);
+      
+      const addressObj = {
+        attention,
+        address1,
+        address2,
+        city,
+        state,
+        zip,
+        country,
+        phone
+      };
+      
+      // Calculate total character count
+      const totalChars = Object.values(addressObj).join('').length;
+      console.log('Address character counts:', {
+        attention: attention.length,
+        address1: address1.length,
+        address2: address2.length,
+        city: city.length,
+        state: state.length,
+        zip: zip.length,
+        country: country.length,
+        phone: phone.length,
+        total_characters: totalChars
+      });
+      
+      return addressObj;
+    };
+
+    const zohoAddress = createZohoAddress(customerInfo, shippingAddress);
+
     // ✅ FIXED: Guest order data format (no customer_id field)
     const orderData = {
       customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
@@ -103,29 +144,11 @@ export default async function handler(req, res) {
       
       notes: orderNotes || `Guest checkout via Travel Data WiFi website`,
       
-      // ✅ FIXED: Proper address format for Zoho
-      shipping_address: {
-        attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        address1: shippingAddress.address1,
-        address2: shippingAddress.address2 || '',
-        city: shippingAddress.city,
-        state: shippingAddress.state,
-        zip: shippingAddress.zipCode,
-        country: shippingAddress.country || 'US',
-        phone: customerInfo.phone || ''
-      },
+      // ✅ FIXED: Use the compliant address helper
+      shipping_address: zohoAddress,
       
-      // Use shipping address as billing address for guest orders
-      billing_address: {
-        attention: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        address1: shippingAddress.address1,
-        address2: shippingAddress.address2 || '',
-        city: shippingAddress.city,
-        state: shippingAddress.state,
-        zip: shippingAddress.zipCode,
-        country: shippingAddress.country || 'US',
-        phone: customerInfo.phone || ''
-      },
+      // Use same address for billing (guest orders)
+      billing_address: zohoAddress,
       
       custom_fields: [
         { label: 'Checkout Type', value: 'Guest Checkout' },
