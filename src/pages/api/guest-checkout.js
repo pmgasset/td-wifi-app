@@ -1,8 +1,8 @@
-// ===== src/pages/api/guest-checkout.js ===== (FIXED - CORRECT VARIANT ID)
+// ===== src/pages/api/guest-checkout.js ===== (FIXED - CORRECT API FORMAT)
 
 /**
- * Guest checkout using correct Storefront API flow with proper variant ID handling
- * FIXES: Uses correct product_variant_id instead of product_id
+ * Guest checkout using correct Storefront API format
+ * FIXES: quantity as string, proper headers, URL format
  */
 
 export default async function handler(req, res) {
@@ -99,7 +99,7 @@ export default async function handler(req, res) {
 
       resolvedCartItems.push({
         product_variant_id: variantId,
-        quantity: item.quantity || 1,
+        quantity: String(item.quantity || 1), // FIXED: Convert to string
         // Keep original item data for reference
         original_product_id: item.product_id,
         product_name: item.product_name || item.name,
@@ -113,6 +113,7 @@ export default async function handler(req, res) {
     
     let cartId = null;
     let checkoutId = null;
+    let sessionCookie = null;
 
     try {
       // STEP 1: Add items to cart (creates anonymous cart for guest)
@@ -123,21 +124,28 @@ export default async function handler(req, res) {
         
         const addToCartData = {
           product_variant_id: item.product_variant_id,
-          quantity: item.quantity
+          quantity: item.quantity // Now as string
         };
 
         console.log(`Cart API payload for item ${index + 1}:`, JSON.stringify(addToCartData));
 
-        const cartResponse = await storefrontApiRequest('/cart', {
+        const cartResponse = await storefrontApiRequest('/cart?', { // FIXED: Added ? at end
           method: 'POST',
-          body: JSON.stringify(addToCartData)
+          body: JSON.stringify(addToCartData),
+          sessionCookie: sessionCookie // Pass any existing session
         });
 
-        // Get cart ID from first item (all subsequent items use the same cart)
+        // Get cart ID and session from first item
         if (!cartId && cartResponse.payload) {
           cartId = cartResponse.payload.cart_id;
           checkoutId = cartId; // Cart ID and checkout ID are the same
           console.log('✓ Cart created with ID:', cartId);
+          
+          // Extract session cookie if provided in response
+          if (cartResponse.sessionCookie) {
+            sessionCookie = cartResponse.sessionCookie;
+            console.log('✓ Session cookie established');
+          }
         }
 
         console.log(`✓ Item ${index + 1} added to cart`);
@@ -171,7 +179,8 @@ export default async function handler(req, res) {
 
       await storefrontApiRequest(`/checkout/address?checkout_id=${checkoutId}`, {
         method: 'POST',
-        body: JSON.stringify(addressData)
+        body: JSON.stringify(addressData),
+        sessionCookie: sessionCookie
       });
 
       console.log('✓ Address added to checkout');
@@ -182,7 +191,8 @@ export default async function handler(req, res) {
       try {
         // Get checkout details including shipping methods
         const checkoutDetailsResponse = await storefrontApiRequest(`/checkout?checkout_id=${checkoutId}`, {
-          method: 'GET'
+          method: 'GET',
+          sessionCookie: sessionCookie
         });
 
         const shippingMethods = checkoutDetailsResponse.payload?.checkout?.shipping_methods || [];
@@ -197,7 +207,8 @@ export default async function handler(req, res) {
 
           await storefrontApiRequest(`/checkout/shipping-methods?checkout_id=${checkoutId}`, {
             method: 'POST',
-            body: JSON.stringify(shippingData)
+            body: JSON.stringify(shippingData),
+            sessionCookie: sessionCookie
           });
 
           console.log('✓ Shipping method selected:', selectedShipping.name || selectedShipping.shipping_id);
@@ -213,7 +224,8 @@ export default async function handler(req, res) {
       console.log('Step 4: Placing order...');
       
       const orderResponse = await storefrontApiRequest(`/checkout/offlinepayment?checkout_id=${checkoutId}`, {
-        method: 'POST'
+        method: 'POST',
+        sessionCookie: sessionCookie
       });
 
       // Extract order information
@@ -300,15 +312,18 @@ export default async function handler(req, res) {
         debug_info: {
           cart_id: cartId,
           checkout_id: checkoutId,
+          session_cookie: !!sessionCookie,
           step_reached: cartId ? 'address_or_shipping' : 'cart_creation',
           resolved_variants: resolvedCartItems.map(item => ({
             original_product_id: item.original_product_id,
-            resolved_variant_id: item.product_variant_id
+            resolved_variant_id: item.product_variant_id,
+            quantity_type: typeof item.quantity
           })),
           original_cart_items: cartItems.map(item => ({
             product_id: item.product_id,
             variant_id: item.variant_id,
-            quantity: item.quantity
+            quantity: item.quantity,
+            quantity_type: typeof item.quantity
           }))
         }
       };
@@ -340,25 +355,44 @@ async function storefrontApiRequest(endpoint, options = {}) {
     'Accept': 'application/json'
   };
 
+  // Add session cookie if available (for cart continuity)
+  if (options.sessionCookie) {
+    defaultHeaders['Cookie'] = options.sessionCookie;
+  }
+
   // Add CSRF token for POST requests
   if (options.method === 'POST') {
     // Generate a basic CSRF token
     defaultHeaders['X-ZCSRF-TOKEN'] = `csrfp=${Date.now()}-${Math.random().toString(36).substring(7)}`;
   }
 
-  console.log(`Storefront API Request: ${options.method || 'GET'} ${url}`);
-  console.log(`Request payload:`, options.body || 'No body');
+  // Remove sessionCookie from options before passing to fetch
+  const { sessionCookie, ...fetchOptions } = options;
+
+  console.log(`Storefront API Request: ${fetchOptions.method || 'GET'} ${url}`);
+  console.log(`Request headers:`, JSON.stringify(defaultHeaders, null, 2));
+  console.log(`Request payload:`, fetchOptions.body || 'No body');
 
   const response = await fetch(url, {
-    ...options,
+    ...fetchOptions,
     headers: {
       ...defaultHeaders,
-      ...options.headers
+      ...fetchOptions.headers
     }
   });
 
   const responseText = await response.text();
   console.log(`Storefront API Response (${response.status}):`, responseText);
+
+  // Extract session cookie from response headers for future requests
+  let responseSessionCookie = null;
+  const setCookieHeader = response.headers.get('set-cookie');
+  if (setCookieHeader && setCookieHeader.includes('zcid=')) {
+    const zcidMatch = setCookieHeader.match(/zcid=([^;]+)/);
+    if (zcidMatch) {
+      responseSessionCookie = `zcid=${zcidMatch[1]}`;
+    }
+  }
 
   if (!response.ok) {
     throw new Error(`Storefront API error: ${response.status} - ${responseText || response.statusText}`);
@@ -369,6 +403,11 @@ async function storefrontApiRequest(endpoint, options = {}) {
     
     if (jsonResponse.status_code && jsonResponse.status_code !== '0') {
       throw new Error(`Storefront API error: ${jsonResponse.status_message || jsonResponse.developer_message || 'Unknown error'}`);
+    }
+    
+    // Attach session cookie to response for next request
+    if (responseSessionCookie) {
+      jsonResponse.sessionCookie = responseSessionCookie;
     }
     
     return jsonResponse;
@@ -382,7 +421,9 @@ async function storefrontApiRequest(endpoint, options = {}) {
 
 function getErrorSuggestion(errorMessage) {
   if (errorMessage?.includes('Invalid input')) {
-    return 'Check product variant IDs - products may need valid variant_id instead of product_id';
+    return 'Check data format - quantity should be string, product_variant_id should be valid';
+  } else if (errorMessage?.includes('insufficient stock')) {
+    return 'Product is out of stock or requested quantity exceeds available inventory';
   } else if (errorMessage?.includes('404')) {
     return 'API endpoint not found - check ZOHO_STORE_DOMAIN and endpoint URLs';
   } else if (errorMessage?.includes('domain-name')) {
