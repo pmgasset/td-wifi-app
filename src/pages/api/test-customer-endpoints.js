@@ -1,5 +1,5 @@
 // ===== src/pages/api/test-customer-endpoints.js ===== (CREATE THIS FILE)
-import { enhancedZohoAPI } from '../../lib/zoho-api-enhanced';
+import { enhancedZohoAPI } from '../../lib/zoho-api';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
