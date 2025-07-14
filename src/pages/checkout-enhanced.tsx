@@ -1,0 +1,624 @@
+// ===== src/pages/checkout-enhanced.tsx ===== (CREATE THIS FILE)
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import Layout from '../components/Layout';
+import { useCartStore } from '../store/cart';
+import { 
+  ShoppingCart, 
+  MapPin, 
+  User, 
+  Mail, 
+  Phone, 
+  AlertCircle, 
+  Loader2,
+  ArrowLeft,
+  Shield,
+  UserPlus,
+  UserCheck
+} from 'lucide-react';
+import toast from 'react-hot-toast';
+
+const EnhancedCheckoutPage = () => {
+  const router = useRouter();
+  const { items, getTotalPrice, isHydrated } = useCartStore();
+  
+  // Component state
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Form state
+  const [customerInfo, setCustomerInfo] = useState({
+    email: '',
+    firstName: '',
+    lastName: '',
+    phone: ''
+  });
+  
+  const [shippingAddress, setShippingAddress] = useState({
+    address1: '',
+    address2: '',
+    city: '',
+    state: '',
+    zipCode: '',
+    country: 'US'
+  });
+  
+  const [orderNotes, setOrderNotes] = useState('');
+  const [agreeToTerms, setAgreeToTerms] = useState(false);
+  
+  // UI state
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
+  const [customerCreated, setCustomerCreated] = useState<boolean | null>(null);
+  const [processStep, setProcessStep] = useState<'form' | 'processing' | 'success'>('form');
+
+  // Wait for cart to hydrate
+  useEffect(() => {
+    if (isHydrated) {
+      setIsLoading(false);
+    }
+  }, [isHydrated]);
+
+  // Calculate totals
+  const subtotal = items?.reduce((sum, item) => sum + (item.product_price * item.quantity), 0) || 0;
+  const shipping = subtotal >= 100 ? 0 : 9.99;
+  const tax = Math.round(subtotal * 0.0875 * 100) / 100;
+  const total = subtotal + shipping + tax;
+
+  // US States
+  const states = [
+    { code: 'AL', name: 'Alabama' }, { code: 'AK', name: 'Alaska' }, { code: 'AZ', name: 'Arizona' },
+    { code: 'AR', name: 'Arkansas' }, { code: 'CA', name: 'California' }, { code: 'CO', name: 'Colorado' },
+    { code: 'CT', name: 'Connecticut' }, { code: 'DE', name: 'Delaware' }, { code: 'FL', name: 'Florida' },
+    { code: 'GA', name: 'Georgia' }, { code: 'HI', name: 'Hawaii' }, { code: 'ID', name: 'Idaho' },
+    { code: 'IL', name: 'Illinois' }, { code: 'IN', name: 'Indiana' }, { code: 'IA', name: 'Iowa' },
+    { code: 'KS', name: 'Kansas' }, { code: 'KY', name: 'Kentucky' }, { code: 'LA', name: 'Louisiana' },
+    { code: 'ME', name: 'Maine' }, { code: 'MD', name: 'Maryland' }, { code: 'MA', name: 'Massachusetts' },
+    { code: 'MI', name: 'Michigan' }, { code: 'MN', name: 'Minnesota' }, { code: 'MS', name: 'Mississippi' },
+    { code: 'MO', name: 'Missouri' }, { code: 'MT', name: 'Montana' }, { code: 'NE', name: 'Nebraska' },
+    { code: 'NV', name: 'Nevada' }, { code: 'NH', name: 'New Hampshire' }, { code: 'NJ', name: 'New Jersey' },
+    { code: 'NM', name: 'New Mexico' }, { code: 'NY', name: 'New York' }, { code: 'NC', name: 'North Carolina' },
+    { code: 'ND', name: 'North Dakota' }, { code: 'OH', name: 'Ohio' }, { code: 'OK', name: 'Oklahoma' },
+    { code: 'OR', name: 'Oregon' }, { code: 'PA', name: 'Pennsylvania' }, { code: 'RI', name: 'Rhode Island' },
+    { code: 'SC', name: 'South Carolina' }, { code: 'SD', name: 'South Dakota' }, { code: 'TN', name: 'Tennessee' },
+    { code: 'TX', name: 'Texas' }, { code: 'UT', name: 'Utah' }, { code: 'VT', name: 'Vermont' },
+    { code: 'VA', name: 'Virginia' }, { code: 'WA', name: 'Washington' }, { code: 'WV', name: 'West Virginia' },
+    { code: 'WI', name: 'Wisconsin' }, { code: 'WY', name: 'Wyoming' }
+  ];
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!agreeToTerms) {
+      toast.error('Please agree to the terms and conditions');
+      return;
+    }
+    
+    setIsProcessing(true);
+    setValidationErrors([]);
+    setProcessStep('processing');
+    
+    try {
+      console.log('Starting customer-first checkout...');
+      
+      const response = await fetch('/api/customer-first-checkout', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          customerInfo,
+          shippingAddress,
+          cartItems: items,
+          orderNotes
+        }),
+      });
+      
+      const result = await response.json();
+      
+      if (!response.ok) {
+        if (result.details && Array.isArray(result.details)) {
+          setValidationErrors(result.details);
+        }
+        throw new Error(result.error || 'Customer-first checkout failed');
+      }
+      
+      console.log('✅ Customer-first checkout successful:', result);
+      
+      // Show success message with customer creation status
+      if (result.customer_created) {
+        toast.success(`Customer account created! Redirecting to payment...`);
+        setCustomerCreated(true);
+      } else {
+        toast.success('Order created! Redirecting to payment...');
+        setCustomerCreated(false);
+      }
+      
+      // Redirect to payment page
+      if (result.checkout_url) {
+        setTimeout(() => {
+          window.location.href = result.checkout_url;
+        }, 2000);
+      } else {
+        throw new Error('No payment URL received');
+      }
+      
+    } catch (error: any) {
+      console.error('Customer-first checkout error:', error);
+      toast.error(error.message || 'Something went wrong. Please try again.');
+      setIsProcessing(false);
+      setProcessStep('form');
+    }
+  };
+
+  // Show loading while hydrating
+  if (isLoading) {
+    return (
+      <Layout title="Loading Checkout - Travel Data WiFi">
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <Loader2 className="h-12 w-12 animate-spin text-travel-blue mx-auto mb-4" />
+            <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Enhanced Checkout</h2>
+            <p className="text-gray-600">Please wait...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Show empty cart message
+  if (!items || items.length === 0) {
+    return (
+      <Layout title="Enhanced Checkout - Travel Data WiFi">
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="max-w-md mx-auto text-center">
+            <div className="bg-white rounded-lg shadow-lg p-8">
+              <ShoppingCart className="h-16 w-16 text-gray-400 mx-auto mb-6" />
+              <h1 className="text-2xl font-bold text-gray-900 mb-4">Your Cart is Empty</h1>
+              <p className="text-gray-600 mb-6">Add some products to your cart before proceeding to checkout.</p>
+              
+              <div className="space-y-3">
+                <button
+                  onClick={() => router.push('/products')}
+                  className="w-full bg-travel-blue text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+                >
+                  Browse Products
+                </button>
+                
+                <button
+                  onClick={() => router.back()}
+                  className="w-full bg-gray-100 text-gray-700 py-3 px-4 rounded-lg font-medium hover:bg-gray-200 transition-colors"
+                >
+                  Go Back
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Show processing state
+  if (processStep === 'processing') {
+    return (
+      <Layout title="Processing Checkout - Travel Data WiFi">
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="max-w-md mx-auto text-center">
+            <div className="bg-white rounded-lg shadow-lg p-8">
+              <div className="mb-6">
+                {customerCreated === null ? (
+                  <Loader2 className="h-16 w-16 animate-spin text-travel-blue mx-auto" />
+                ) : customerCreated ? (
+                  <UserPlus className="h-16 w-16 text-green-500 mx-auto" />
+                ) : (
+                  <UserCheck className="h-16 w-16 text-blue-500 mx-auto" />
+                )}
+              </div>
+              
+              <h1 className="text-2xl font-bold text-gray-900 mb-4">
+                {customerCreated === null ? 'Processing Your Order...' : 
+                 customerCreated ? 'Customer Account Created!' : 'Order Created!'}
+              </h1>
+              
+              <p className="text-gray-600 mb-6">
+                {customerCreated === null ? 'Please wait while we set up your order...' :
+                 'Redirecting you to secure payment...'}
+              </p>
+              
+              {customerCreated !== null && (
+                <div className="text-sm text-gray-500">
+                  {customerCreated ? 
+                    'Your customer account has been created for faster future checkouts.' :
+                    'Your order has been created as a guest order.'
+                  }
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  return (
+    <Layout title="Enhanced Checkout - Travel Data WiFi">
+      <div className="min-h-screen bg-gray-50 py-12">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Header */}
+          <div className="mb-8">
+            <button
+              onClick={() => router.back()}
+              className="flex items-center space-x-2 text-travel-blue hover:text-blue-700 mb-6"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              <span>Back to Cart</span>
+            </button>
+            
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-gray-900 mb-4">Enhanced Checkout</h1>
+              <p className="text-gray-600">
+                We'll create your customer account automatically for faster future checkouts
+              </p>
+            </div>
+          </div>
+
+          {/* Enhanced Features Notice */}
+          <div className="mb-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="flex items-start space-x-3">
+              <UserPlus className="h-5 w-5 text-blue-600 mt-0.5" />
+              <div className="text-sm text-blue-800">
+                <div className="font-medium mb-1">Enhanced Customer Experience</div>
+                <div>
+                  This checkout process will automatically create your customer account, 
+                  avoiding common checkout errors and making future purchases faster.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Validation Errors */}
+          {validationErrors.length > 0 && (
+            <div className="mb-8 bg-red-50 border border-red-200 rounded-lg p-4">
+              <div className="flex items-center mb-2">
+                <AlertCircle className="h-5 w-5 text-red-600 mr-2" />
+                <h3 className="text-red-800 font-medium">Please fix the following issues:</h3>
+              </div>
+              <ul className="list-disc list-inside text-red-700 space-y-1">
+                {validationErrors.map((error, index) => (
+                  <li key={index}>{error}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Left Column - Forms */}
+            <div className="lg:col-span-2 space-y-8">
+              {/* Customer Information */}
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="flex items-center mb-4">
+                  <User className="h-5 w-5 text-travel-blue mr-2" />
+                  <h2 className="text-lg font-semibold text-gray-900">Customer Information</h2>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                      Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      id="email"
+                      required
+                      value={customerInfo.email}
+                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, email: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                      placeholder="your@email.com"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+                      Phone Number *
+                    </label>
+                    <input
+                      type="tel"
+                      id="phone"
+                      required
+                      value={customerInfo.phone}
+                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, phone: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                      placeholder="(555) 123-4567"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
+                      First Name *
+                    </label>
+                    <input
+                      type="text"
+                      id="firstName"
+                      required
+                      value={customerInfo.firstName}
+                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, firstName: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                      placeholder="John"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-2">
+                      Last Name *
+                    </label>
+                    <input
+                      type="text"
+                      id="lastName"
+                      required
+                      value={customerInfo.lastName}
+                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, lastName: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                      placeholder="Doe"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Shipping Address */}
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <div className="flex items-center mb-4">
+                  <MapPin className="h-5 w-5 text-travel-blue mr-2" />
+                  <h2 className="text-lg font-semibold text-gray-900">Shipping Address</h2>
+                </div>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label htmlFor="address1" className="block text-sm font-medium text-gray-700 mb-2">
+                      Street Address *
+                    </label>
+                    <input
+                      type="text"
+                      id="address1"
+                      required
+                      value={shippingAddress.address1}
+                      onChange={(e) => setShippingAddress(prev => ({ ...prev, address1: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                      placeholder="123 Main Street"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="address2" className="block text-sm font-medium text-gray-700 mb-2">
+                      Apartment, suite, etc. (optional)
+                    </label>
+                    <input
+                      type="text"
+                      id="address2"
+                      value={shippingAddress.address2}
+                      onChange={(e) => setShippingAddress(prev => ({ ...prev, address2: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                      placeholder="Apt 4B"
+                    />
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label htmlFor="city" className="block text-sm font-medium text-gray-700 mb-2">
+                        City *
+                      </label>
+                      <input
+                        type="text"
+                        id="city"
+                        required
+                        value={shippingAddress.city}
+                        onChange={(e) => setShippingAddress(prev => ({ ...prev, city: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        placeholder="New York"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label htmlFor="state" className="block text-sm font-medium text-gray-700 mb-2">
+                        State *
+                      </label>
+                      <select
+                        id="state"
+                        required
+                        value={shippingAddress.state}
+                        onChange={(e) => setShippingAddress(prev => ({ ...prev, state: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent bg-white"
+                      >
+                        <option value="">Select State</option>
+                        {states.map(state => (
+                          <option key={state.code} value={state.code}>
+                            {state.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    
+                    <div>
+                      <label htmlFor="zipCode" className="block text-sm font-medium text-gray-700 mb-2">
+                        ZIP Code *
+                      </label>
+                      <input
+                        type="text"
+                        id="zipCode"
+                        required
+                        value={shippingAddress.zipCode}
+                        onChange={(e) => setShippingAddress(prev => ({ ...prev, zipCode: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        placeholder="10001"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Order Notes */}
+              <div className="bg-white rounded-lg shadow-sm p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Notes (Optional)</h2>
+                <textarea
+                  value={orderNotes}
+                  onChange={(e) => setOrderNotes(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                  placeholder="Special delivery instructions, questions, or comments..."
+                />
+              </div>
+            </div>
+
+            {/* Right Column - Order Summary */}
+            <div className="lg:col-span-1">
+              <div className="bg-white rounded-lg shadow-sm p-6 sticky top-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h2>
+                
+                {/* Cart Items */}
+                <div className="space-y-3 mb-6">
+                  {items?.map((item) => (
+                    <div key={item.product_id} className="flex items-center space-x-3">
+                      <img
+                        src={item.product_images?.[0] || '/placeholder-product.png'}
+                        alt={item.product_name}
+                        className="w-12 h-12 object-cover rounded"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {item.product_name}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          Qty: {item.quantity} × ${item.product_price}
+                        </p>
+                      </div>
+                      <div className="text-sm font-medium text-gray-900">
+                        ${(item.product_price * item.quantity).toFixed(2)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                {/* Totals */}
+                <div className="border-t pt-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span className="text-gray-900">${subtotal.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Shipping</span>
+                    <span className="text-gray-900">
+                      {shipping === 0 ? 'FREE' : `${shipping.toFixed(2)}`}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Tax</span>
+                    <span className="text-gray-900">${tax.toFixed(2)}</span>
+                  </div>
+                  <div className="border-t pt-2 flex justify-between text-lg font-semibold">
+                    <span className="text-gray-900">Total</span>
+                    <span className="text-travel-blue">${total.toFixed(2)}</span>
+                  </div>
+                </div>
+                
+                {/* Enhanced Features Notice */}
+                <div className="mt-6 p-4 bg-green-50 rounded-lg">
+                  <div className="flex items-start space-x-3">
+                    <UserPlus className="h-5 w-5 text-green-600 mt-0.5" />
+                    <div className="text-sm text-green-800">
+                      <div className="font-medium mb-1">Customer Account Creation</div>
+                      <div>We'll automatically create your customer account to avoid checkout errors and speed up future purchases.</div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Terms and Submit */}
+                <div className="mt-6">
+                  <label className="flex items-start space-x-3 mb-4">
+                    <input
+                      type="checkbox"
+                      checked={agreeToTerms}
+                      onChange={(e) => setAgreeToTerms(e.target.checked)}
+                      className="mt-1 h-4 w-4 text-travel-blue focus:ring-travel-blue border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-600">
+                      I agree to the{' '}
+                      <a href="/terms" target="_blank" className="text-travel-blue hover:underline">
+                        Terms of Service
+                      </a>{' '}
+                      and{' '}
+                      <a href="/privacy" target="_blank" className="text-travel-blue hover:underline">
+                        Privacy Policy
+                      </a>
+                    </span>
+                  </label>
+                  
+                  <button
+                    type="submit"
+                    disabled={isProcessing || !agreeToTerms}
+                    className="w-full bg-travel-blue text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Creating Account & Order...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Shield className="h-4 w-4" />
+                        <span>Create Account & Continue</span>
+                      </>
+                    )}
+                  </button>
+                  
+                  <p className="text-xs text-gray-500 text-center mt-3">
+                    Your customer account will be created automatically. You'll then be redirected to secure payment.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </form>
+          
+          {/* Process Steps */}
+          <div className="mt-12 bg-white rounded-lg shadow-sm p-8">
+            <h3 className="text-lg font-semibold text-gray-900 mb-6 text-center">
+              Enhanced Checkout Process
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="text-center">
+                <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-blue-600 font-bold">1</span>
+                </div>
+                <h4 className="font-medium text-gray-900 mb-2">Create Account</h4>
+                <p className="text-sm text-gray-600">
+                  We automatically create your customer account to avoid checkout errors
+                </p>
+              </div>
+              
+              <div className="text-center">
+                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-green-600 font-bold">2</span>
+                </div>
+                <h4 className="font-medium text-gray-900 mb-2">Process Order</h4>
+                <p className="text-sm text-gray-600">
+                  Your order is created in our system with all customer details
+                </p>
+              </div>
+              
+              <div className="text-center">
+                <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-purple-600 font-bold">3</span>
+                </div>
+                <h4 className="font-medium text-gray-900 mb-2">Secure Payment</h4>
+                <p className="text-sm text-gray-600">
+                  Complete your purchase with our secure payment processor
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
+};
+
+export default EnhancedCheckoutPage;

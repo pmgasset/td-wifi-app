@@ -1,4 +1,25 @@
-// ===== src/lib/zoho-api.ts ===== (FIXED VERSION - REPLACE YOUR EXISTING FILE)
+// ===== src/lib/zoho-api.ts ===== (ENHANCED VERSION WITH CUSTOMER SUPPORT)
+interface ZohoCustomer {
+  customer_id?: string;
+  contact_id?: string;
+  id?: string;
+  name: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+  billing_address?: {
+    address1: string;
+    address2?: string;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+  };
+  created_time?: string;
+  status?: string;
+}
+
 interface ZohoProduct {
   product_id: string;
   name: string;
@@ -28,7 +49,7 @@ interface ZohoProduct {
   category_id: string;
   url: string;
   overall_stock: string;
-  // Compatibility fields added by transformation
+  // Compatibility fields
   product_name?: string;
   product_price?: number;
   product_images?: string[];
@@ -38,18 +59,27 @@ interface ZohoProduct {
 }
 
 interface ZohoOrder {
-  order_id: string;
+  salesorder_id?: string;
+  order_id?: string;
+  id?: string;
+  customer_id?: string;
   customer_email: string;
-  order_items: Array<{
-    product_id: string;
+  customer_name: string;
+  line_items: Array<{
+    item_name: string;
     quantity: number;
-    price: number;
+    rate: number;
+    amount: number;
   }>;
-  order_total: number;
-  shipping_address: any;
+  total: number;
+  sub_total: number;
+  tax_total?: number;
+  shipping_charge?: number;
+  date: string;
+  notes?: string;
 }
 
-class ZohoCommerceAPI {
+class EnhancedZohoCommerceAPI {
   private baseURL = 'https://commerce.zoho.com/store/api/v1';
   private accessToken: string | null = null;
   private tokenExpiry: number = 0;
@@ -120,7 +150,10 @@ class ZohoCommerceAPI {
     const responseText = await response.text();
 
     if (!response.ok) {
-      throw new Error(`Zoho API error: ${response.status} ${response.statusText} - ${responseText}`);
+      const error = new Error(`Zoho API error: ${response.status} ${response.statusText} - ${responseText}`);
+      (error as any).status = response.status;
+      (error as any).responseText = responseText;
+      throw error;
     }
 
     try {
@@ -139,11 +172,193 @@ class ZohoCommerceAPI {
     }
   }
 
-  // FIXED: Extract image URLs from Zoho's documents using the discovered URL pattern
+  // ===== CUSTOMER MANAGEMENT METHODS =====
+
+  /**
+   * Create a new customer in Zoho Commerce
+   * Tries multiple possible endpoints to find the working one
+   */
+  async createCustomer(customerData: Partial<ZohoCustomer>): Promise<ZohoCustomer | null> {
+    const customerEndpoints = [
+      '/customers',
+      '/contacts', 
+      '/people',
+      '/buyers'
+    ];
+
+    console.log('Attempting to create customer:', customerData);
+
+    for (const endpoint of customerEndpoints) {
+      try {
+        console.log(`Trying customer creation at: ${endpoint}`);
+        
+        const response = await this.apiRequest(endpoint, {
+          method: 'POST',
+          body: JSON.stringify(customerData)
+        });
+
+        console.log(`✅ Customer created successfully at ${endpoint}:`, response);
+        
+        // Return the customer data with standardized ID
+        const customer = response.customer || response.contact || response.person || response.buyer || response;
+        
+        return {
+          ...customer,
+          customer_id: customer.customer_id || customer.contact_id || customer.id || customer.person_id || customer.buyer_id
+        };
+
+      } catch (error) {
+        console.log(`❌ Customer creation failed at ${endpoint}:`, error instanceof Error ? error.message : error);
+        continue;
+      }
+    }
+
+    console.log('❌ All customer creation endpoints failed');
+    return null;
+  }
+
+  /**
+   * Search for existing customer by email
+   */
+  async findCustomerByEmail(email: string): Promise<ZohoCustomer | null> {
+    const searchEndpoints = [
+      `/customers?email=${encodeURIComponent(email)}`,
+      `/contacts?email=${encodeURIComponent(email)}`,
+      `/customers/search?email=${encodeURIComponent(email)}`,
+      `/contacts/search?email=${encodeURIComponent(email)}`
+    ];
+
+    for (const endpoint of searchEndpoints) {
+      try {
+        console.log(`Searching for customer at: ${endpoint}`);
+        
+        const response = await this.apiRequest(endpoint);
+        
+        const customers = response.customers || 
+                         response.contacts || 
+                         response.data || 
+                         (Array.isArray(response) ? response : []);
+        
+        if (customers.length > 0) {
+          const customer = customers[0];
+          console.log(`✅ Found existing customer:`, customer);
+          
+          return {
+            ...customer,
+            customer_id: customer.customer_id || customer.contact_id || customer.id
+          };
+        }
+
+      } catch (error) {
+        console.log(`❌ Customer search failed at ${endpoint}:`, error instanceof Error ? error.message : error);
+        continue;
+      }
+    }
+
+    console.log('❌ Customer not found with any search method');
+    return null;
+  }
+
+  /**
+   * Get or create customer - tries to find existing first, creates if not found
+   */
+  async getOrCreateCustomer(customerData: Partial<ZohoCustomer>): Promise<{ customer: ZohoCustomer | null; created: boolean }> {
+    if (!customerData.email) {
+      throw new Error('Email is required to get or create customer');
+    }
+
+    // First try to find existing customer
+    console.log('Step 1: Looking for existing customer...');
+    const existingCustomer = await this.findCustomerByEmail(customerData.email);
+    
+    if (existingCustomer) {
+      console.log('✅ Using existing customer:', existingCustomer.customer_id);
+      return { customer: existingCustomer, created: false };
+    }
+
+    // Create new customer if not found
+    console.log('Step 2: Creating new customer...');
+    const newCustomer = await this.createCustomer(customerData);
+    
+    if (newCustomer) {
+      console.log('✅ Created new customer:', newCustomer.customer_id);
+      return { customer: newCustomer, created: true };
+    }
+
+    console.log('❌ Could not create customer');
+    return { customer: null, created: false };
+  }
+
+  // ===== ENHANCED ORDER METHODS =====
+
+  /**
+   * Create order with automatic customer handling
+   */
+  async createOrderWithCustomer(orderData: Partial<ZohoOrder>, customerInfo?: {
+    firstName: string;
+    lastName: string;
+    email: string;
+    phone?: string;
+  }, shippingAddress?: any): Promise<{ order: ZohoOrder; customer?: ZohoCustomer; customerCreated?: boolean }> {
+    
+    let customer: ZohoCustomer | null = null;
+    let customerCreated = false;
+
+    // Try to create/find customer if customer info provided
+    if (customerInfo) {
+      console.log('Attempting to get or create customer...');
+      
+      try {
+        const customerData: Partial<ZohoCustomer> = {
+          name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+          email: customerInfo.email,
+          first_name: customerInfo.firstName,
+          last_name: customerInfo.lastName,
+          phone: customerInfo.phone || '',
+          ...(shippingAddress && {
+            billing_address: {
+              address1: shippingAddress.address1,
+              address2: shippingAddress.address2 || '',
+              city: shippingAddress.city,
+              state: shippingAddress.state,
+              zip: shippingAddress.zipCode,
+              country: shippingAddress.country || 'US'
+            }
+          })
+        };
+
+        const customerResult = await this.getOrCreateCustomer(customerData);
+        customer = customerResult.customer;
+        customerCreated = customerResult.created;
+
+      } catch (customerError) {
+        console.log('⚠️ Customer creation failed, proceeding without customer_id:', customerError instanceof Error ? customerError.message : customerError);
+      }
+    }
+
+    // Create order data with customer_id if available
+    const finalOrderData = {
+      ...orderData,
+      ...(customer?.customer_id && { customer_id: customer.customer_id })
+    };
+
+    console.log(`Creating order ${customer ? 'WITH' : 'WITHOUT'} customer_id...`);
+    
+    // Create the order
+    const order = await this.createOrder(finalOrderData);
+    
+    return {
+      order,
+      customer: customer || undefined,
+      customerCreated
+    };
+  }
+
+  // ===== EXISTING METHODS (ENHANCED) =====
+
   private extractImageUrls(product: any): string[] {
     const images: string[] = [];
     
-    // Check main product documents
     if (product.documents && Array.isArray(product.documents)) {
       for (const doc of product.documents) {
         if (doc.document_id && doc.file_name) {
@@ -153,7 +368,6 @@ class ZohoCommerceAPI {
       }
     }
     
-    // Check variant documents as fallback
     if (images.length === 0 && product.variants && Array.isArray(product.variants)) {
       for (const variant of product.variants) {
         if (variant.documents && Array.isArray(variant.documents)) {
@@ -221,20 +435,42 @@ class ZohoCommerceAPI {
     }
   }
 
-  // ✅ FIXED: Create order without automatically adding customer_id
   async createOrder(orderData: Partial<ZohoOrder>): Promise<ZohoOrder> {
     console.log('Creating order in Zoho with data:', JSON.stringify(orderData, null, 2));
     
-    // ✅ CRITICAL FIX: Use the orderData exactly as provided - don't modify it
     const response = await this.apiRequest('/salesorders', {
       method: 'POST',
-      body: JSON.stringify(orderData), // Send data exactly as provided
+      body: JSON.stringify(orderData),
     });
     
     console.log('Zoho order creation response:', JSON.stringify(response, null, 2));
     return response.salesorder || response;
   }
+
+  // ===== DIAGNOSTIC METHODS =====
+
+  /**
+   * Test customer endpoints to see which ones work
+   */
+  async testCustomerEndpoints(): Promise<{ working: string[]; failed: string[] }> {
+    const endpoints = ['/customers', '/contacts', '/people', '/buyers'];
+    const working: string[] = [];
+    const failed: string[] = [];
+
+    for (const endpoint of endpoints) {
+      try {
+        await this.apiRequest(endpoint);
+        working.push(endpoint);
+        console.log(`✅ ${endpoint} - accessible`);
+      } catch (error) {
+        failed.push(endpoint);
+        console.log(`❌ ${endpoint} - failed:`, error instanceof Error ? error.message : error);
+      }
+    }
+
+    return { working, failed };
+  }
 }
 
-export const zohoAPI = new ZohoCommerceAPI();
-export type { ZohoProduct, ZohoOrder };
+export const enhancedZohoAPI = new EnhancedZohoCommerceAPI();
+export type { ZohoCustomer, ZohoProduct, ZohoOrder };
