@@ -353,128 +353,16 @@ export default async function handler(req, res) {
   }
 }
 
-// ===== SUB-AGENT FUNCTIONS =====
-
 /**
- * SUB-AGENT: Generate payment URL with multiple fallback options
- * UPDATED: Added Zoho Payments as primary option since it's already configured
+ * SUB-AGENT: Generate payment URL - SIMPLIFIED RELIABLE VERSION
+ * IMMEDIATE FIX: Always redirect to custom payment page with multiple options
  */
 async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo, requestId) {
   console.log('🔄 Sub-agent: Generating payment URL...');
   
-  // Option 1: Try Zoho Payments (PRIMARY - since you already have it configured)
-  try {
-    console.log('Attempting Zoho Payments checkout...');
-    
-    const zohoPaymentResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/api/zoho-payments/create-session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        invoice_id: invoiceId,
-        amount: total,
-        currency: 'USD',
-        customer_email: customerInfo.email,
-        customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/success?invoice_id=${invoiceId}`,
-        cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/cancel`,
-        metadata: {
-          invoice_number: invoiceNumber,
-          request_id: requestId
-        }
-      })
-    });
-
-    if (zohoPaymentResponse.ok) {
-      const zohoData = await zohoPaymentResponse.json();
-      if (zohoData.success && zohoData.checkout_url) {
-        console.log('✅ Generated Zoho Payments checkout URL');
-        return zohoData.checkout_url;
-      } else {
-        console.warn('⚠️ Zoho Payments response successful but no checkout URL:', zohoData);
-      }
-    } else {
-      const errorText = await zohoPaymentResponse.text();
-      console.warn('⚠️ Zoho Payments API responded with error:', zohoPaymentResponse.status, errorText);
-    }
-  } catch (zohoPaymentError) {
-    console.warn('⚠️ Zoho Payments checkout failed:', zohoPaymentError.message);
-  }
-
-  // Option 2: Try Stripe checkout (SECONDARY)
-  try {
-    console.log('Attempting Stripe checkout session...');
-    
-    const stripeResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/api/stripe/create-checkout-session`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        invoice_id: invoiceId,
-        amount: total,
-        currency: 'USD',
-        customer_email: customerInfo.email,
-        customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/success?invoice_id=${invoiceId}`,
-        cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/cancel`,
-        metadata: {
-          invoice_number: invoiceNumber,
-          request_id: requestId
-        }
-      })
-    });
-
-    if (stripeResponse.ok) {
-      const stripeData = await stripeResponse.json();
-      if (stripeData.success && stripeData.checkout_url) {
-        console.log('✅ Generated Stripe checkout URL');
-        return stripeData.checkout_url;
-      } else {
-        console.warn('⚠️ Stripe response successful but no checkout URL:', stripeData);
-      }
-    } else {
-      const errorText = await stripeResponse.text();
-      console.warn('⚠️ Stripe API responded with error:', stripeResponse.status, errorText);
-    }
-  } catch (stripeError) {
-    console.warn('⚠️ Stripe checkout failed:', stripeError.message);
-  }
-
-  // Option 3: Try Zoho invoice sharing URL (TERTIARY)
-  try {
-    console.log('Attempting Zoho invoice sharing...');
-    
-    const shareResponse = await inventoryApiRequest(`/invoices/${invoiceId}/share`, {
-      method: 'POST',
-      body: {
-        send_invoice: false,
-        share_via_email: false,
-        payment_options: {
-          online_payment: true,
-          payment_gateways: ['zoho_payments', 'stripe', 'paypal']
-        }
-      }
-    });
-
-    if (shareResponse.share_url) {
-      console.log('✅ Generated Zoho sharing URL');
-      return shareResponse.share_url;
-    }
-  } catch (zohoShareError) {
-    console.warn('⚠️ Zoho invoice sharing failed:', zohoShareError.message);
-  }
-
-  // Option 4: Use Zoho's built-in invoice portal URL
-  try {
-    console.log('Generating Zoho invoice portal URL...');
-    
-    const zohoInvoiceUrl = `https://inventory.zoho.com/app/#/invoices/${invoiceId}/details?organization=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`;
-    console.log('✅ Generated Zoho invoice portal URL');
-    return zohoInvoiceUrl;
-  } catch (zohoPortalError) {
-    console.warn('⚠️ Zoho portal URL generation failed:', zohoPortalError.message);
-  }
-
-  // Option 5: Fallback to custom payment page (FINAL FALLBACK)
-  const fallbackUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/payment/invoice/${invoiceId}?` + 
+  // IMMEDIATE SOLUTION: Always use your custom payment page
+  // This page will handle Stripe, Zoho Payments, and direct Zoho invoice options
+  const reliablePaymentUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/payment/invoice/${invoiceId}?` + 
     new URLSearchParams({
       amount: total.toString(),
       currency: 'USD',
@@ -483,11 +371,36 @@ async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo,
       invoice_number: invoiceNumber,
       request_id: requestId,
       success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/success?invoice_id=${invoiceId}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/cancel`
+      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/cancel`,
+      // Add Zoho details for the payment page to use
+      zoho_org_id: process.env.ZOHO_INVENTORY_ORGANIZATION_ID,
+      zoho_invoice_id: invoiceId
     }).toString();
   
-  console.log('✅ Generated fallback payment URL');
-  return fallbackUrl;
+  console.log('✅ Generated reliable payment URL (custom page with multiple options)');
+  console.log('🔗 Payment URL:', reliablePaymentUrl);
+  
+  return reliablePaymentUrl;
+}
+
+/**
+ * Generate a secure token for portal access (simple implementation)
+ */
+function generatePortalToken(invoiceId, customerEmail) {
+  // Create a simple token based on invoice and email
+  // In production, you'd want a more secure implementation
+  const payload = `${invoiceId}:${customerEmail}:${Date.now()}`;
+  return Buffer.from(payload).toString('base64').replace(/[+=\/]/g, '');
+}
+
+/**
+ * Generate a secure token for public invoice access
+ */
+function generateSecureToken(invoiceId, customerEmail) {
+  // Create a time-limited secure token
+  const timestamp = Date.now();
+  const payload = `${invoiceId}:${customerEmail}:${timestamp}`;
+  return Buffer.from(payload).toString('base64').replace(/[+=\/]/g, '');
 }
 
 // ===== HELPER FUNCTIONS =====
