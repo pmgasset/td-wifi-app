@@ -313,13 +313,28 @@ export default async function handler(req, res) {
     } catch (inventoryError) {
       console.error('❌ Zoho Inventory checkout failed:', inventoryError);
       
+      // Check if this is a rate limiting error
+      const isRateLimited = inventoryError.message.includes('rate limited') || 
+                           inventoryError.message.includes('too many requests') ||
+                           inventoryError.message.includes('Rate limited');
+      
       // Enhanced error response with step tracking
       const errorResponse = {
-        error: 'Zoho Inventory checkout failed',
+        error: isRateLimited ? 'Rate limit exceeded' : 'Zoho Inventory checkout failed',
         details: inventoryError.message || 'Inventory API error occurred',
-        type: 'INVENTORY_API_ERROR',
+        type: isRateLimited ? 'RATE_LIMIT_ERROR' : 'INVENTORY_API_ERROR',
         request_id: requestId,
         timestamp: new Date().toISOString(),
+        
+        // Rate limiting specific guidance
+        ...(isRateLimited && {
+          retry_after: 60, // seconds
+          rate_limit_info: {
+            suggestion: 'Please wait 60 seconds before retrying',
+            cause: 'Too many authentication requests to Zoho',
+            solution: 'The system now caches tokens to prevent this in future requests'
+          }
+        }),
         
         // Progress tracking
         progress: {
@@ -341,13 +356,14 @@ export default async function handler(req, res) {
           sales_order_id: salesOrderId,
           invoice_id: invoiceId,
           cart_items_count: cartItems.length,
-          calculated_total: total
+          calculated_total: total,
+          token_cached: !!cachedAccessToken
         },
         
         suggestion: getInventoryErrorSuggestion(inventoryError.message)
       };
 
-      return res.status(500).json(errorResponse);
+      return res.status(isRateLimited ? 429 : 500).json(errorResponse);
     }
 
   } catch (error) {
@@ -367,6 +383,10 @@ export default async function handler(req, res) {
 
 // Cache to store inventory items and avoid repeated API calls
 const inventoryItemCache = new Map();
+
+// Token caching to avoid rate limits
+let cachedAccessToken = null;
+let tokenExpiry = 0;
 
 /**
  * Map Commerce cart items to Inventory line items using SKU/name lookup
@@ -663,7 +683,7 @@ async function inventoryApiRequest(endpoint, options = {}) {
     throw new Error('ZOHO_INVENTORY_ORGANIZATION_ID environment variable is required');
   }
 
-  // Get access token (reuse existing auth logic)
+  // Get access token (with caching to avoid rate limits)
   const token = await getZohoAccessToken();
   
   // Build URL with query parameters
@@ -692,45 +712,65 @@ async function inventoryApiRequest(endpoint, options = {}) {
     console.log('Request payload length:', options.body.length);
   }
 
-  const response = await fetch(url, {
-    method: options.method || 'GET',
-    headers: {
-      ...defaultHeaders,
-      ...options.headers
-    },
-    body: options.body
-  });
-
-  const responseText = await response.text();
-  console.log(`Inventory API Response (${response.status}):`, responseText.substring(0, 500) + (responseText.length > 500 ? '...' : ''));
-
-  if (!response.ok) {
-    throw new Error(`Inventory API error: ${response.status} - ${responseText || response.statusText}`);
-  }
-
   try {
-    const jsonResponse = JSON.parse(responseText);
-    
-    if (jsonResponse.code && jsonResponse.code !== 0) {
-      throw new Error(`Inventory API error: ${jsonResponse.code} - ${jsonResponse.message || 'Unknown error'}`);
+    const response = await fetch(url, {
+      method: options.method || 'GET',
+      headers: {
+        ...defaultHeaders,
+        ...options.headers
+      },
+      body: options.body
+    });
+
+    const responseText = await response.text();
+    console.log(`Inventory API Response (${response.status}):`, responseText.substring(0, 500) + (responseText.length > 500 ? '...' : ''));
+
+    // Handle rate limiting
+    if (response.status === 429) {
+      throw new Error(`Rate limited: Too many API requests. Please wait before retrying.`);
+    }
+
+    if (!response.ok) {
+      throw new Error(`Inventory API error: ${response.status} - ${responseText || response.statusText}`);
+    }
+
+    try {
+      const jsonResponse = JSON.parse(responseText);
+      
+      if (jsonResponse.code && jsonResponse.code !== 0) {
+        throw new Error(`Inventory API error: ${jsonResponse.code} - ${jsonResponse.message || 'Unknown error'}`);
+      }
+      
+      return jsonResponse;
+    } catch (parseError) {
+      if (parseError.message.includes('Inventory API error:')) {
+        throw parseError;
+      }
+      throw new Error(`Invalid JSON response: ${responseText}`);
     }
     
-    return jsonResponse;
-  } catch (parseError) {
-    if (parseError.message.includes('Inventory API error:')) {
-      throw parseError;
-    }
-    throw new Error(`Invalid JSON response: ${responseText}`);
+  } catch (fetchError) {
+    console.error('API request failed:', fetchError);
+    throw fetchError;
   }
 }
 
 async function getZohoAccessToken() {
+  // Check if we have a valid cached token
+  const now = Date.now();
+  if (cachedAccessToken && now < tokenExpiry) {
+    console.log('✓ Using cached Zoho access token');
+    return cachedAccessToken;
+  }
+
   // Reuse your existing token logic from the hybrid API
   if (!process.env.ZOHO_REFRESH_TOKEN || !process.env.ZOHO_CLIENT_ID || !process.env.ZOHO_CLIENT_SECRET) {
     throw new Error('Missing required Zoho environment variables');
   }
 
   try {
+    console.log('🔄 Requesting new Zoho access token...');
+    
     const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
       method: 'POST',
       headers: {
@@ -746,6 +786,12 @@ async function getZohoAccessToken() {
 
     if (!response.ok) {
       const errorText = await response.text();
+      
+      // Handle rate limiting specifically
+      if (response.status === 400 && errorText.includes('too many requests')) {
+        throw new Error(`Zoho auth rate limited: ${errorText}. Please wait 60 seconds before retrying.`);
+      }
+      
       throw new Error(`Zoho auth failed: ${response.status} ${response.statusText} - ${errorText}`);
     }
 
@@ -755,16 +801,29 @@ async function getZohoAccessToken() {
       throw new Error('No access token received from Zoho');
     }
 
-    console.log('✓ Zoho access token obtained for Inventory API');
-    return data.access_token;
+    // Cache the token (Zoho tokens typically last 1 hour)
+    cachedAccessToken = data.access_token;
+    tokenExpiry = now + (55 * 60 * 1000); // Cache for 55 minutes to be safe
+    
+    console.log('✓ New Zoho access token obtained and cached');
+    return cachedAccessToken;
+    
   } catch (error) {
     console.error('Failed to get Zoho access token:', error);
+    
+    // If rate limited, provide helpful error message
+    if (error.message.includes('rate limited') || error.message.includes('too many requests')) {
+      throw new Error(`Authentication rate limited: ${error.message}. Please wait before retrying.`);
+    }
+    
     throw new Error(`Authentication failed: ${error.message}`);
   }
 }
 
 function getInventoryErrorSuggestion(errorMessage) {
-  if (errorMessage?.includes('billing_address') && errorMessage?.includes('100 characters')) {
+  if (errorMessage?.includes('rate limited') || errorMessage?.includes('too many requests')) {
+    return 'FIXED: Token caching implemented to prevent rate limiting. Wait 60 seconds before retrying.';
+  } else if (errorMessage?.includes('billing_address') && errorMessage?.includes('100 characters')) {
     return 'FIXED: Now using address_id instead of full billing_address object to avoid 100-character limit';
   } else if (errorMessage?.includes('item_id') || errorMessage?.includes('item not found')) {
     return 'FIXED: Now using SKU/name lookup to map Commerce products to Inventory items. Check that products exist in both systems.';
