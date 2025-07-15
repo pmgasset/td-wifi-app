@@ -358,64 +358,20 @@ export default async function handler(req, res) {
  * IMMEDIATE FIX: Always redirect to custom payment page with multiple options
  */
 async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo, requestId) {
-  console.log('🔄 Sub-agent: Generating public payment URL...');
+  console.log('🔄 Sub-agent: Generating public payment URL (bypass login)...');
   
-  try {
-    // METHOD 1: Try to create Zoho public shared link via our corrected API
-    console.log('🔄 Attempting to create Zoho public shared link...');
-    
-    const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/api/zoho/create-public-link`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        invoice_id: invoiceId,
-        customer_email: customerInfo.email,
-        customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`
-      })
-    });
-
-    if (response.ok) {
-      const linkData = await response.json();
-      
-      if (linkData.success && linkData.public_url) {
-        console.log('✅ SUCCESS: Public shared link created');
-        console.log('🔗 Public Payment URL:', linkData.public_url);
-        console.log('📄 Method used:', linkData.method);
-        return linkData.public_url;
-      }
-    }
-    
-    console.log('❌ Public link creation failed, trying fallback...');
-    
-  } catch (error) {
-    console.error('❌ Public link API call failed:', error.message);
-  }
-
-  // METHOD 2: Fallback to enhanced custom payment page
-  console.log('🔄 Using enhanced payment page fallback...');
-  
-  const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
-  const enhancedPaymentUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/payment/invoice/${invoiceId}?` + 
+  const publicPaymentUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/pay/${invoiceId}?` + 
     new URLSearchParams({
       amount: total.toString(),
       currency: 'USD',
       customer_email: customerInfo.email,
       customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
       invoice_number: invoiceNumber,
-      request_id: requestId,
-      success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/success?invoice_id=${invoiceId}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/cancel`,
-      zoho_org_id: organizationId,
-      zoho_invoice_id: invoiceId,
-      payment_mode: 'enhanced_fallback'
+      token: generateSecureToken(invoiceId, customerInfo.email, total)
     }).toString();
   
-  console.log('✅ Generated enhanced payment page URL');
-  console.log('🔗 Enhanced Payment URL:', enhancedPaymentUrl);
-  
-  return enhancedPaymentUrl;
+  console.log('✅ Generated public payment URL (no login required)');
+  return publicPaymentUrl;
 }
 
 /**
