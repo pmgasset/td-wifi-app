@@ -1,14 +1,12 @@
-// ===== src/pages/payment/invoice/[id].js ===== (CREATE THIS FILE)
+// ===== src/pages/payment/invoice/[id].js ===== (CLEAN VERSION)
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../../../components/Layout';
 import { 
   CreditCard, 
-  Lock, 
   Loader2,
   Shield,
-  CheckCircle,
   AlertTriangle,
   ArrowLeft,
   ExternalLink
@@ -17,7 +15,7 @@ import toast from 'react-hot-toast';
 
 const InvoicePaymentPage = () => {
   const router = useRouter();
-  const { id } = router.query; // invoice ID
+  const { id } = router.query;
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentData, setPaymentData] = useState(null);
@@ -32,7 +30,6 @@ const InvoicePaymentPage = () => {
 
   const initializePaymentData = () => {
     try {
-      // Extract payment data from URL parameters
       const urlParams = new URLSearchParams(window.location.search);
       const data = {
         invoice_id: id,
@@ -63,7 +60,7 @@ const InvoicePaymentPage = () => {
     setIsProcessing(true);
     
     try {
-      console.log('🔄 Creating Stripe payment session...');
+      console.log('Creating Stripe payment session...');
       
       const response = await fetch('/api/stripe/create-checkout-session', {
         method: 'POST',
@@ -88,21 +85,20 @@ const InvoicePaymentPage = () => {
       const sessionData = await response.json();
 
       if (sessionData.success && sessionData.checkout_url) {
-        console.log('✅ Stripe session created, redirecting...');
+        console.log('Stripe session created, redirecting...');
         toast.success('Redirecting to secure payment...');
         window.location.href = sessionData.checkout_url;
       } else {
         throw new Error(sessionData.error || 'Failed to create payment session');
       }
     } catch (error) {
-      console.error('❌ Payment session creation error:', error);
+      console.error('Payment session creation error:', error);
       toast.error('Payment setup failed. Please try again.');
       setIsProcessing(false);
     }
   };
 
   const handleZohoPayment = () => {
-    // Open Zoho invoice in new tab for direct payment
     const zohoUrl = `https://inventory.zoho.com/app/#/invoices/${paymentData.invoice_id}/details?organization=${process.env.NEXT_PUBLIC_ZOHO_ORGANIZATION_ID}`;
     window.open(zohoUrl, '_blank');
     toast.success('Zoho invoice opened in new tab');
@@ -157,7 +153,6 @@ const InvoicePaymentPage = () => {
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
           
-          {/* Header */}
           <div className="mb-8">
             <button
               onClick={handleCancel}
@@ -177,7 +172,6 @@ const InvoicePaymentPage = () => {
             </div>
           </div>
 
-          {/* Payment Options */}
           <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
             <div className="mb-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-2">Payment Options</h2>
@@ -185,92 +179,6 @@ const InvoicePaymentPage = () => {
             </div>
 
             <div className="space-y-4">
-              {/* Zoho Payment Option */}
-              <div className="border rounded-lg p-4 hover:border-green-500 transition-colors">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <ExternalLink className="h-6 w-6 text-green-600 mr-3" />
-                    <div>
-                      <h3 className="font-medium text-gray-900">Pay via Zoho</h3>
-                      <p className="text-sm text-gray-600">Direct payment through Zoho Inventory</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleZohoPayment}
-                    className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 flex items-center"
-                  >
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Open Invoice
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Payment Details */}
-          <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Invoice Number:</span>
-                <span className="font-medium">{paymentData.invoice_number}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Customer Email:</span>
-                <span className="font-medium">{paymentData.customer_email}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Currency:</span>
-                <span className="font-medium">{paymentData.currency}</span>
-              </div>
-              <div className="border-t pt-3">
-                <div className="flex justify-between text-lg font-semibold">
-                  <span>Total Amount:</span>
-                  <span className="text-blue-600">{formatCurrency(paymentData.amount)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Security Notice */}
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <div className="flex items-start">
-              <Shield className="h-5 w-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
-              <div>
-                <h4 className="font-medium text-blue-900 mb-1">Secure Payment</h4>
-                <p className="text-sm text-blue-700">
-                  Your payment information is processed securely using industry-standard encryption. 
-                  We never store your credit card details.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Alternative Actions */}
-          <div className="text-center space-y-3">
-            <p className="text-gray-600">Need help with payment?</p>
-            <div className="space-x-4">
-              <button
-                onClick={() => window.location.href = 'mailto:support@traveldatawifi.com'}
-                className="text-blue-600 hover:text-blue-700 underline"
-              >
-                Contact Support
-              </button>
-              <button
-                onClick={handleCancel}
-                className="text-gray-600 hover:text-gray-700 underline"
-              >
-                Cancel Order
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Layout>
-  );
-};
-
-export default InvoicePaymentPage; Stripe Payment Option */}
               <div className="border rounded-lg p-4 hover:border-blue-500 transition-colors">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
@@ -300,42 +208,85 @@ export default InvoicePaymentPage; Stripe Payment Option */}
                 </div>
               </div>
 
-              {/* Security Notice */}
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <div className="flex items-start">
-                  <Shield className="h-5 w-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
-                  <div>
-                    <h4 className="font-medium text-blue-900 mb-1">Secure Payment</h4>
-                    <p className="text-sm text-blue-700">
-                      Your payment information is processed securely using industry-standard encryption.
-                      We never store your credit card details.
-                    </p>
+              <div className="border rounded-lg p-4 hover:border-green-500 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <ExternalLink className="h-6 w-6 text-green-600 mr-3" />
+                    <div>
+                      <h3 className="font-medium text-gray-900">Pay via Zoho</h3>
+                      <p className="text-sm text-gray-600">Direct payment through Zoho Inventory</p>
+                    </div>
                   </div>
-                </div>
-              </div>
-
-              {/* Alternative Actions */}
-              <div className="text-center space-y-3">
-                <p className="text-gray-600">Need help with payment?</p>
-                <div className="space-x-4">
                   <button
-                    onClick={() => window.location.href = 'mailto:support@traveldatawifi.com'}
-                    className="text-blue-600 hover:text-blue-700 underline"
+                    onClick={handleZohoPayment}
+                    className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 flex items-center"
                   >
-                    Contact Support
-                  </button>
-                  <button
-                    onClick={handleCancel}
-                    className="text-gray-600 hover:text-gray-700 underline"
-                  >
-                    Cancel Order
+                    <ExternalLink className="h-4 w-4 mr-2" />
+                    Open Invoice
                   </button>
                 </div>
               </div>
             </div>
           </div>
-        </Layout>
-      );
-    };
 
-    export default InvoicePaymentPage;
+          <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h3>
+            <div className="space-y-3">
+              <div className="flex justify-between">
+                <span className="text-gray-600">Invoice Number:</span>
+                <span className="font-medium">{paymentData.invoice_number}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Customer Email:</span>
+                <span className="font-medium">{paymentData.customer_email}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">Currency:</span>
+                <span className="font-medium">{paymentData.currency}</span>
+              </div>
+              <div className="border-t pt-3">
+                <div className="flex justify-between text-lg font-semibold">
+                  <span>Total Amount:</span>
+                  <span className="text-blue-600">{formatCurrency(paymentData.amount)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+            <div className="flex items-start">
+              <Shield className="h-5 w-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
+              <div>
+                <h4 className="font-medium text-blue-900 mb-1">Secure Payment</h4>
+                <p className="text-sm text-blue-700">
+                  Your payment information is processed securely using industry-standard encryption. 
+                  We never store your credit card details.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="text-center space-y-3">
+            <p className="text-gray-600">Need help with payment?</p>
+            <div className="space-x-4">
+              <button
+                onClick={() => window.location.href = 'mailto:support@traveldatawifi.com'}
+                className="text-blue-600 hover:text-blue-700 underline"
+              >
+                Contact Support
+              </button>
+              <button
+                onClick={handleCancel}
+                className="text-gray-600 hover:text-gray-700 underline"
+              >
+                Cancel Order
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
+};
+
+export default InvoicePaymentPage;
