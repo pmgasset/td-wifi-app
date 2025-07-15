@@ -211,63 +211,124 @@ export default async function handler(req, res) {
       const invoiceNumber = invoiceResponse.invoice?.invoice_number;
       console.log('✓ Invoice created:', invoiceId, invoiceNumber);
 
-      // STEP 4: Generate payment URL (FIXED for Stripe integration)
-      console.log('Step 4: Generating payment URL...');
+      // STEP 4: Generate immediate payment URL (FIXED for instant payment)
+      console.log('Step 4: Creating immediate payment link...');
       
       let paymentUrl = null;
       
       try {
-        // Method 1: Send invoice via email to get Stripe payment link
-        console.log('Sending invoice via email to generate Stripe payment link...');
+        // Method 1: Create Stripe payment link directly through Zoho Inventory
+        console.log('Creating immediate Stripe payment link...');
         
-        const emailData = {
-          send_from_org_email_id: false,
-          to_mail_ids: [customerInfo.email],
-          subject: `Invoice ${invoiceNumber} from Travel Data WiFi`,
-          body: `Dear ${customerInfo.firstName} ${customerInfo.lastName},\n\nThank you for your order! Please find your invoice attached.\n\nYou can pay securely online using the payment link in this email.\n\nBest regards,\nTravel Data WiFi Team`
+        const paymentLinkData = {
+          invoice_id: invoiceId,
+          payment_mode: 'stripe',
+          auto_redirect: true,
+          success_url: `${req.headers.origin}/checkout/success?invoice_id=${invoiceId}&payment_status=completed`,
+          cancel_url: `${req.headers.origin}/checkout?error=payment_cancelled`
         };
         
-        const emailResponse = await inventoryApiRequest(`/invoices/${invoiceId}/email`, {
-          method: 'POST',
-          body: JSON.stringify(emailData)
-        });
-        
-        console.log('✓ Invoice sent via email with Stripe payment link');
-        
-        // Method 2: Try to get the public link for the invoice
         try {
-          const publicLinkResponse = await inventoryApiRequest(`/invoices/${invoiceId}`, {
-            method: 'GET'
+          const paymentLinkResponse = await inventoryApiRequest(`/invoices/${invoiceId}/paymentlink`, {
+            method: 'POST',
+            body: JSON.stringify(paymentLinkData)
           });
           
-          const invoice = publicLinkResponse.invoice;
-          
-          // Check for various possible public URL fields
-          if (invoice?.public_view_url || invoice?.customer_portal_url || invoice?.hosted_url) {
-            paymentUrl = invoice.public_view_url || invoice.customer_portal_url || invoice.hosted_url;
-            console.log('✓ Found invoice public URL:', paymentUrl);
-          } else {
-            console.log('⚠️ No public URL available in invoice details');
+          if (paymentLinkResponse.payment_url) {
+            paymentUrl = paymentLinkResponse.payment_url;
+            console.log('✓ Created immediate Stripe payment link:', paymentUrl);
           }
-        } catch (publicLinkError) {
-          console.log('⚠️ Could not get invoice details for public URL');
-        }
-        
-        // Method 3: Generate direct Zoho Inventory URL
-        if (!paymentUrl) {
-          const baseUrl = process.env.ZOHO_INVENTORY_BASE_URL || 'https://inventory.zoho.com';
-          const orgId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID || process.env.ZOHO_STORE_ID;
+        } catch (paymentLinkError) {
+          console.log('⚠️ Direct payment link creation failed, trying alternative approach...');
           
-          // Generate direct link to invoice in Zoho (customer can pay here)
-          paymentUrl = `${baseUrl}/app/#/invoices/${invoiceId}/details?organization=${orgId}`;
-          console.log('✓ Generated direct Zoho Inventory URL:', paymentUrl);
+          // Method 2: Mark invoice as ready for online payment
+          try {
+            const updateInvoiceData = {
+              payment_options: {
+                payment_gateways: [
+                  {
+                    gateway_name: 'stripe',
+                    configured: true,
+                    additional_field1: 'immediate_payment'
+                  }
+                ]
+              },
+              online_payment_link: true
+            };
+            
+            const updateResponse = await inventoryApiRequest(`/invoices/${invoiceId}`, {
+              method: 'PUT',
+              body: JSON.stringify(updateInvoiceData)
+            });
+            
+            // Get the updated invoice with payment link
+            const updatedInvoiceResponse = await inventoryApiRequest(`/invoices/${invoiceId}`, {
+              method: 'GET'
+            });
+            
+            const invoice = updatedInvoiceResponse.invoice;
+            
+            // Look for payment URL in updated invoice
+            if (invoice?.payment_url || invoice?.online_payment_url || invoice?.hosted_payment_url) {
+              paymentUrl = invoice.payment_url || invoice.online_payment_url || invoice.hosted_payment_url;
+              console.log('✓ Found payment URL in updated invoice:', paymentUrl);
+            }
+            
+          } catch (updateError) {
+            console.log('⚠️ Invoice update for payment link failed');
+          }
         }
         
-      } catch (emailError) {
-        console.log('⚠️ Could not send invoice email, using custom payment solution');
+        // Method 3: Create custom payment page with Stripe integration
+        if (!paymentUrl) {
+          console.log('Creating custom Stripe payment page...');
+          
+          paymentUrl = `${req.headers.origin}/payment/stripe-checkout?${new URLSearchParams({
+            invoice_id: invoiceId,
+            invoice_number: invoiceNumber,
+            contact_id: contactInfo.contact_id,
+            amount: total.toString(),
+            currency: 'USD',
+            customer_email: customerInfo.email,
+            customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+            return_url: `${req.headers.origin}/checkout/success`,
+            cancel_url: `${req.headers.origin}/checkout?error=payment_cancelled`,
+            request_id: requestId,
+            api_type: 'inventory',
+            payment_gateway: 'stripe',
+            // Zoho integration data
+            sales_order_id: salesOrderId,
+            organization_id: process.env.ZOHO_INVENTORY_ORGANIZATION_ID,
+            mode: 'immediate_payment'
+          }).toString()}`;
+          
+          console.log('✓ Generated custom Stripe checkout URL:', paymentUrl);
+        }
         
-        // Method 4: Fallback to custom payment handler
-        paymentUrl = `${req.headers.origin}/payment/invoice?${new URLSearchParams({
+        // Optional: Still send email as backup
+        try {
+          const emailData = {
+            send_from_org_email_id: false,
+            to_mail_ids: [customerInfo.email],
+            subject: `Invoice ${invoiceNumber} from Travel Data WiFi`,
+            body: `Dear ${customerInfo.firstName} ${customerInfo.lastName},\n\nThank you for your order! Your invoice ${invoiceNumber} for ${total} has been created.\n\nIf you encounter any issues with the payment process, you can also pay using this backup link.\n\nBest regards,\nTravel Data WiFi Team`
+          };
+          
+          await inventoryApiRequest(`/invoices/${invoiceId}/email`, {
+            method: 'POST',
+            body: JSON.stringify(emailData)
+          });
+          
+          console.log('✓ Backup invoice email sent successfully');
+        } catch (emailError) {
+          console.log('⚠️ Backup email sending failed, but payment link is available');
+        }
+        
+      } catch (paymentError) {
+        console.log('⚠️ Payment link creation failed, using fallback approach');
+        
+        // Final fallback: Custom payment page
+        paymentUrl = `${req.headers.origin}/payment/stripe-checkout?${new URLSearchParams({
           invoice_id: invoiceId,
           invoice_number: invoiceNumber,
           contact_id: contactInfo.contact_id,
@@ -276,15 +337,16 @@ export default async function handler(req, res) {
           customer_email: customerInfo.email,
           customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
           return_url: `${req.headers.origin}/checkout/success`,
+          cancel_url: `${req.headers.origin}/checkout?error=payment_cancelled`,
           request_id: requestId,
           api_type: 'inventory',
-          // Additional Zoho data
+          payment_gateway: 'stripe',
           sales_order_id: salesOrderId,
           organization_id: process.env.ZOHO_INVENTORY_ORGANIZATION_ID,
-          payment_gateway: 'stripe'
+          mode: 'immediate_payment'
         }).toString()}`;
         
-        console.log('✓ Generated custom payment URL with Stripe gateway:', paymentUrl);
+        console.log('✓ Generated fallback Stripe checkout URL:', paymentUrl);
       }
 
       console.log('✅ Guest checkout completed successfully via Zoho Inventory');
