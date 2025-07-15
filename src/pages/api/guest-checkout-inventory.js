@@ -6,9 +6,9 @@
  * 
  * CRITICAL FIXES APPLIED:
  * - Fixed payment link API endpoint (POST vs GET, correct URL format)
- * - Fixed email API parameter (to_mail_ids vs to)
+ * - Removed custom email sending - Zoho handles automatic reminders
  * - Fixed payment_terms data type (number vs string)
- * - Added sub-agent pattern for payment and email handling
+ * - Added sub-agent pattern for payment handling
  * - Enhanced error handling with fallback mechanisms
  * - Token caching to prevent rate limits
  */
@@ -188,7 +188,7 @@ export default async function handler(req, res) {
         terms: 'Thank you for your business with Travel Data WiFi!',
         salesorder_id: salesOrderId,
         reference_number: requestId,
-        send_invoice: false // We'll send custom email later
+        send_invoice: true // Let Zoho handle automatic invoice email with their built-in template
       };
 
       console.log('Invoice creation payload:', JSON.stringify(invoiceData, null, 2));
@@ -206,9 +206,8 @@ export default async function handler(req, res) {
       console.log('Step 4: Generating payment URL...');
       paymentUrl = await generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo, requestId);
 
-      // STEP 5: Send invoice email (SUB-AGENT)
-      console.log('Step 5: Sending invoice email with payment link...');
-      await sendInvoiceEmail(invoiceId, customerInfo, invoiceNumber, total, paymentUrl);
+      // STEP 5: Invoice created - Zoho will handle automatic reminders
+      console.log('Step 5: Invoice created - Zoho will send automatic payment reminders if needed');
 
       console.log('✅ Guest checkout completed successfully via Zoho Inventory');
 
@@ -253,7 +252,7 @@ export default async function handler(req, res) {
           method: 'stripe',
           description: 'Redirecting to secure payment page',
           immediate_payment: true,
-          email_sent: true,
+          email_sent: false, // Zoho handles automatic reminders
           action: 'redirect_immediately'
         },
         
@@ -273,8 +272,8 @@ export default async function handler(req, res) {
           'Contact created/found in Zoho Inventory',
           'Sales order generated and confirmed',
           'Invoice created and ready for payment', 
-          'Invoice emailed to customer with payment link',
-          'Redirect customer to payment page immediately',
+          'Customer redirected to payment page immediately',
+          'Zoho will send automatic payment reminders if needed',
           'Order will be processed after payment confirmation'
         ],
         
@@ -444,85 +443,6 @@ async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo,
   
   console.log('✓ Generated fallback payment URL:', fallbackUrl);
   return fallbackUrl;
-}
-
-/**
- * SUB-AGENT: Send invoice email with proper format
- * FIXED: Correct email API parameter format
- */
-async function sendInvoiceEmail(invoiceId, customerInfo, invoiceNumber, total, paymentUrl) {
-  console.log('📧 Sub-agent: Sending invoice email...');
-  
-  try {
-    // CRITICAL FIX: Use correct email API format
-    const emailPayload = {
-      // FIXED: Use 'to_mail_ids' instead of 'to' (array of strings)
-      to_mail_ids: [customerInfo.email],
-      
-      // Email content
-      subject: 'Your Travel Data WiFi Order Invoice - Payment Required',
-      body: `Dear ${customerInfo.firstName},
-
-Thank you for your order! Your invoice ${invoiceNumber} for $${total} is ready.
-
-Please click the link below to complete your payment:
-${paymentUrl}
-
-Your order will be processed immediately after payment is confirmed.
-
-Best regards,
-Travel Data WiFi Team`,
-      
-      // Additional parameters
-      send_customer_statement: false,
-      send_attachment: true
-    };
-
-    console.log('Email payload:', JSON.stringify(emailPayload, null, 2));
-
-    const emailResponse = await inventoryApiRequest(`/invoices/${invoiceId}/email`, {
-      method: 'POST',
-      body: emailPayload
-    });
-
-    console.log('✓ Invoice email sent successfully to:', customerInfo.email);
-    return true;
-    
-  } catch (emailError) {
-    console.warn('⚠️ Could not send invoice email:', emailError.message);
-    
-    // If Zoho email fails, try alternative email service
-    try {
-      console.log('Attempting fallback email service...');
-      
-      // Call your backup email API
-      const fallbackEmailResponse = await fetch('/api/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: customerInfo.email,
-          subject: 'Your Travel Data WiFi Order Invoice - Payment Required',
-          template: 'invoice_payment',
-          data: {
-            customerName: customerInfo.firstName,
-            invoiceNumber: invoiceNumber,
-            amount: total,
-            paymentUrl: paymentUrl
-          }
-        })
-      });
-      
-      if (fallbackEmailResponse.ok) {
-        console.log('✓ Fallback email sent successfully');
-        return true;
-      }
-    } catch (fallbackError) {
-      console.warn('⚠️ Fallback email also failed:', fallbackError.message);
-    }
-    
-    // Don't throw error - email failure shouldn't break the checkout
-    return false;
-  }
 }
 
 // ===== HELPER FUNCTIONS =====
@@ -1111,7 +1031,7 @@ function getInventoryErrorSuggestion(errorMessage) {
   } else if (errorMessage?.includes('Invalid value passed for Payment Terms')) {
     return 'FIXED: Changed payment_terms from string to number (0 = Due on Receipt) and removed invalid payment_terms_label field.';
   } else if (errorMessage?.includes('Invalid value passed for to_mail_ids')) {
-    return 'FIXED: Changed email parameter from "to" to "to_mail_ids" as required by Zoho API.';
+    return 'REMOVED: Email sending removed - Zoho handles automatic payment reminders.';
   } else if (errorMessage?.includes('Invalid URL Passed')) {
     return 'FIXED: Updated payment link API endpoint and method (POST vs GET).';
   } else {
