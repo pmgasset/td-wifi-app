@@ -300,4 +300,32 @@ export default InvoicePaymentPage; Stripe Payment Option */}
                 </div>
               </div>
 
-              {/*
+              {/* PayPal Payment Option */}
+              <div className="border rounded-lg p-4 hover:border-blue-500 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center">
+                    <PayPal className="h-6 w-6 text-blue-600 mr-3" />
+                    <div>
+                      <h3 className="font-medium text-gray-900">PayPal</h3>
+                      <p className="text-sm text-gray-600">Secure payment with PayPal</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={handlePayPalPayment}
+                    disabled={isProcessing}
+                    className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        <Shield className="h-4 w-4 mr-2" />
+                        Pay Now
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
