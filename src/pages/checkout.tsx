@@ -216,10 +216,10 @@ const CheckoutPage = () => {
         // Debug info (will be ignored by API)
         _debug_info: {
           sku_source: skuSource,
-          original_sku_fields: skuFields.reduce((acc, { field, value }) => {
+          original_sku_fields: skuFields.reduce((acc: Record<string, any>, { field, value }) => {
             if (value !== undefined) acc[field] = value;
             return acc;
-          }, {}),
+          }, {} as Record<string, any>),
           is_sku_valid: skuSource !== 'product_id_fallback'
         }
       };
