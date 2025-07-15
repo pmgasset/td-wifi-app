@@ -160,7 +160,8 @@ const CheckoutPage = () => {
         product_name: item.product_name,
         product_price: item.product_price,
         quantity: item.quantity,
-        sku: item.sku || item.product_id, // Use SKU if available, fallback to product_id
+        // Use product_id as SKU since SKU property may not exist on CartItem type
+        sku: item.product_id,
         name: item.product_name,
         price: item.product_price
       })) || [];
