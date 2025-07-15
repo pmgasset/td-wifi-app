@@ -208,29 +208,41 @@ export default async function handler(req, res) {
       let paymentUrl = null;
       
       try {
-        // Try to get hosted payment page from Zoho
-        const hostedPageResponse = await inventoryApiRequest(`/invoices/${invoiceId}/hostedpage`, {
+        // Try to get payment page from Zoho Inventory
+        const paymentPageResponse = await inventoryApiRequest(`/invoices/${invoiceId}/paymentpage`, {
           method: 'GET'
         });
         
-        paymentUrl = hostedPageResponse.hosted_page?.url;
-        console.log('✓ Zoho hosted payment page:', paymentUrl);
-      } catch (hostedPageError) {
-        console.log('⚠️ Zoho hosted page not available, using custom payment URL');
+        paymentUrl = paymentPageResponse.payment_page?.url || paymentPageResponse.url;
+        console.log('✓ Zoho payment page:', paymentUrl);
+      } catch (paymentPageError) {
+        console.log('⚠️ Zoho payment page not available, trying alternative endpoints...');
         
-        // Option B: Generate custom payment URL
-        paymentUrl = `${req.headers.origin}/payment/invoice?${new URLSearchParams({
-          invoice_id: invoiceId,
-          invoice_number: invoiceNumber,
-          contact_id: contactInfo.contact_id,
-          amount: total.toString(),
-          currency: 'USD',
-          customer_email: customerInfo.email,
-          customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-          return_url: `${req.headers.origin}/checkout/success`,
-          request_id: requestId,
-          api_type: 'inventory'
-        }).toString()}`;
+        // Try alternative endpoint
+        try {
+          const customerPortalResponse = await inventoryApiRequest(`/invoices/${invoiceId}/customerportal`, {
+            method: 'GET'
+          });
+          
+          paymentUrl = customerPortalResponse.customer_portal?.url || customerPortalResponse.url;
+          console.log('✓ Zoho customer portal:', paymentUrl);
+        } catch (portalError) {
+          console.log('⚠️ Customer portal not available, using custom payment URL');
+          
+          // Generate custom payment URL
+          paymentUrl = `${req.headers.origin}/payment/invoice?${new URLSearchParams({
+            invoice_id: invoiceId,
+            invoice_number: invoiceNumber,
+            contact_id: contactInfo.contact_id,
+            amount: total.toString(),
+            currency: 'USD',
+            customer_email: customerInfo.email,
+            customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+            return_url: `${req.headers.origin}/checkout/success`,
+            request_id: requestId,
+            api_type: 'inventory'
+          }).toString()}`;
+        }
       }
 
       console.log('✅ Guest checkout completed successfully via Zoho Inventory');
@@ -550,7 +562,10 @@ async function createOrFindContact(customerData) {
     console.log('Searching for existing contact by email...');
     
     try {
-      const searchResponse = await inventoryApiRequest(`/contacts?email=${encodeURIComponent(customerData.email)}`);
+      const searchResponse = await inventoryApiRequest(`/contacts`, {
+        method: 'GET',
+        queryParams: { email: customerData.email }
+      });
       
       if (searchResponse.contacts && searchResponse.contacts.length > 0) {
         const existingContact = searchResponse.contacts[0];
@@ -651,7 +666,20 @@ async function inventoryApiRequest(endpoint, options = {}) {
   // Get access token (reuse existing auth logic)
   const token = await getZohoAccessToken();
   
-  const url = `https://www.zohoapis.com/inventory/v1${endpoint}?organization_id=${organizationId}`;
+  // Build URL with query parameters
+  const baseUrl = `https://www.zohoapis.com/inventory/v1${endpoint}`;
+  const urlParams = new URLSearchParams({ organization_id: organizationId });
+  
+  // Add any additional query parameters
+  if (options.queryParams) {
+    Object.entries(options.queryParams).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        urlParams.append(key, value);
+      }
+    });
+  }
+  
+  const url = `${baseUrl}?${urlParams.toString()}`;
   
   const defaultHeaders = {
     'Authorization': `Zoho-oauthtoken ${token}`,
@@ -665,11 +693,12 @@ async function inventoryApiRequest(endpoint, options = {}) {
   }
 
   const response = await fetch(url, {
-    ...options,
+    method: options.method || 'GET',
     headers: {
       ...defaultHeaders,
       ...options.headers
-    }
+    },
+    body: options.body
   });
 
   const responseText = await response.text();
