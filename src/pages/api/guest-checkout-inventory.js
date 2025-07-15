@@ -357,34 +357,28 @@ export default async function handler(req, res) {
  * SUB-AGENT: Generate payment URL - SIMPLIFIED RELIABLE VERSION
  * IMMEDIATE FIX: Always redirect to custom payment page with multiple options
  */
-async function generateEnhancedPaymentUrl(invoiceId, invoiceNumber, total, customerInfo, requestId) {
-  console.log('🔄 Enhanced sub-agent: Generating public payment URL...');
+async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo, requestId) {
+  console.log('🔄 Sub-agent: Generating payment URL...');
   
   try {
-    // METHOD 1: Try to create Zoho public shared link via our API
-    const publicLinkResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/zoho/create-public-link`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        invoice_id: invoiceId,
-        customer_email: customerInfo.email,
-        customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`
-      })
-    });
-
-    if (publicLinkResponse.ok) {
-      const linkData = await publicLinkResponse.json();
-      if (linkData.success && linkData.public_url) {
-        console.log('✅ SUCCESS: Generated Zoho public shared link');
-        return linkData.public_url;
-      }
+    // METHOD 1: Try to create Zoho public shared link
+    console.log('🔄 Attempting Zoho public shared invoice link...');
+    const publicSharedUrl = await createZohoPublicSharedLink(invoiceId, invoiceNumber, customerInfo);
+    
+    if (publicSharedUrl) {
+      console.log('✅ SUCCESS: Generated Zoho public shared link');
+      console.log('🔗 Public Payment URL:', publicSharedUrl);
+      return publicSharedUrl;
     }
+    
   } catch (error) {
     console.error('❌ Zoho public shared link failed:', error.message);
   }
 
-  // FALLBACK: Enhanced custom payment page
-  const enhancedPaymentUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/payment/invoice/${invoiceId}?` + 
+  // METHOD 2: Fallback to enhanced custom payment page
+  console.log('🔄 Using enhanced custom payment page fallback...');
+  
+  const reliablePaymentUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/payment/invoice/${invoiceId}?` + 
     new URLSearchParams({
       amount: total.toString(),
       currency: 'USD',
@@ -392,14 +386,90 @@ async function generateEnhancedPaymentUrl(invoiceId, invoiceNumber, total, custo
       customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
       invoice_number: invoiceNumber,
       request_id: requestId,
-      success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/checkout/success?invoice_id=${invoiceId}`,
-      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/checkout/cancel`,
+      success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/success?invoice_id=${invoiceId}`,
+      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/cancel`,
       zoho_org_id: process.env.ZOHO_INVENTORY_ORGANIZATION_ID,
       zoho_invoice_id: invoiceId,
       payment_mode: 'enhanced'
     }).toString();
   
-  return enhancedPaymentUrl;
+  console.log('✅ Generated reliable payment URL (enhanced custom page)');
+  console.log('🔗 Payment URL:', reliablePaymentUrl);
+  
+  return reliablePaymentUrl;
+}
+
+/**
+ * SUB-AGENT: Create Zoho public shared invoice link
+ * This creates a public link that customers can access without authentication
+ */
+async function createZohoPublicSharedLink(invoiceId, invoiceNumber, customerInfo) {
+  try {
+    console.log('🔄 Creating Zoho public shared link...');
+    
+    const token = await getZohoAccessToken();
+    const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
+    
+    // Try invoice sharing API
+    const shareData = {
+      send_to_contacts: false,
+      is_public_url: true,
+      password_protected: false,
+      expiry_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      sharing_type: "public_url",
+      allow_partial_payments: true,
+      payment_options: {
+        show_payment_options: true,
+        payment_gateways: ["all"],
+        allow_partial_payment: true
+      }
+    };
+
+    console.log('🌐 Attempting Zoho invoice sharing...');
+
+    const response = await fetch(`https://www.zohoapis.com/inventory/v1/invoices/${invoiceId}/share?organization_id=${organizationId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(shareData)
+    });
+
+    console.log('📡 Share API Response Status:', response.status);
+
+    if (response.ok) {
+      const responseData = await response.json();
+      console.log('📋 Share Response Data:', JSON.stringify(responseData, null, 2));
+
+      // Check for various response formats
+      let publicUrl = null;
+      
+      if (responseData.code === 0 && responseData.invoice_url) {
+        publicUrl = responseData.invoice_url;
+      } else if (responseData.invoice && responseData.invoice.invoice_url) {
+        publicUrl = responseData.invoice.invoice_url;
+      } else if (responseData.share_url) {
+        publicUrl = responseData.share_url;
+      } else if (responseData.public_url) {
+        publicUrl = responseData.public_url;
+      }
+
+      if (publicUrl) {
+        console.log('✅ Public shared link created successfully');
+        return publicUrl;
+      }
+    }
+
+    const errorText = await response.text();
+    console.log('❌ Share API error:', errorText);
+    throw new Error(`Share API failed: ${response.status}`);
+
+  } catch (error) {
+    console.error('❌ Failed to create Zoho public shared link:', error);
+    throw error;
+  }
+}
 }
 
 /**
