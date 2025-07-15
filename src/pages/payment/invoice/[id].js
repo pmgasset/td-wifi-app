@@ -300,32 +300,42 @@ export default InvoicePaymentPage; Stripe Payment Option */}
                 </div>
               </div>
 
-              {/* PayPal Payment Option */}
-              <div className="border rounded-lg p-4 hover:border-blue-500 transition-colors">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <PayPal className="h-6 w-6 text-blue-600 mr-3" />
-                    <div>
-                      <h3 className="font-medium text-gray-900">PayPal</h3>
-                      <p className="text-sm text-gray-600">Secure payment with PayPal</p>
-                    </div>
+              {/* Security Notice */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start">
+                  <Shield className="h-5 w-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
+                  <div>
+                    <h4 className="font-medium text-blue-900 mb-1">Secure Payment</h4>
+                    <p className="text-sm text-blue-700">
+                      Your payment information is processed securely using industry-standard encryption.
+                      We never store your credit card details.
+                    </p>
                   </div>
+                </div>
+              </div>
+
+              {/* Alternative Actions */}
+              <div className="text-center space-y-3">
+                <p className="text-gray-600">Need help with payment?</p>
+                <div className="space-x-4">
                   <button
-                    onClick={handlePayPalPayment}
-                    disabled={isProcessing}
-                    className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+                    onClick={() => window.location.href = 'mailto:support@traveldatawifi.com'}
+                    className="text-blue-600 hover:text-blue-700 underline"
                   >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Shield className="h-4 w-4 mr-2" />
-                        Pay Now
-                      </>
-                    )}
+                    Contact Support
+                  </button>
+                  <button
+                    onClick={handleCancel}
+                    className="text-gray-600 hover:text-gray-700 underline"
+                  >
+                    Cancel Order
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </Layout>
+      );
+    };
+
+    export default InvoicePaymentPage;
