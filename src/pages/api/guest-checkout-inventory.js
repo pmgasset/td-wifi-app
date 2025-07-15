@@ -383,12 +383,17 @@ export default async function handler(req, res) {
         payment_status: 'pending',
         payment_method: 'stripe', // Since Stripe is configured
         
+        // CRITICAL: Redirect instruction for frontend
+        redirect_to_payment: true,
+        immediate_redirect: true,
+        
         // Enhanced payment instructions
         payment_instructions: {
           method: 'stripe',
           description: 'Redirecting to secure Stripe payment page',
           immediate_payment: true,
-          backup_email_sent: true
+          backup_email_sent: true,
+          action: 'redirect_immediately'
         },
         
         // Order details

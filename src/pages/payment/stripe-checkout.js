@@ -1,247 +1,164 @@
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import { CreditCard, CheckCircle, AlertCircle, Loader2, Shield, ArrowLeft } from 'lucide-react';
+import React, { useState } from 'react';
+import { Loader2, CreditCard, CheckCircle, AlertCircle } from 'lucide-react';
 
-export default function StripeCheckoutPage() {
-  const router = useRouter();
-  const [invoiceData, setInvoiceData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [paymentStatus, setPaymentStatus] = useState('pending');
+// Example checkout handler component that integrates with your Zoho Inventory checkout
+export default function CheckoutHandler() {
   const [isProcessing, setIsProcessing] = useState(false);
+  const [checkoutStatus, setCheckoutStatus] = useState('ready');
 
-  useEffect(() => {
-    // Extract URL parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    const data = {
-      invoice_id: urlParams.get('invoice_id'),
-      invoice_number: urlParams.get('invoice_number'),
-      contact_id: urlParams.get('contact_id'),
-      amount: parseFloat(urlParams.get('amount')),
-      currency: urlParams.get('currency') || 'USD',
-      customer_email: urlParams.get('customer_email'),
-      customer_name: urlParams.get('customer_name'),
-      return_url: urlParams.get('return_url'),
-      cancel_url: urlParams.get('cancel_url'),
-      request_id: urlParams.get('request_id'),
-      api_type: urlParams.get('api_type'),
-      payment_gateway: urlParams.get('payment_gateway'),
-      sales_order_id: urlParams.get('sales_order_id'),
-      organization_id: urlParams.get('organization_id'),
-      mode: urlParams.get('mode')
-    };
-
-    setInvoiceData(data);
-    setLoading(false);
-  }, []);
-
-  const createStripePaymentSession = async () => {
+  const handleCheckout = async (customerInfo, shippingAddress, cartItems) => {
     setIsProcessing(true);
-    setPaymentStatus('processing');
-    
+    setCheckoutStatus('processing');
+
     try {
-      console.log('Creating Stripe payment session...');
-      
-      // Call your backend API to create Stripe payment session
-      const response = await fetch('/api/stripe/create-checkout-session', {
+      console.log('Starting Zoho Inventory checkout...');
+
+      const response = await fetch('/api/guest-checkout-inventory', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          invoice_id: invoiceData.invoice_id,
-          amount: invoiceData.amount,
-          currency: invoiceData.currency,
-          customer_email: invoiceData.customer_email,
-          customer_name: invoiceData.customer_name,
-          success_url: invoiceData.return_url,
-          cancel_url: invoiceData.cancel_url || window.location.href,
-          metadata: {
-            invoice_number: invoiceData.invoice_number,
-            contact_id: invoiceData.contact_id,
-            sales_order_id: invoiceData.sales_order_id,
-            organization_id: invoiceData.organization_id,
-            request_id: invoiceData.request_id
-          }
+          customerInfo,
+          shippingAddress,
+          cartItems,
+          orderNotes: 'Guest checkout order'
         })
       });
 
-      const sessionData = await response.json();
+      const result = await response.json();
 
-      if (sessionData.success && sessionData.checkout_url) {
-        console.log('✓ Stripe session created, redirecting...');
+      if (result.success) {
+        console.log('✅ Checkout successful:', result);
         
-        // Redirect to Stripe Checkout
-        window.location.href = sessionData.checkout_url;
+        // CRITICAL: Check if we should redirect to payment
+        if (result.redirect_to_payment && result.payment_url) {
+          console.log('🔄 Redirecting to payment:', result.payment_url);
+          
+          // Immediate redirect to payment page
+          window.location.href = result.payment_url;
+          return;
+        }
+        
+        // Fallback: Show success message if no redirect
+        setCheckoutStatus('success');
+        console.log('Order created successfully:', result.invoice_number);
+        
       } else {
-        throw new Error(sessionData.error || 'Failed to create payment session');
+        throw new Error(result.details || 'Checkout failed');
       }
+
     } catch (error) {
-      console.error('Payment session creation error:', error);
-      setPaymentStatus('error');
+      console.error('❌ Checkout failed:', error);
+      setCheckoutStatus('error');
       setIsProcessing(false);
     }
   };
 
-  const handleDirectZohoPayment = () => {
-    const zohoPaymentUrl = `https://inventory.zoho.com/app/#/invoices/${invoiceData.invoice_id}/details?organization=${invoiceData.organization_id}`;
-    window.open(zohoPaymentUrl, '_blank');
+  // Example usage in your checkout button click
+  const handleSubmit = async () => {
+    
+    // Example customer data - replace with your form data
+    const customerInfo = {
+      firstName: 'David',
+      lastName: 'Prata', 
+      email: 'david@prata.llc',
+      phone: '4016237143'
+    };
+
+    const shippingAddress = {
+      address1: '123 Main St',
+      city: 'Providence',
+      state: 'RI',
+      zipCode: '02903',
+      country: 'US'
+    };
+
+    const cartItems = [
+      {
+        product_id: 'some-product-id',
+        product_name: 'GL.iNet X750 (SPITZ) Router',
+        product_price: 149.00,
+        quantity: 1
+      }
+    ];
+
+    await handleCheckout(customerInfo, shippingAddress, cartItems);
   };
-
-  const handleCancel = () => {
-    if (invoiceData.cancel_url) {
-      router.push(invoiceData.cancel_url);
-    } else {
-      router.push('/checkout');
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto" />
-          <p className="mt-4 text-gray-600">Loading payment details...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!invoiceData?.invoice_id) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="max-w-md mx-auto text-center">
-          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h1 className="text-xl font-semibold text-gray-900 mb-2">Payment Error</h1>
-          <p className="text-gray-600 mb-6">Invalid payment parameters. Please return to checkout and try again.</p>
-          <button
-            onClick={() => router.push('/checkout')}
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
-          >
-            Return to Checkout
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Complete Your Payment</h1>
-          <p className="mt-2 text-gray-600">Secure payment powered by Stripe</p>
-        </div>
-
-        {/* Order Summary */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h2>
-          
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Invoice Number:</span>
-              <span className="font-medium">{invoiceData.invoice_number}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Customer:</span>
-              <span className="font-medium">{invoiceData.customer_name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Email:</span>
-              <span className="font-medium">{invoiceData.customer_email}</span>
-            </div>
-            <div className="border-t pt-3">
-              <div className="flex justify-between text-lg font-semibold">
-                <span>Total Amount:</span>
-                <span>${invoiceData.amount?.toFixed(2)} {invoiceData.currency}</span>
-              </div>
-            </div>
+    <div className="max-w-md mx-auto p-6 bg-white rounded-lg shadow-md">
+      <h2 className="text-xl font-semibold mb-4">Complete Your Order</h2>
+      
+      {checkoutStatus === 'processing' && (
+        <div className="flex items-center justify-center p-8">
+          <div className="text-center">
+            <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
+            <p className="text-gray-600">Creating your order...</p>
+            <p className="text-sm text-gray-500 mt-2">You'll be redirected to payment shortly</p>
           </div>
         </div>
+      )}
 
-        {/* Payment Status Messages */}
-        {paymentStatus === 'processing' && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center">
-              <Loader2 className="h-5 w-5 text-blue-500 mr-2 animate-spin" />
-              <span className="text-blue-800">Creating secure payment session...</span>
-            </div>
+      {checkoutStatus === 'success' && (
+        <div className="flex items-center justify-center p-8">
+          <div className="text-center">
+            <CheckCircle className="h-8 w-8 text-green-600 mx-auto mb-4" />
+            <p className="text-gray-600">Order created successfully!</p>
+            <p className="text-sm text-gray-500 mt-2">Check your email for payment instructions</p>
           </div>
-        )}
+        </div>
+      )}
 
-        {paymentStatus === 'error' && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center">
-              <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
-              <span className="text-red-800">Payment setup failed. Please try again or contact support.</span>
-            </div>
+      {checkoutStatus === 'error' && (
+        <div className="flex items-center justify-center p-8">
+          <div className="text-center">
+            <AlertCircle className="h-8 w-8 text-red-600 mx-auto mb-4" />
+            <p className="text-gray-600">Checkout failed</p>
+            <p className="text-sm text-gray-500 mt-2">Please try again or contact support</p>
+            <button
+              onClick={() => setCheckoutStatus('ready')}
+              className="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            >
+              Try Again
+            </button>
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Payment Action */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Payment Method</h2>
-          
+      {checkoutStatus === 'ready' && (
+        <div>
           <div className="space-y-4">
-            {/* Primary: Stripe Checkout */}
-            <button
-              onClick={createStripePaymentSession}
-              disabled={isProcessing}
-              className="w-full flex items-center justify-center px-6 py-4 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <CreditCard className="h-5 w-5 mr-2" />
-              {isProcessing ? (
-                <>
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  Creating Payment Session...
-                </>
-              ) : (
-                `Pay $${invoiceData.amount?.toFixed(2)} with Stripe`
-              )}
-            </button>
-
-            {/* Secondary: Direct Zoho Payment */}
-            <button
-              onClick={handleDirectZohoPayment}
-              disabled={isProcessing}
-              className="w-full flex items-center justify-center px-6 py-3 border border-gray-300 rounded-lg shadow-sm text-base font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <CreditCard className="h-5 w-5 mr-2" />
-              Pay via Zoho Inventory
-            </button>
-
-            {/* Cancel */}
-            <button
-              onClick={handleCancel}
-              disabled={isProcessing}
-              className="w-full flex items-center justify-center px-6 py-3 border border-gray-300 rounded-lg shadow-sm text-base font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ArrowLeft className="h-5 w-5 mr-2" />
-              Cancel & Return to Checkout
-            </button>
-          </div>
-
-          {/* Security Notice */}
-          <div className="mt-6 p-4 bg-green-50 rounded-lg">
-            <div className="flex items-start space-x-3">
-              <Shield className="h-5 w-5 text-green-600 mt-0.5" />
-              <div className="text-sm text-green-800">
-                <div className="font-medium mb-1">Secure Payment</div>
-                <div>Your payment is processed securely through Stripe. We never store your card details.</div>
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Customer Information
+              </label>
+              <p className="text-sm text-gray-500">
+                Replace this with your actual checkout form
+              </p>
             </div>
+            
+            <button
+              onClick={handleSubmit}
+              disabled={isProcessing}
+              className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <CreditCard className="h-5 w-5 mr-2" />
+              {isProcessing ? 'Processing...' : 'Complete Order & Pay'}
+            </button>
           </div>
         </div>
+      )}
 
-        {/* Technical Details (for debugging) */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="mt-8 bg-gray-100 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-900 mb-2">Debug Info:</h3>
-            <pre className="text-xs text-gray-600 overflow-auto">
-              {JSON.stringify(invoiceData, null, 2)}
-            </pre>
-          </div>
-        )}
+      {/* Integration Instructions */}
+      <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+        <h3 className="text-sm font-medium text-gray-900 mb-2">Integration Notes:</h3>
+        <div className="text-xs text-gray-600 space-y-1">
+          <p>• Replace handleSubmit with your actual form submission</p>
+          <p>• Pass real customer data from your form</p>
+          <p>• The checkout will auto-redirect to Stripe payment</p>
+          <p>• Success page will handle post-payment flow</p>
+        </div>
       </div>
     </div>
   );
