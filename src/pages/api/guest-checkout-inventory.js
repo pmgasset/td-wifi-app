@@ -201,48 +201,53 @@ export default async function handler(req, res) {
       const invoiceNumber = invoiceResponse.invoice?.invoice_number;
       console.log('✓ Invoice created:', invoiceId, invoiceNumber);
 
-      // STEP 4: Generate payment URL
+      // STEP 4: Generate payment URL (FIXED for Inventory)
       console.log('Step 4: Generating payment URL...');
       
-      // Option A: Use Zoho Checkout (if configured)
       let paymentUrl = null;
       
       try {
-        // Try to get payment page from Zoho Inventory
-        const paymentPageResponse = await inventoryApiRequest(`/invoices/${invoiceId}/paymentpage`, {
+        // Method 1: Try Zoho Inventory's customer portal (most common)
+        const portalResponse = await inventoryApiRequest(`/invoices/${invoiceId}`, {
           method: 'GET'
         });
         
-        paymentUrl = paymentPageResponse.payment_page?.url || paymentPageResponse.url;
-        console.log('✓ Zoho payment page:', paymentUrl);
-      } catch (paymentPageError) {
-        console.log('⚠️ Zoho payment page not available, trying alternative endpoints...');
+        const invoice = portalResponse.invoice;
         
-        // Try alternative endpoint
-        try {
-          const customerPortalResponse = await inventoryApiRequest(`/invoices/${invoiceId}/customerportal`, {
-            method: 'GET'
-          });
+        // Check if invoice has a customer portal URL
+        if (invoice?.customer_portal_url) {
+          paymentUrl = invoice.customer_portal_url;
+          console.log('✓ Zoho customer portal URL:', paymentUrl);
+        } else {
+          // Method 2: Generate direct invoice view URL
+          const baseUrl = process.env.ZOHO_INVENTORY_BASE_URL || 'https://inventory.zoho.com';
+          const orgId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID || process.env.ZOHO_STORE_ID;
           
-          paymentUrl = customerPortalResponse.customer_portal?.url || customerPortalResponse.url;
-          console.log('✓ Zoho customer portal:', paymentUrl);
-        } catch (portalError) {
-          console.log('⚠️ Customer portal not available, using custom payment URL');
-          
-          // Generate custom payment URL
-          paymentUrl = `${req.headers.origin}/payment/invoice?${new URLSearchParams({
-            invoice_id: invoiceId,
-            invoice_number: invoiceNumber,
-            contact_id: contactInfo.contact_id,
-            amount: total.toString(),
-            currency: 'USD',
-            customer_email: customerInfo.email,
-            customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-            return_url: `${req.headers.origin}/checkout/success`,
-            request_id: requestId,
-            api_type: 'inventory'
-          }).toString()}`;
+          paymentUrl = `${baseUrl}/app/viewinvoice/${invoiceId}?orgid=${orgId}`;
+          console.log('✓ Generated direct invoice URL:', paymentUrl);
         }
+        
+      } catch (paymentUrlError) {
+        console.log('⚠️ Could not get Zoho payment URL, using custom solution');
+        
+        // Method 3: Use your custom payment handler (RECOMMENDED)
+        paymentUrl = `${req.headers.origin}/payment/invoice?${new URLSearchParams({
+          invoice_id: invoiceId,
+          invoice_number: invoiceNumber,
+          contact_id: contactInfo.contact_id,
+          amount: total.toString(),
+          currency: 'USD',
+          customer_email: customerInfo.email,
+          customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+          return_url: `${req.headers.origin}/checkout/success`,
+          request_id: requestId,
+          api_type: 'inventory',
+          // Additional Zoho data
+          sales_order_id: salesOrderId,
+          organization_id: process.env.ZOHO_INVENTORY_ORGANIZATION_ID
+        }).toString()}`;
+        
+        console.log('✓ Generated custom payment URL:', paymentUrl);
       }
 
       console.log('✅ Guest checkout completed successfully via Zoho Inventory');
@@ -591,11 +596,33 @@ async function createOrFindContact(customerData) {
         const existingContact = searchResponse.contacts[0];
         console.log('Found existing contact:', existingContact.contact_id);
         
-        // Return existing contact with address IDs
+        // Extract address IDs from existing contact
+        let billingAddressId = existingContact.billing_address?.address_id;
+        let shippingAddressId = existingContact.shipping_address?.address_id;
+        
+        // If no address IDs, we need to get full contact details
+        if (!billingAddressId || !shippingAddressId) {
+          console.log('Getting full contact details for address IDs...');
+          
+          try {
+            const fullContactResponse = await inventoryApiRequest(`/contacts/${existingContact.contact_id}`, {
+              method: 'GET'
+            });
+            
+            const fullContact = fullContactResponse.contact;
+            billingAddressId = fullContact?.billing_address?.address_id;
+            shippingAddressId = fullContact?.shipping_address?.address_id || billingAddressId;
+            
+          } catch (detailError) {
+            console.log('Could not get full contact details, will use contact without address IDs');
+          }
+        }
+        
+        // Return existing contact info
         return {
           contact_id: existingContact.contact_id,
-          billing_address_id: existingContact.billing_address?.address_id,
-          shipping_address_id: existingContact.shipping_address?.address_id || existingContact.billing_address?.address_id
+          billing_address_id: billingAddressId,
+          shipping_address_id: shippingAddressId || billingAddressId
         };
       }
     } catch (searchError) {
