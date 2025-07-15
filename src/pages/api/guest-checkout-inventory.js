@@ -125,61 +125,62 @@ export default async function handler(req, res) {
       console.log('✓ Billing address ID:', contactInfo.billing_address_id);
       console.log('✓ Shipping address ID:', contactInfo.shipping_address_id);
 
-      // STEP 2: Create sales order (CRITICAL FIX - clean payload)
-      console.log('Step 2: Creating sales order...');
-      
-      // CRITICAL FIX: Clean line items - remove debug fields before sending to API
-      const cleanLineItems = lineItems.map(item => ({
-        item_id: item.item_id,
-        name: item.name,
-        description: item.description,
-        rate: item.rate,
-        quantity: item.quantity,
-        unit: item.unit || 'qty',
-        item_order: item.item_order || 0
-        // Remove all debug fields (_lookup_method, _original_*, etc.)
-      }));
 
-      const salesOrderData = {
-        customer_id: contactInfo.contact_id,
-        billing_address_id: contactInfo.billing_address_id,
-        shipping_address_id: contactInfo.shipping_address_id,
-        date: new Date().toISOString().split('T')[0],
-        shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        
-        // FIXED: Clean line items without debug fields
-        line_items: cleanLineItems,
-        
-        // Order details
-        notes: orderNotes || `Guest order from Travel Data WiFi website - ${requestId}`,
-        terms: 'Payment due upon receipt. Thank you for your business!',
-        
-        // Financial details
-        sub_total: subtotal,
-        tax_total: tax,
-        shipping_charge: shipping,
-        total: total,
-        
-        // Sales order specific fields
-        salesorder_number: `SO-${Date.now()}`,
-        reference_number: requestId
-        
-        // REMOVED: custom_fields causing JSON parsing issues
-      };
+// STEP 2: Create sales order (CRITICAL FIX - remove auto-generated number conflict)
+console.log('Step 2: Creating sales order...');
 
-      console.log('Clean sales order payload:', JSON.stringify(salesOrderData, null, 2));
+// CRITICAL FIX: Clean line items - remove debug fields before sending to API
+const cleanLineItems = lineItems.map(item => ({
+  item_id: item.item_id,
+  name: item.name,
+  description: item.description,
+  rate: item.rate,
+  quantity: item.quantity,
+  unit: item.unit || 'qty',
+  item_order: item.item_order || 0
+  // Remove all debug fields (_lookup_method, _original_*, etc.)
+}));
 
-      const salesOrderResponse = await inventoryApiRequest('/salesorders', {
-        method: 'POST',
-        body: salesOrderData // Don't double-stringify - inventoryApiRequest will handle it
-      });
+const salesOrderData = {
+  customer_id: contactInfo.contact_id,
+  billing_address_id: contactInfo.billing_address_id,
+  shipping_address_id: contactInfo.shipping_address_id,
+  date: new Date().toISOString().split('T')[0],
+  shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+  
+  // FIXED: Clean line items without debug fields
+  line_items: cleanLineItems,
+  
+  // Order details
+  notes: orderNotes || `Guest order from Travel Data WiFi website - ${requestId}`,
+  terms: 'Payment due upon receipt. Thank you for your business!',
+  
+  // Financial details
+  sub_total: subtotal,
+  tax_total: tax,
+  shipping_charge: shipping,
+  total: total,
+  
+  // CRITICAL FIX: Remove salesorder_number to let Zoho auto-generate
+  // salesorder_number: `SO-${Date.now()}`, // ❌ REMOVED - causing auto-generation conflict
+  reference_number: requestId
+  
+  // REMOVED: custom_fields causing JSON parsing issues
+};
 
-      salesOrderId = salesOrderResponse.salesorder?.salesorder_id;
-      if (!salesOrderId) {
-        throw new Error('Sales order creation failed - no salesorder_id returned');
-      }
+console.log('Clean sales order payload:', JSON.stringify(salesOrderData, null, 2));
 
-      console.log('✓ Sales order created:', salesOrderId);
+const salesOrderResponse = await inventoryApiRequest('/salesorders', {
+  method: 'POST',
+  body: salesOrderData // Don't double-stringify - inventoryApiRequest will handle it
+});
+
+salesOrderId = salesOrderResponse.salesorder?.salesorder_id;
+if (!salesOrderId) {
+  throw new Error('Sales order creation failed - no salesorder_id returned');
+}
+
+console.log('✓ Sales order created:', salesOrderId);
 
       // STEP 3: Create invoice from sales order (FIXED)
       console.log('Step 3: Creating invoice from sales order...');
