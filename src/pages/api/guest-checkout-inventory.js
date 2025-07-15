@@ -386,9 +386,9 @@ export default async function handler(req, res) {
         // Enhanced payment instructions
         payment_instructions: {
           method: 'stripe',
-          description: 'Pay securely with Stripe via credit card, debit card, or bank transfer',
-          email_sent: true,
-          email_message: `Payment link sent to ${customerInfo.email}`
+          description: 'Redirecting to secure Stripe payment page',
+          immediate_payment: true,
+          backup_email_sent: true
         },
         
         // Order details
