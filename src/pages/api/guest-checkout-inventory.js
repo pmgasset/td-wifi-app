@@ -178,6 +178,16 @@ export default async function handler(req, res) {
         payment_terms: 0, // Net 0 (immediate)
         payment_terms_label: 'Due on Receipt',
         
+        // CRITICAL: Enable Stripe payment gateway
+        payment_options: {
+          payment_gateways: [
+            {
+              gateway_name: 'stripe',
+              configured: true
+            }
+          ]
+        },
+        
         // Shipping
         shipping_charge: shipping,
         
@@ -201,36 +211,57 @@ export default async function handler(req, res) {
       const invoiceNumber = invoiceResponse.invoice?.invoice_number;
       console.log('✓ Invoice created:', invoiceId, invoiceNumber);
 
-      // STEP 4: Generate payment URL (FIXED for Inventory)
+      // STEP 4: Generate payment URL (FIXED for Stripe integration)
       console.log('Step 4: Generating payment URL...');
       
       let paymentUrl = null;
       
       try {
-        // Method 1: Try Zoho Inventory's customer portal (most common)
-        const portalResponse = await inventoryApiRequest(`/invoices/${invoiceId}`, {
-          method: 'GET'
+        // Method 1: Send invoice via email to get Stripe payment link
+        console.log('Sending invoice via email to generate Stripe payment link...');
+        
+        const emailData = {
+          send_from_org_email_id: false,
+          to_mail_ids: [customerInfo.email],
+          subject: `Invoice ${invoiceNumber} from Travel Data WiFi`,
+          body: `Dear ${customerInfo.firstName} ${customerInfo.lastName},\n\nThank you for your order! Please find your invoice attached.\n\nYou can pay securely online using the payment link in this email.\n\nBest regards,\nTravel Data WiFi Team`
+        };
+        
+        const emailResponse = await inventoryApiRequest(`/invoices/${invoiceId}/email`, {
+          method: 'POST',
+          body: JSON.stringify(emailData)
         });
         
-        const invoice = portalResponse.invoice;
+        console.log('✓ Invoice sent via email with Stripe payment link');
         
-        // Check if invoice has a customer portal URL
-        if (invoice?.customer_portal_url) {
-          paymentUrl = invoice.customer_portal_url;
-          console.log('✓ Zoho customer portal URL:', paymentUrl);
-        } else {
-          // Method 2: Generate direct invoice view URL
+        // Method 2: Try to get the public link for the invoice
+        try {
+          const publicLinkResponse = await inventoryApiRequest(`/invoices/${invoiceId}/publicview`, {
+            method: 'GET'
+          });
+          
+          if (publicLinkResponse.public_url) {
+            paymentUrl = publicLinkResponse.public_url;
+            console.log('✓ Generated public invoice URL:', paymentUrl);
+          }
+        } catch (publicLinkError) {
+          console.log('⚠️ Could not get public invoice URL');
+        }
+        
+        // Method 3: Generate direct Zoho Inventory URL
+        if (!paymentUrl) {
           const baseUrl = process.env.ZOHO_INVENTORY_BASE_URL || 'https://inventory.zoho.com';
           const orgId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID || process.env.ZOHO_STORE_ID;
           
-          paymentUrl = `${baseUrl}/app/viewinvoice/${invoiceId}?orgid=${orgId}`;
-          console.log('✓ Generated direct invoice URL:', paymentUrl);
+          // Generate direct link to invoice in Zoho (customer can pay here)
+          paymentUrl = `${baseUrl}/app/#/invoices/${invoiceId}/details?organization=${orgId}`;
+          console.log('✓ Generated direct Zoho Inventory URL:', paymentUrl);
         }
         
-      } catch (paymentUrlError) {
-        console.log('⚠️ Could not get Zoho payment URL, using custom solution');
+      } catch (emailError) {
+        console.log('⚠️ Could not send invoice email, using custom payment solution');
         
-        // Method 3: Use your custom payment handler (RECOMMENDED)
+        // Method 4: Fallback to custom payment handler
         paymentUrl = `${req.headers.origin}/payment/invoice?${new URLSearchParams({
           invoice_id: invoiceId,
           invoice_number: invoiceNumber,
@@ -244,10 +275,11 @@ export default async function handler(req, res) {
           api_type: 'inventory',
           // Additional Zoho data
           sales_order_id: salesOrderId,
-          organization_id: process.env.ZOHO_INVENTORY_ORGANIZATION_ID
+          organization_id: process.env.ZOHO_INVENTORY_ORGANIZATION_ID,
+          payment_gateway: 'stripe'
         }).toString()}`;
         
-        console.log('✓ Generated custom payment URL:', paymentUrl);
+        console.log('✓ Generated custom payment URL with Stripe gateway:', paymentUrl);
       }
 
       console.log('✅ Guest checkout completed successfully via Zoho Inventory');
@@ -282,6 +314,15 @@ export default async function handler(req, res) {
         // Payment
         payment_url: paymentUrl,
         payment_status: 'pending',
+        payment_method: 'stripe', // Since Stripe is configured
+        
+        // Enhanced payment instructions
+        payment_instructions: {
+          method: 'stripe',
+          description: 'Pay securely with Stripe via credit card, debit card, or bank transfer',
+          email_sent: true,
+          email_message: `Payment link sent to ${customerInfo.email}`
+        },
         
         // Order details
         order_details: {
