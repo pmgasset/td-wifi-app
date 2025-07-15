@@ -470,7 +470,6 @@ async function createZohoPublicSharedLink(invoiceId, invoiceNumber, customerInfo
     throw error;
   }
 }
-}
 
 /**
  * Generate a secure token for portal access (simple implementation)
