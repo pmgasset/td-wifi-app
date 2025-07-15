@@ -183,33 +183,60 @@ if (!salesOrderId) {
 console.log('✓ Sales order created:', salesOrderId);
 
       // STEP 3: Create invoice from sales order (FIXED)
-      console.log('Step 3: Creating invoice from sales order...');
+// STEP 3: Create invoice (CRITICAL FIX - correct endpoint and payload)
+console.log('Step 3: Creating invoice...');
 
-      const invoiceResponse = await inventoryApiRequest(`/salesorders/${salesOrderId}/invoices`, {
-        method: 'POST',
-        body: {
-          ignore_auto_number_generation: false,
-          invoice_number: `INV-${Date.now()}`,
-          date: new Date().toISOString().split('T')[0],
-          due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days
-          payment_terms: 'Due upon receipt',
-          payment_terms_label: 'Due upon receipt',
-          notes: `Invoice for guest order ${requestId}`,
-          terms: 'Thank you for your business with Travel Data WiFi!',
-          send_invoice: true, // Email invoice to customer
-          subject: 'Your Travel Data WiFi Order Invoice',
-          body: `Dear ${customerInfo.firstName},\n\nThank you for your order! Please find your invoice attached.\n\nYou can pay securely online using the payment link below.\n\nBest regards,\nTravel Data WiFi Team`
-        }
-      });
+// CRITICAL FIX: Use correct invoice creation endpoint - not from sales order
+const invoiceData = {
+  customer_id: contactInfo.contact_id,
+  billing_address_id: contactInfo.billing_address_id,
+  shipping_address_id: contactInfo.shipping_address_id,
+  
+  // Invoice details
+  date: new Date().toISOString().split('T')[0],
+  due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days
+  payment_terms: 'Due upon receipt',
+  payment_terms_label: 'Due upon receipt',
+  
+  // CRITICAL FIX: Use same clean line items as sales order
+  line_items: cleanLineItems,
+  
+  // Financial details (same as sales order)
+  sub_total: subtotal,
+  tax_total: tax,
+  shipping_charge: shipping,
+  total: total,
+  
+  // Invoice specific details
+  notes: `Invoice for guest order ${requestId}`,
+  terms: 'Thank you for your business with Travel Data WiFi!',
+  
+  // Reference to sales order
+  salesorder_id: salesOrderId,
+  reference_number: requestId,
+  
+  // Email settings
+  send_invoice: true, // Email invoice to customer
+  subject: 'Your Travel Data WiFi Order Invoice',
+  body: `Dear ${customerInfo.firstName},\n\nThank you for your order! Please find your invoice attached.\n\nYou can pay securely online using the payment link below.\n\nBest regards,\nTravel Data WiFi Team`
+};
 
-      invoiceId = invoiceResponse.invoice?.invoice_id;
-      const invoiceNumber = invoiceResponse.invoice?.invoice_number;
+console.log('Invoice creation payload:', JSON.stringify(invoiceData, null, 2));
 
-      if (!invoiceId) {
-        throw new Error('Invoice creation failed - no invoice_id returned');
-      }
+// CRITICAL FIX: Use correct invoice endpoint - /invoices not /salesorders/.../invoices
+const invoiceResponse = await inventoryApiRequest('/invoices', {
+  method: 'POST',
+  body: invoiceData
+});
 
-      console.log('✓ Invoice created:', invoiceId, invoiceNumber);
+invoiceId = invoiceResponse.invoice?.invoice_id;
+const invoiceNumber = invoiceResponse.invoice?.invoice_number;
+
+if (!invoiceId) {
+  throw new Error('Invoice creation failed - no invoice_id returned');
+}
+
+console.log('✓ Invoice created:', invoiceId, invoiceNumber);
 
       // STEP 4: Generate payment URL (FIXED - fallback Stripe URL)
       console.log('Step 4: Generating payment URL...');
