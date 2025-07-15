@@ -1,4 +1,4 @@
-// ===== src/pages/payment/invoice/[id].js ===== (CLEAN VERSION)
+// ===== src/pages/payment/invoice/[id].js ===== (COMPLETELY CLEAN VERSION)
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
@@ -40,7 +40,9 @@ const InvoicePaymentPage = () => {
         invoice_number: urlParams.get('invoice_number') || '',
         request_id: urlParams.get('request_id') || '',
         success_url: urlParams.get('success_url') || '/checkout/success',
-        cancel_url: urlParams.get('cancel_url') || '/checkout/cancel'
+        cancel_url: urlParams.get('cancel_url') || '/checkout/cancel',
+        zoho_org_id: urlParams.get('zoho_org_id') || '',
+        zoho_invoice_id: urlParams.get('zoho_invoice_id') || ''
       };
 
       if (!data.amount || !data.customer_email) {
@@ -93,65 +95,29 @@ const InvoicePaymentPage = () => {
       }
     } catch (error) {
       console.error('Payment session creation error:', error);
-      toast.error('Payment setup failed. Please try again.');
+      toast.error('Stripe payment setup failed. Please try another payment method.');
       setIsProcessing(false);
     }
   };
 
   const handleZohoPayment = () => {
-    // Option 1: Try to use Zoho Payments (since you have it configured)
-    if (paymentData.zoho_org_id && paymentData.zoho_invoice_id) {
-      // Try the customer portal approach first
-      const customerPortalUrl = `https://books.zoho.com/portal/invoice/view/${paymentData.zoho_invoice_id}?organization=${paymentData.zoho_org_id}`;
-      window.open(customerPortalUrl, '_blank');
-      toast.success('Zoho customer portal opened in new tab');
-    } else {
-      // Fallback to direct Zoho inventory link
-      const zohoUrl = `https://inventory.zoho.com/app/#/invoices/${paymentData.invoice_id}/details?organization=${process.env.NEXT_PUBLIC_ZOHO_ORGANIZATION_ID}`;
-      window.open(zohoUrl, '_blank');
-      toast.success('Zoho invoice opened in new tab');
-    }
-  };
-
-  const handleZohoPaymentsCheckout = async () => {
-    setIsProcessing(true);
+    const zohoOptions = [];
     
-    try {
-      console.log('🔄 Creating Zoho Payments session...');
-      
-      const response = await fetch('/api/zoho-payments/create-session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          invoice_id: paymentData.invoice_id,
-          amount: paymentData.amount,
-          currency: paymentData.currency,
-          customer_email: paymentData.customer_email,
-          customer_name: paymentData.customer_name,
-          success_url: `${window.location.origin}${paymentData.success_url}`,
-          cancel_url: `${window.location.origin}${paymentData.cancel_url}`,
-          metadata: {
-            invoice_number: paymentData.invoice_number,
-            request_id: paymentData.request_id
-          }
-        })
+    if (paymentData.zoho_org_id && paymentData.zoho_invoice_id) {
+      zohoOptions.push({
+        name: 'Zoho Customer Portal',
+        url: `https://books.zoho.com/portal/invoice/view/${paymentData.zoho_invoice_id}?organization=${paymentData.zoho_org_id}`
       });
+    }
+    
+    zohoOptions.push({
+      name: 'Zoho Inventory Direct',
+      url: `https://inventory.zoho.com/app/#/invoices/${paymentData.invoice_id}/details?organization=${paymentData.zoho_org_id}`
+    });
 
-      const sessionData = await response.json();
-
-      if (sessionData.success && sessionData.checkout_url) {
-        console.log('✅ Zoho Payments session created, redirecting...');
-        toast.success('Redirecting to Zoho Payments...');
-        window.location.href = sessionData.checkout_url;
-      } else {
-        throw new Error(sessionData.error || 'Failed to create Zoho payment session');
-      }
-    } catch (error) {
-      console.error('❌ Zoho Payments session creation error:', error);
-      toast.error('Zoho Payments setup failed. Please try Stripe or contact support.');
-      setIsProcessing(false);
+    if (zohoOptions.length > 0) {
+      window.open(zohoOptions[0].url, '_blank');
+      toast.success('Zoho invoice opened in new tab');
     }
   };
 
@@ -172,7 +138,7 @@ const InvoicePaymentPage = () => {
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
           <div className="text-center">
             <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto" />
-            <p className="mt-4 text-gray-600">Loading payment details...</p>
+            <p className="mt-4 text-gray-600">Loading payment options...</p>
           </div>
         </div>
       </Layout>
@@ -225,19 +191,18 @@ const InvoicePaymentPage = () => {
 
           <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
             <div className="mb-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-2">Payment Options</h2>
-              <p className="text-gray-600">Choose your preferred payment method below</p>
+              <h2 className="text-lg font-semibold text-gray-900 mb-2">Choose Payment Method</h2>
+              <p className="text-gray-600">Select your preferred way to complete payment</p>
             </div>
 
             <div className="space-y-4">
-              {/* Stripe Payment Option */}
               <div className="border rounded-lg p-4 hover:border-blue-500 transition-colors">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
                     <CreditCard className="h-6 w-6 text-blue-600 mr-3" />
                     <div>
                       <h3 className="font-medium text-gray-900">Credit/Debit Card</h3>
-                      <p className="text-sm text-gray-600">Secure payment with Stripe</p>
+                      <p className="text-sm text-gray-600">Quick & secure payment with Stripe</p>
                     </div>
                   </div>
                   <button
@@ -260,37 +225,6 @@ const InvoicePaymentPage = () => {
                 </div>
               </div>
 
-              {/* Zoho Payments Option (your configured payment gateway) */}
-              <div className="border rounded-lg p-4 hover:border-purple-500 transition-colors">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center">
-                    <Shield className="h-6 w-6 text-purple-600 mr-3" />
-                    <div>
-                      <h3 className="font-medium text-gray-900">Zoho SecurePay</h3>
-                      <p className="text-sm text-gray-600">Pay with your configured Zoho payment gateway</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleZohoPaymentsCheckout}
-                    disabled={isProcessing}
-                    className="bg-purple-600 text-white px-6 py-2 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-                  >
-                    {isProcessing ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        Processing...
-                      </>
-                    ) : (
-                      <>
-                        <Shield className="h-4 w-4 mr-2" />
-                        Pay with Zoho
-                      </>
-                    )}
-                  </button>
-                </div>
-              </div>
-
-              {/* Zoho Invoice Direct Access */}
               <div className="border rounded-lg p-4 hover:border-green-500 transition-colors">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
@@ -298,84 +232,6 @@ const InvoicePaymentPage = () => {
                     <div>
                       <h3 className="font-medium text-gray-900">View Invoice in Zoho</h3>
                       <p className="text-sm text-gray-600">Open invoice directly in Zoho portal</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleDirectZohoAccess}
-                    className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 flex items-center"
-                  >
-                    <ExternalLink className="h-4 w-4 mr-2" />
-                    Open Invoice
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border p-6 mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h3>
-            <div className="space-y-3">
-              <div className="flex justify-between">
-                <span className="text-gray-600">Invoice Number:</span>
-                <span className="font-medium">{paymentData.invoice_number}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Customer Email:</span>
-                <span className="font-medium">{paymentData.customer_email}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Currency:</span>
-                <span className="font-medium">{paymentData.currency}</span>
-              </div>
-              <div className="border-t pt-3">
-                <div className="flex justify-between text-lg font-semibold">
-                  <span>Total Amount:</span>
-                  <span className="text-blue-600">{formatCurrency(paymentData.amount)}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <div className="flex items-start">
-              <Shield className="h-5 w-5 text-blue-600 mt-0.5 mr-3 flex-shrink-0" />
-              <div>
-                <h4 className="font-medium text-blue-900 mb-1">Secure Payment</h4>
-                <p className="text-sm text-blue-700">
-                  All payment methods use industry-standard encryption. 
-                  Your payment information is processed securely and never stored.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="text-center space-y-3">
-            <p className="text-gray-600">Need help with payment?</p>
-            <div className="space-x-4">
-              <button
-                onClick={() => window.location.href = 'mailto:support@traveldatawifi.com'}
-                className="text-blue-600 hover:text-blue-700 underline"
-              >
-                Contact Support
-              </button>
-              <button
-                onClick={handleCancel}
-                className="text-gray-600 hover:text-gray-700 underline"
-              >
-                Cancel Order
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Layout>
-  );
-};
-
-export default InvoicePaymentPage;h-6 w-6 text-green-600 mr-3" />
-                    <div>
-                      <h3 className="font-medium text-gray-900">View Invoice in Zoho</h3>
-                      <p className="text-sm text-gray-600">Open invoice directly in Zoho for payment</p>
                     </div>
                   </div>
                   <button
@@ -420,8 +276,8 @@ export default InvoicePaymentPage;h-6 w-6 text-green-600 mr-3" />
               <div>
                 <h4 className="font-medium text-blue-900 mb-1">Secure Payment</h4>
                 <p className="text-sm text-blue-700">
-                  Your payment information is processed securely using industry-standard encryption. 
-                  We never store your credit card details.
+                  All payment methods use industry-standard encryption. 
+                  Your payment information is processed securely and never stored.
                 </p>
               </div>
             </div>
