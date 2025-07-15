@@ -1,4 +1,5 @@
-// ===== src/pages/checkout.tsx (BUILD ERROR FIXED) =====
+// ===== src/pages/checkout.tsx ===== (UPDATED WITH ZOHO INVENTORY INTEGRATION)
+
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../components/Layout';
@@ -12,19 +13,19 @@ import {
   AlertCircle, 
   Loader2,
   ArrowLeft,
-  ExternalLink,
-  Shield
+  Shield,
+  ExternalLink
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const CheckoutPage = () => {
   const router = useRouter();
-  const { items, getTotalPrice, isHydrated } = useCartStore();
+  const { items, getTotalPrice, clearCart, isHydrated } = useCartStore();
   
   // Component state
   const [isLoading, setIsLoading] = useState(true);
   
-  // Form state - only collect shipping info since payment is handled by Zoho
+  // Form state
   const [customerInfo, setCustomerInfo] = useState({
     email: '',
     firstName: '',
@@ -48,52 +49,24 @@ const CheckoutPage = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  // Wait for cart to hydrate before showing content
+  // Wait for cart to hydrate
   useEffect(() => {
     if (isHydrated) {
       setIsLoading(false);
     }
   }, [isHydrated]);
 
-  // Calculate totals (safe with empty items array)
+  // Calculate totals
   const subtotal = items?.reduce((sum, item) => sum + (item.product_price * item.quantity), 0) || 0;
   const shipping = subtotal >= 100 ? 0 : 9.99;
-  const tax = Math.round(subtotal * 0.0875 * 100) / 100; // 8.75% tax rate
+  const tax = Math.round(subtotal * 0.0875 * 100) / 100;
   const total = subtotal + shipping + tax;
 
-  // US States for dropdown
-  const states = [
-    { code: 'AL', name: 'Alabama' }, { code: 'AK', name: 'Alaska' }, { code: 'AZ', name: 'Arizona' },
-    { code: 'AR', name: 'Arkansas' }, { code: 'CA', name: 'California' }, { code: 'CO', name: 'Colorado' },
-    { code: 'CT', name: 'Connecticut' }, { code: 'DE', name: 'Delaware' }, { code: 'FL', name: 'Florida' },
-    { code: 'GA', name: 'Georgia' }, { code: 'HI', name: 'Hawaii' }, { code: 'ID', name: 'Idaho' },
-    { code: 'IL', name: 'Illinois' }, { code: 'IN', name: 'Indiana' }, { code: 'IA', name: 'Iowa' },
-    { code: 'KS', name: 'Kansas' }, { code: 'KY', name: 'Kentucky' }, { code: 'LA', name: 'Louisiana' },
-    { code: 'ME', name: 'Maine' }, { code: 'MD', name: 'Maryland' }, { code: 'MA', name: 'Massachusetts' },
-    { code: 'MI', name: 'Michigan' }, { code: 'MN', name: 'Minnesota' }, { code: 'MS', name: 'Mississippi' },
-    { code: 'MO', name: 'Missouri' }, { code: 'MT', name: 'Montana' }, { code: 'NE', name: 'Nebraska' },
-    { code: 'NV', name: 'Nevada' }, { code: 'NH', name: 'New Hampshire' }, { code: 'NJ', name: 'New Jersey' },
-    { code: 'NM', name: 'New Mexico' }, { code: 'NY', name: 'New York' }, { code: 'NC', name: 'North Carolina' },
-    { code: 'ND', name: 'North Dakota' }, { code: 'OH', name: 'Ohio' }, { code: 'OK', name: 'Oklahoma' },
-    { code: 'OR', name: 'Oregon' }, { code: 'PA', name: 'Pennsylvania' }, { code: 'RI', name: 'Rhode Island' },
-    { code: 'SC', name: 'South Carolina' }, { code: 'SD', name: 'South Dakota' }, { code: 'TN', name: 'Tennessee' },
-    { code: 'TX', name: 'Texas' }, { code: 'UT', name: 'Utah' }, { code: 'VT', name: 'Vermont' },
-    { code: 'VA', name: 'Virginia' }, { code: 'WA', name: 'Washington' }, { code: 'WV', name: 'West Virginia' },
-    { code: 'WI', name: 'Wisconsin' }, { code: 'WY', name: 'Wyoming' }
-  ];
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!agreeToTerms) {
-      toast.error('Please agree to the terms and conditions');
-      return;
-    }
-    
-    setIsProcessing(true);
-    setValidationErrors([]);
-    
+  // NEW: Zoho Inventory Checkout Handler
+  const handleZohoInventoryCheckout = async (customerInfo: any, shippingAddress: any, cartItems: any[]) => {
     try {
+      console.log('🛒 Starting Zoho Inventory checkout...');
+
       const response = await fetch('/api/guest-checkout-inventory', {
         method: 'POST',
         headers: {
@@ -102,56 +75,138 @@ const CheckoutPage = () => {
         body: JSON.stringify({
           customerInfo,
           shippingAddress,
-          cartItems: items,
-          orderNotes,
-          checkoutType: 'hosted' // Force hosted checkout
-        }),
+          cartItems,
+          orderNotes: orderNotes || 'Guest checkout order'
+        })
       });
-      
+
       const result = await response.json();
-      
-      if (!response.ok) {
-        if (result.details && Array.isArray(result.details)) {
-          setValidationErrors(result.details);
+
+      if (result.success) {
+        console.log('✅ Checkout successful:', result);
+        
+        // CRITICAL: Check for immediate payment redirect
+        if (result.redirect_to_payment && result.payment_url) {
+          console.log('🔄 Redirecting to payment:', result.payment_url);
+          
+          // Clear cart since order was created successfully
+          clearCart();
+          
+          // Show success message briefly before redirect
+          toast.success('Order created! Redirecting to payment...');
+          
+          // Redirect to payment page
+          setTimeout(() => {
+            window.location.href = result.payment_url;
+          }, 1500);
+          
+          return { success: true, redirected: true };
         }
-        throw new Error(result.error || 'Checkout failed');
-      }
-      
-      // Redirect to Zoho's hosted checkout page
-      if (result.checkout_url) {
-        toast.success('Redirecting to secure checkout...');
-        window.location.href = result.checkout_url;
+        
+        // Fallback: No automatic redirect
+        console.log('ℹ️ No redirect specified, order created successfully');
+        toast.success(`Order ${result.invoice_number} created successfully!`);
+        return { success: true, redirected: false, result };
+
       } else {
-        throw new Error('No checkout URL received from Zoho');
+        throw new Error(result.details || result.error || 'Checkout failed');
+      }
+
+    } catch (error: any) {
+      console.error('❌ Checkout failed:', error);
+      throw error;
+    }
+  };
+
+  // Validate form
+  const validateForm = () => {
+    const errors: string[] = [];
+    
+    if (!customerInfo.firstName.trim()) errors.push('First name is required');
+    if (!customerInfo.lastName.trim()) errors.push('Last name is required');
+    if (!customerInfo.email.trim()) errors.push('Email is required');
+    if (!customerInfo.phone.trim()) errors.push('Phone number is required');
+    if (!shippingAddress.address1.trim()) errors.push('Address is required');
+    if (!shippingAddress.city.trim()) errors.push('City is required');
+    if (!shippingAddress.state.trim()) errors.push('State is required');
+    if (!shippingAddress.zipCode.trim()) errors.push('ZIP code is required');
+    if (!agreeToTerms) errors.push('You must agree to the terms and conditions');
+    
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (customerInfo.email && !emailRegex.test(customerInfo.email)) {
+      errors.push('Please enter a valid email address');
+    }
+    
+    setValidationErrors(errors);
+    return errors.length === 0;
+  };
+
+  // UPDATED: Form submission handler with Zoho Inventory integration
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!validateForm()) {
+      toast.error('Please fix the validation errors');
+      return;
+    }
+
+    setIsProcessing(true);
+    
+    try {
+      // Prepare cart items in the expected format
+      const cartItems = items?.map(item => ({
+        product_id: item.product_id,
+        product_name: item.product_name,
+        product_price: item.product_price,
+        quantity: item.quantity,
+        sku: item.sku || item.product_id, // Use SKU if available, fallback to product_id
+        name: item.product_name,
+        price: item.product_price
+      })) || [];
+
+      // Call the Zoho Inventory checkout
+      const result = await handleZohoInventoryCheckout(customerInfo, shippingAddress, cartItems);
+      
+      if (result.redirected) {
+        // Customer is being redirected to payment
+        console.log('Customer redirected to payment page');
+        return;
       }
       
+      // Handle success without redirect (fallback)
+      console.log('Order created successfully:', result);
+      
+      // Redirect to a success page or show success message
+      router.push('/checkout/success');
+
     } catch (error: any) {
       console.error('Checkout error:', error);
-      toast.error(error.message || 'Something went wrong. Please try again.');
+      toast.error(`Checkout failed: ${error.message}`);
+    } finally {
       setIsProcessing(false);
     }
   };
 
-  // Show loading while hydrating
+  // Show loading state
   if (isLoading) {
     return (
       <Layout title="Loading Checkout - Travel Data WiFi">
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
           <div className="text-center">
-            <Loader2 className="h-12 w-12 animate-spin text-travel-blue mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">Loading Checkout</h2>
-            <p className="text-gray-600">Please wait...</p>
+            <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-travel-blue" />
+            <p className="text-gray-600">Loading checkout...</p>
           </div>
         </div>
       </Layout>
     );
   }
 
-  // FIXED: Show empty cart message instead of redirecting (prevents infinite loops)
+  // Redirect if cart is empty
   if (!items || items.length === 0) {
     return (
-      <Layout title="Checkout - Travel Data WiFi">
-        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <Layout title="Empty Cart - Travel Data WiFi">
+        <div className="min-h-screen bg-gray-50 py-12">
           <div className="max-w-md mx-auto text-center">
             <div className="bg-white rounded-lg shadow-lg p-8">
               <ShoppingCart className="h-16 w-16 text-gray-400 mx-auto mb-6" />
@@ -159,7 +214,6 @@ const CheckoutPage = () => {
               <p className="text-gray-600 mb-6">Add some products to your cart before proceeding to checkout.</p>
               
               <div className="space-y-3">
-                {/* FIXED: Use router.push instead of window.location.href */}
                 <button
                   onClick={() => router.push('/products')}
                   className="w-full bg-travel-blue text-white py-3 px-4 rounded-lg font-medium hover:bg-blue-700 transition-colors"
@@ -216,6 +270,18 @@ const CheckoutPage = () => {
             </div>
           )}
 
+          {/* Processing Overlay */}
+          {isProcessing && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 text-center max-w-sm mx-4">
+                <Loader2 className="h-8 w-8 animate-spin text-travel-blue mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Creating Your Order</h3>
+                <p className="text-gray-600">Please wait while we process your order...</p>
+                <p className="text-sm text-gray-500 mt-2">You'll be redirected to payment shortly</p>
+              </div>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left Column - Forms */}
             <div className="lg:col-span-2 space-y-8">
@@ -228,36 +294,6 @@ const CheckoutPage = () => {
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                      Email Address *
-                    </label>
-                    <input
-                      type="email"
-                      id="email"
-                      required
-                      value={customerInfo.email}
-                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, email: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                      placeholder="your@email.com"
-                    />
-                  </div>
-                  
-                  <div>
-                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
-                      Phone Number *
-                    </label>
-                    <input
-                      type="tel"
-                      id="phone"
-                      required
-                      value={customerInfo.phone}
-                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, phone: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                      placeholder="(555) 123-4567"
-                    />
-                  </div>
-                  
-                  <div>
                     <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
                       First Name *
                     </label>
@@ -269,6 +305,7 @@ const CheckoutPage = () => {
                       onChange={(e) => setCustomerInfo(prev => ({ ...prev, firstName: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                       placeholder="John"
+                      disabled={isProcessing}
                     />
                   </div>
                   
@@ -284,6 +321,39 @@ const CheckoutPage = () => {
                       onChange={(e) => setCustomerInfo(prev => ({ ...prev, lastName: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                       placeholder="Doe"
+                      disabled={isProcessing}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+                      Email Address *
+                    </label>
+                    <input
+                      type="email"
+                      id="email"
+                      required
+                      value={customerInfo.email}
+                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, email: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                      placeholder="your@email.com"
+                      disabled={isProcessing}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-2">
+                      Phone Number *
+                    </label>
+                    <input
+                      type="tel"
+                      id="phone"
+                      required
+                      value={customerInfo.phone}
+                      onChange={(e) => setCustomerInfo(prev => ({ ...prev, phone: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                      placeholder="(555) 123-4567"
+                      disabled={isProcessing}
                     />
                   </div>
                 </div>
@@ -309,12 +379,13 @@ const CheckoutPage = () => {
                       onChange={(e) => setShippingAddress(prev => ({ ...prev, address1: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                       placeholder="123 Main Street"
+                      disabled={isProcessing}
                     />
                   </div>
                   
                   <div>
                     <label htmlFor="address2" className="block text-sm font-medium text-gray-700 mb-2">
-                      Apartment, suite, etc. (optional)
+                      Apartment, Suite, etc. (Optional)
                     </label>
                     <input
                       type="text"
@@ -322,7 +393,8 @@ const CheckoutPage = () => {
                       value={shippingAddress.address2}
                       onChange={(e) => setShippingAddress(prev => ({ ...prev, address2: e.target.value }))}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                      placeholder="Apt 4B"
+                      placeholder="Apt 2B, Suite 100"
+                      disabled={isProcessing}
                     />
                   </div>
                   
@@ -339,6 +411,7 @@ const CheckoutPage = () => {
                         onChange={(e) => setShippingAddress(prev => ({ ...prev, city: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                         placeholder="New York"
+                        disabled={isProcessing}
                       />
                     </div>
                     
@@ -346,20 +419,16 @@ const CheckoutPage = () => {
                       <label htmlFor="state" className="block text-sm font-medium text-gray-700 mb-2">
                         State *
                       </label>
-                      <select
+                      <input
+                        type="text"
                         id="state"
                         required
                         value={shippingAddress.state}
                         onChange={(e) => setShippingAddress(prev => ({ ...prev, state: e.target.value }))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent bg-white"
-                      >
-                        <option value="">Select State</option>
-                        {states.map(state => (
-                          <option key={state.code} value={state.code}>
-                            {state.name}
-                          </option>
-                        ))}
-                      </select>
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
+                        placeholder="NY"
+                        disabled={isProcessing}
+                      />
                     </div>
                     
                     <div>
@@ -374,6 +443,7 @@ const CheckoutPage = () => {
                         onChange={(e) => setShippingAddress(prev => ({ ...prev, zipCode: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
                         placeholder="10001"
+                        disabled={isProcessing}
                       />
                     </div>
                   </div>
@@ -386,9 +456,10 @@ const CheckoutPage = () => {
                 <textarea
                   value={orderNotes}
                   onChange={(e) => setOrderNotes(e.target.value)}
-                  rows={3}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-travel-blue focus:border-transparent"
-                  placeholder="Special delivery instructions, questions, or comments..."
+                  rows={3}
+                  placeholder="Any special instructions for your order..."
+                  disabled={isProcessing}
                 />
               </div>
             </div>
@@ -399,20 +470,18 @@ const CheckoutPage = () => {
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h2>
                 
                 {/* Cart Items */}
-                <div className="space-y-3 mb-6">
+                <div className="space-y-3 mb-4">
                   {items?.map((item) => (
                     <div key={item.product_id} className="flex items-center space-x-3">
-                      <img
-                        src={item.product_images?.[0] || '/placeholder-product.png'}
-                        alt={item.product_name}
-                        className="w-12 h-12 object-cover rounded"
-                      />
+                      <div className="flex-shrink-0 w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+                        <span className="text-xs font-medium text-gray-600">{item.quantity}x</span>
+                      </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-gray-900 truncate">
                           {item.product_name}
                         </p>
                         <p className="text-sm text-gray-500">
-                          Qty: {item.quantity} × ${item.product_price}
+                          ${item.product_price.toFixed(2)} each
                         </p>
                       </div>
                       <div className="text-sm font-medium text-gray-900">
@@ -421,8 +490,8 @@ const CheckoutPage = () => {
                     </div>
                   ))}
                 </div>
-                
-                {/* Totals */}
+
+                {/* Order Totals */}
                 <div className="border-t pt-4 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Subtotal</span>
@@ -452,6 +521,7 @@ const CheckoutPage = () => {
                       checked={agreeToTerms}
                       onChange={(e) => setAgreeToTerms(e.target.checked)}
                       className="mt-1 h-4 w-4 text-travel-blue focus:ring-travel-blue border-gray-300 rounded"
+                      disabled={isProcessing}
                     />
                     <span className="text-sm text-gray-600">
                       I agree to the{' '}
@@ -473,12 +543,12 @@ const CheckoutPage = () => {
                     {isProcessing ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Processing...</span>
+                        <span>Creating Order...</span>
                       </>
                     ) : (
                       <>
                         <Shield className="h-4 w-4" />
-                        <span>Proceed to Secure Payment</span>
+                        <span>Complete Order & Pay</span>
                         <ExternalLink className="h-4 w-4" />
                       </>
                     )}

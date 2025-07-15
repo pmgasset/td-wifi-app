@@ -1,248 +1,215 @@
-import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import { CreditCard, CheckCircle, AlertCircle, Loader2, Shield, ArrowLeft } from 'lucide-react';
+// ===== src/pages/api/stripe/create-checkout-session.js =====
 
-export default function StripeCheckoutPage() {
-  const router = useRouter();
-  const [invoiceData, setInvoiceData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [paymentStatus, setPaymentStatus] = useState('pending');
-  const [isProcessing, setIsProcessing] = useState(false);
+/**
+ * Creates a Stripe Checkout session for Zoho Inventory invoice payments
+ * Integrates with your existing Stripe configuration in Zoho
+ */
 
-  useEffect(() => {
-    // Extract URL parameters
-    const urlParams = new URLSearchParams(window.location.search);
-    const data = {
-      invoice_id: urlParams.get('invoice_id'),
-      invoice_number: urlParams.get('invoice_number'),
-      contact_id: urlParams.get('contact_id'),
-      amount: parseFloat(urlParams.get('amount')),
-      currency: urlParams.get('currency') || 'USD',
-      customer_email: urlParams.get('customer_email'),
-      customer_name: urlParams.get('customer_name'),
-      return_url: urlParams.get('return_url'),
-      cancel_url: urlParams.get('cancel_url'),
-      request_id: urlParams.get('request_id'),
-      api_type: urlParams.get('api_type'),
-      payment_gateway: urlParams.get('payment_gateway'),
-      sales_order_id: urlParams.get('sales_order_id'),
-      organization_id: urlParams.get('organization_id'),
-      mode: urlParams.get('mode')
-    };
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
-    setInvoiceData(data);
-    setLoading(false);
-  }, []);
+  try {
+    const {
+      invoice_id,
+      amount,
+      currency = 'USD',
+      customer_email,
+      customer_name,
+      success_url,
+      cancel_url,
+      metadata = {}
+    } = req.body;
 
-  const createStripePaymentSession = async () => {
-    setIsProcessing(true);
-    setPaymentStatus('processing');
-    
+    // Validation
+    if (!invoice_id || !amount || !customer_email) {
+      return res.status(400).json({
+        error: 'Missing required fields: invoice_id, amount, and customer_email are required'
+      });
+    }
+
+    console.log(`Creating Stripe checkout session for invoice: ${invoice_id}`);
+
+    // Method 1: Try to use Zoho's Stripe integration directly
     try {
-      console.log('Creating Stripe payment session...');
+      console.log('Attempting to create payment through Zoho Inventory Stripe integration...');
       
-      // Call your backend API to create Stripe payment session
-      const response = await fetch('/api/stripe/create-checkout-session', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          invoice_id: invoiceData.invoice_id,
-          amount: invoiceData.amount,
-          currency: invoiceData.currency,
-          customer_email: invoiceData.customer_email,
-          customer_name: invoiceData.customer_name,
-          success_url: invoiceData.return_url,
-          cancel_url: invoiceData.cancel_url || window.location.href,
-          metadata: {
-            invoice_number: invoiceData.invoice_number,
-            contact_id: invoiceData.contact_id,
-            sales_order_id: invoiceData.sales_order_id,
-            organization_id: invoiceData.organization_id,
-            request_id: invoiceData.request_id
-          }
-        })
+      const zohoStripeResponse = await createZohoStripePayment({
+        invoice_id,
+        amount,
+        currency,
+        customer_email,
+        success_url,
+        cancel_url
       });
 
-      const sessionData = await response.json();
-
-      if (sessionData.success && sessionData.checkout_url) {
-        console.log('✓ Stripe session created, redirecting...');
-        
-        // Redirect to Stripe Checkout
-        window.location.href = sessionData.checkout_url;
-      } else {
-        throw new Error(sessionData.error || 'Failed to create payment session');
+      if (zohoStripeResponse.success) {
+        return res.status(200).json({
+          success: true,
+          checkout_url: zohoStripeResponse.checkout_url,
+          session_id: zohoStripeResponse.session_id,
+          method: 'zoho_stripe_integration'
+        });
       }
-    } catch (error) {
-      console.error('Payment session creation error:', error);
-      setPaymentStatus('error');
-      setIsProcessing(false);
+    } catch (zohoStripeError) {
+      console.log('Zoho Stripe integration failed, trying direct Stripe API...');
     }
-  };
 
-  const handleDirectZohoPayment = () => {
-    const zohoPaymentUrl = `https://inventory.zoho.com/app/#/invoices/${invoiceData.invoice_id}/details?organization=${invoiceData.organization_id}`;
-    window.open(zohoPaymentUrl, '_blank');
-  };
+    // Method 2: Use direct Stripe API (requires Stripe keys)
+    if (process.env.STRIPE_SECRET_KEY) {
+      console.log('Creating Stripe session using direct API...');
+      
+      const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-  const handleCancel = () => {
-    if (invoiceData.cancel_url) {
-      router.push(invoiceData.cancel_url);
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        mode: 'payment',
+        customer_email: customer_email,
+        line_items: [
+          {
+            price_data: {
+              currency: currency.toLowerCase(),
+              product_data: {
+                name: `Invoice ${metadata.invoice_number || invoice_id}`,
+                description: `Payment for Travel Data WiFi invoice`,
+                metadata: {
+                  invoice_id: invoice_id,
+                  contact_id: metadata.contact_id || '',
+                  sales_order_id: metadata.sales_order_id || ''
+                }
+              },
+              unit_amount: Math.round(amount * 100), // Stripe expects cents
+            },
+            quantity: 1,
+          },
+        ],
+        success_url: success_url + '?session_id={CHECKOUT_SESSION_ID}&payment_status=completed',
+        cancel_url: cancel_url || `${req.headers.origin}/checkout?error=payment_cancelled`,
+        metadata: {
+          invoice_id: invoice_id,
+          invoice_number: metadata.invoice_number || '',
+          contact_id: metadata.contact_id || '',
+          sales_order_id: metadata.sales_order_id || '',
+          organization_id: metadata.organization_id || '',
+          request_id: metadata.request_id || '',
+          integration_type: 'zoho_inventory'
+        }
+      });
+
+      console.log('✓ Stripe session created:', session.id);
+
+      return res.status(200).json({
+        success: true,
+        checkout_url: session.url,
+        session_id: session.id,
+        method: 'direct_stripe_api'
+      });
+    }
+
+    // Method 3: Fallback to custom payment form
+    console.log('No Stripe keys available, using custom payment form...');
+    
+    const customPaymentUrl = `${req.headers.origin}/payment/custom-stripe?${new URLSearchParams({
+      invoice_id,
+      amount: amount.toString(),
+      currency,
+      customer_email,
+      customer_name,
+      success_url,
+      cancel_url,
+      ...metadata
+    }).toString()}`;
+
+    return res.status(200).json({
+      success: true,
+      checkout_url: customPaymentUrl,
+      session_id: `custom_${Date.now()}`,
+      method: 'custom_payment_form'
+    });
+
+  } catch (error) {
+    console.error('Error creating Stripe checkout session:', error);
+    
+    return res.status(500).json({
+      error: 'Failed to create payment session',
+      details: error.message,
+      suggestion: 'Check Stripe configuration and try again'
+    });
+  }
+}
+
+/**
+ * Attempt to create payment through Zoho's Stripe integration
+ */
+async function createZohoStripePayment({ invoice_id, amount, currency, customer_email, success_url, cancel_url }) {
+  try {
+    // Get Zoho access token
+    const token = await getZohoAccessToken();
+    const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
+
+    // Try Zoho's payment link creation
+    const paymentLinkData = {
+      invoice_id: invoice_id,
+      payment_mode: 'stripe',
+      success_url: success_url,
+      cancel_url: cancel_url,
+      customer_email: customer_email
+    };
+
+    const response = await fetch(`https://www.zohoapis.com/inventory/v1/invoices/${invoice_id}/paymentlink?organization_id=${organizationId}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(paymentLinkData)
+    });
+
+    const data = await response.json();
+
+    if (response.ok && data.payment_url) {
+      return {
+        success: true,
+        checkout_url: data.payment_url,
+        session_id: data.payment_id || `zoho_${Date.now()}`
+      };
     } else {
-      router.push('/checkout');
+      throw new Error(data.message || 'Zoho payment link creation failed');
     }
-  };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto" />
-          <p className="mt-4 text-gray-600">Loading payment details...</p>
-        </div>
-      </div>
-    );
+  } catch (error) {
+    console.error('Zoho Stripe integration error:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get Zoho access token (reuse from your existing implementation)
+ */
+async function getZohoAccessToken() {
+  if (!process.env.ZOHO_REFRESH_TOKEN || !process.env.ZOHO_CLIENT_ID || !process.env.ZOHO_CLIENT_SECRET) {
+    throw new Error('Missing Zoho OAuth credentials');
   }
 
-  if (!invoiceData?.invoice_id) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="max-w-md mx-auto text-center">
-          <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-          <h1 className="text-xl font-semibold text-gray-900 mb-2">Payment Error</h1>
-          <p className="text-gray-600 mb-6">Invalid payment parameters. Please return to checkout and try again.</p>
-          <button
-            onClick={() => router.push('/checkout')}
-            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700"
-          >
-            Return to Checkout
-          </button>
-        </div>
-      </div>
-    );
+  const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      refresh_token: process.env.ZOHO_REFRESH_TOKEN,
+      client_id: process.env.ZOHO_CLIENT_ID,
+      client_secret: process.env.ZOHO_CLIENT_SECRET,
+      grant_type: 'refresh_token',
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok || !data.access_token) {
+    throw new Error('Failed to get Zoho access token');
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Complete Your Payment</h1>
-          <p className="mt-2 text-gray-600">Secure payment powered by Stripe</p>
-        </div>
-
-        {/* Order Summary */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h2>
-          
-          <div className="space-y-3">
-            <div className="flex justify-between">
-              <span className="text-gray-600">Invoice Number:</span>
-              <span className="font-medium">{invoiceData.invoice_number}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Customer:</span>
-              <span className="font-medium">{invoiceData.customer_name}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-600">Email:</span>
-              <span className="font-medium">{invoiceData.customer_email}</span>
-            </div>
-            <div className="border-t pt-3">
-              <div className="flex justify-between text-lg font-semibold">
-                <span>Total Amount:</span>
-                <span>${invoiceData.amount?.toFixed(2)} {invoiceData.currency}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Payment Status Messages */}
-        {paymentStatus === 'processing' && (
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center">
-              <Loader2 className="h-5 w-5 text-blue-500 mr-2 animate-spin" />
-              <span className="text-blue-800">Creating secure payment session...</span>
-            </div>
-          </div>
-        )}
-
-        {paymentStatus === 'error' && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-            <div className="flex items-center">
-              <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
-              <span className="text-red-800">Payment setup failed. Please try again or contact support.</span>
-            </div>
-          </div>
-        )}
-
-        {/* Payment Action */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Payment Method</h2>
-          
-          <div className="space-y-4">
-            {/* Primary: Stripe Checkout */}
-            <button
-              onClick={createStripePaymentSession}
-              disabled={isProcessing}
-              className="w-full flex items-center justify-center px-6 py-4 border border-transparent rounded-lg shadow-sm text-base font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <CreditCard className="h-5 w-5 mr-2" />
-              {isProcessing ? (
-                <>
-                  <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                  Creating Payment Session...
-                </>
-              ) : (
-                `Pay $${invoiceData.amount?.toFixed(2)} with Stripe`
-              )}
-            </button>
-
-            {/* Secondary: Direct Zoho Payment */}
-            <button
-              onClick={handleDirectZohoPayment}
-              disabled={isProcessing}
-              className="w-full flex items-center justify-center px-6 py-3 border border-gray-300 rounded-lg shadow-sm text-base font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <CreditCard className="h-5 w-5 mr-2" />
-              Pay via Zoho Inventory
-            </button>
-
-            {/* Cancel */}
-            <button
-              onClick={handleCancel}
-              disabled={isProcessing}
-              className="w-full flex items-center justify-center px-6 py-3 border border-gray-300 rounded-lg shadow-sm text-base font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ArrowLeft className="h-5 w-5 mr-2" />
-              Cancel & Return to Checkout
-            </button>
-          </div>
-
-          {/* Security Notice */}
-          <div className="mt-6 p-4 bg-green-50 rounded-lg">
-            <div className="flex items-start space-x-3">
-              <Shield className="h-5 w-5 text-green-600 mt-0.5" />
-              <div className="text-sm text-green-800">
-                <div className="font-medium mb-1">Secure Payment</div>
-                <div>Your payment is processed securely through Stripe. We never store your card details.</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Technical Details (for debugging) */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="mt-8 bg-gray-100 rounded-lg p-4">
-            <h3 className="text-sm font-medium text-gray-900 mb-2">Debug Info:</h3>
-            <pre className="text-xs text-gray-600 overflow-auto">
-              {JSON.stringify(invoiceData, null, 2)}
-            </pre>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return data.access_token;
 }

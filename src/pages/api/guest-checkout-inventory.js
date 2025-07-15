@@ -1,11 +1,14 @@
-// ===== src/pages/api/guest-checkout-inventory.js ===== (FIXED VERSION)
+// ===== src/pages/api/guest-checkout-inventory.js ===== (COMPLETE FIXED VERSION)
 
 /**
- * Complete guest checkout flow using Zoho Inventory
- * Flow: Contact → Sales Order → Invoice → Payment Collection
+ * Complete guest checkout flow using Zoho Inventory with immediate payment redirect
+ * Flow: Contact → Sales Order → Invoice → Immediate Payment Redirect
  * 
- * FIXED: Billing address 100-character limit error
- * Solution: Use address_id instead of full address objects
+ * FIXES INCLUDED:
+ * - Billing address 100-character limit (uses address_id)
+ * - Product ID mapping (SKU/name lookup)
+ * - Rate limiting (token caching)
+ * - Immediate payment redirect (custom Stripe checkout)
  */
 
 export default async function handler(req, res) {
@@ -78,7 +81,6 @@ export default async function handler(req, res) {
       
       if (errors.length > 0) {
         console.warn('Some products could not be mapped to inventory:', errors);
-        // Continue with successfully mapped items
       }
       
       console.log(`✓ Mapped ${lineItems.length} items to inventory`);
@@ -121,17 +123,13 @@ export default async function handler(req, res) {
       
       const salesOrderData = {
         customer_id: contactInfo.contact_id,
-        billing_address_id: contactInfo.billing_address_id, // FIXED: Use address_id
-        shipping_address_id: contactInfo.shipping_address_id, // FIXED: Use address_id
+        billing_address_id: contactInfo.billing_address_id,
+        shipping_address_id: contactInfo.shipping_address_id,
         date: new Date().toISOString().split('T')[0],
-        shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 days from now
+        shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         
         // Line items from cart (FIXED - using mapped inventory items)
         line_items: lineItems,
-        
-        // REMOVED: billing_address and shipping_address objects (this was causing the error)
-        // billing_address: { ... }, // <-- This caused the 100-character limit error
-        // shipping_address: { ... }, // <-- This caused the 100-character limit error
         
         // Order details
         notes: orderNotes || `Guest order from Travel Data WiFi website - ${requestId}`,
@@ -161,21 +159,17 @@ export default async function handler(req, res) {
       
       const invoiceData = {
         customer_id: contactInfo.contact_id,
-        billing_address_id: contactInfo.billing_address_id, // FIXED: Use address_id
-        shipping_address_id: contactInfo.shipping_address_id, // FIXED: Use address_id
+        billing_address_id: contactInfo.billing_address_id,
+        shipping_address_id: contactInfo.shipping_address_id,
         salesorder_id: salesOrderId,
         date: new Date().toISOString().split('T')[0],
-        due_date: new Date().toISOString().split('T')[0], // Due today (guest checkout)
+        due_date: new Date().toISOString().split('T')[0],
         
         // Copy line items from sales order (FIXED - using mapped inventory items)
         line_items: lineItems,
         
-        // REMOVED: billing_address and shipping_address objects (this was causing the error)
-        // billing_address: { ... }, // <-- This caused the 100-character limit error
-        // shipping_address: { ... }, // <-- This caused the 100-character limit error
-        
         // Invoice settings
-        payment_terms: 0, // Net 0 (immediate)
+        payment_terms: 0,
         payment_terms_label: 'Due on Receipt',
         
         // CRITICAL: Enable Stripe payment gateway
@@ -217,7 +211,6 @@ export default async function handler(req, res) {
       let paymentUrl = null;
       
       try {
-        // Method 1: Create Stripe payment link directly through Zoho Inventory
         console.log('Creating immediate Stripe payment link...');
         
         const paymentLinkData = {
@@ -239,47 +232,10 @@ export default async function handler(req, res) {
             console.log('✓ Created immediate Stripe payment link:', paymentUrl);
           }
         } catch (paymentLinkError) {
-          console.log('⚠️ Direct payment link creation failed, trying alternative approach...');
-          
-          // Method 2: Mark invoice as ready for online payment
-          try {
-            const updateInvoiceData = {
-              payment_options: {
-                payment_gateways: [
-                  {
-                    gateway_name: 'stripe',
-                    configured: true,
-                    additional_field1: 'immediate_payment'
-                  }
-                ]
-              },
-              online_payment_link: true
-            };
-            
-            const updateResponse = await inventoryApiRequest(`/invoices/${invoiceId}`, {
-              method: 'PUT',
-              body: JSON.stringify(updateInvoiceData)
-            });
-            
-            // Get the updated invoice with payment link
-            const updatedInvoiceResponse = await inventoryApiRequest(`/invoices/${invoiceId}`, {
-              method: 'GET'
-            });
-            
-            const invoice = updatedInvoiceResponse.invoice;
-            
-            // Look for payment URL in updated invoice
-            if (invoice?.payment_url || invoice?.online_payment_url || invoice?.hosted_payment_url) {
-              paymentUrl = invoice.payment_url || invoice.online_payment_url || invoice.hosted_payment_url;
-              console.log('✓ Found payment URL in updated invoice:', paymentUrl);
-            }
-            
-          } catch (updateError) {
-            console.log('⚠️ Invoice update for payment link failed');
-          }
+          console.log('⚠️ Direct payment link creation failed, using custom checkout...');
         }
         
-        // Method 3: Create custom payment page with Stripe integration
+        // Create custom payment page with Stripe integration
         if (!paymentUrl) {
           console.log('Creating custom Stripe payment page...');
           
@@ -296,7 +252,6 @@ export default async function handler(req, res) {
             request_id: requestId,
             api_type: 'inventory',
             payment_gateway: 'stripe',
-            // Zoho integration data
             sales_order_id: salesOrderId,
             organization_id: process.env.ZOHO_INVENTORY_ORGANIZATION_ID,
             mode: 'immediate_payment'
@@ -305,13 +260,13 @@ export default async function handler(req, res) {
           console.log('✓ Generated custom Stripe checkout URL:', paymentUrl);
         }
         
-        // Optional: Still send email as backup
+        // Optional: Send backup email
         try {
           const emailData = {
             send_from_org_email_id: false,
             to_mail_ids: [customerInfo.email],
             subject: `Invoice ${invoiceNumber} from Travel Data WiFi`,
-            body: `Dear ${customerInfo.firstName} ${customerInfo.lastName},\n\nThank you for your order! Your invoice ${invoiceNumber} for ${total} has been created.\n\nIf you encounter any issues with the payment process, you can also pay using this backup link.\n\nBest regards,\nTravel Data WiFi Team`
+            body: `Dear ${customerInfo.firstName} ${customerInfo.lastName},\n\nThank you for your order! Your invoice ${invoiceNumber} for $${total} has been created.\n\nIf you encounter any issues with the payment process, you can also pay using this backup link.\n\nBest regards,\nTravel Data WiFi Team`
           };
           
           await inventoryApiRequest(`/invoices/${invoiceId}/email`, {
@@ -327,7 +282,6 @@ export default async function handler(req, res) {
       } catch (paymentError) {
         console.log('⚠️ Payment link creation failed, using fallback approach');
         
-        // Final fallback: Custom payment page
         paymentUrl = `${req.headers.origin}/payment/stripe-checkout?${new URLSearchParams({
           invoice_id: invoiceId,
           invoice_number: invoiceNumber,
@@ -351,11 +305,15 @@ export default async function handler(req, res) {
 
       console.log('✅ Guest checkout completed successfully via Zoho Inventory');
 
-      // ===== SUCCESS RESPONSE =====
+      // ===== SUCCESS RESPONSE (FIXED with redirect instructions) =====
 
       const successResponse = {
         success: true,
         type: 'guest_checkout_inventory',
+        
+        // CRITICAL: Frontend redirect instructions
+        redirect_to_payment: true,
+        immediate_redirect: true,
         
         // Order identifiers
         contact_id: contactInfo.contact_id,
@@ -363,7 +321,7 @@ export default async function handler(req, res) {
         invoice_id: invoiceId,
         invoice_number: invoiceNumber,
         
-        // Address identifiers (for reference)
+        // Address identifiers
         billing_address_id: contactInfo.billing_address_id,
         shipping_address_id: contactInfo.shipping_address_id,
         
@@ -381,11 +339,7 @@ export default async function handler(req, res) {
         // Payment
         payment_url: paymentUrl,
         payment_status: 'pending',
-        payment_method: 'stripe', // Since Stripe is configured
-        
-        // CRITICAL: Redirect instruction for frontend
-        redirect_to_payment: true,
-        immediate_redirect: true,
+        payment_method: 'stripe',
         
         // Enhanced payment instructions
         payment_instructions: {
@@ -432,12 +386,10 @@ export default async function handler(req, res) {
     } catch (inventoryError) {
       console.error('❌ Zoho Inventory checkout failed:', inventoryError);
       
-      // Check if this is a rate limiting error
       const isRateLimited = inventoryError.message.includes('rate limited') || 
                            inventoryError.message.includes('too many requests') ||
                            inventoryError.message.includes('Rate limited');
       
-      // Enhanced error response with step tracking
       const errorResponse = {
         error: isRateLimited ? 'Rate limit exceeded' : 'Zoho Inventory checkout failed',
         details: inventoryError.message || 'Inventory API error occurred',
@@ -445,9 +397,8 @@ export default async function handler(req, res) {
         request_id: requestId,
         timestamp: new Date().toISOString(),
         
-        // Rate limiting specific guidance
         ...(isRateLimited && {
-          retry_after: 60, // seconds
+          retry_after: 60,
           rate_limit_info: {
             suggestion: 'Please wait 60 seconds before retrying',
             cause: 'Too many authentication requests to Zoho',
@@ -455,7 +406,6 @@ export default async function handler(req, res) {
           }
         }),
         
-        // Progress tracking
         progress: {
           contact_created: !!contactInfo?.contact_id,
           address_ids_captured: !!(contactInfo?.billing_address_id && contactInfo?.shipping_address_id),
@@ -467,7 +417,6 @@ export default async function handler(req, res) {
                        !invoiceId ? 'invoice_creation' : 'payment_setup'
         },
         
-        // Debugging information
         debug_info: {
           contact_id: contactInfo?.contact_id,
           billing_address_id: contactInfo?.billing_address_id,
@@ -509,7 +458,6 @@ let tokenExpiry = 0;
 
 /**
  * Map Commerce cart items to Inventory line items using SKU/name lookup
- * CRITICAL FIX: Resolves Commerce product_id to Inventory item_id mismatch
  */
 async function mapCommerceItemsToInventory(cartItems) {
   const lineItems = [];
@@ -524,7 +472,7 @@ async function mapCommerceItemsToInventory(cartItems) {
       let inventoryItem = null;
       let lookupMethod = 'none';
       
-      // Method 1: Try SKU-based lookup (most reliable)
+      // Method 1: Try SKU-based lookup
       if (item.sku || item.product_sku) {
         const sku = item.sku || item.product_sku;
         inventoryItem = await getInventoryItemBySku(sku);
@@ -534,7 +482,7 @@ async function mapCommerceItemsToInventory(cartItems) {
         }
       }
       
-      // Method 2: Try product name matching (fallback)
+      // Method 2: Try product name matching
       if (!inventoryItem && (item.product_name || item.name)) {
         const productName = item.product_name || item.name;
         inventoryItem = await getInventoryItemByName(productName);
@@ -544,7 +492,7 @@ async function mapCommerceItemsToInventory(cartItems) {
         }
       }
       
-      // Method 3: Try direct product_id as item_id (last resort)
+      // Method 3: Try direct product_id as item_id
       if (!inventoryItem && item.product_id) {
         inventoryItem = await getInventoryItemById(item.product_id);
         if (inventoryItem) {
@@ -554,7 +502,6 @@ async function mapCommerceItemsToInventory(cartItems) {
       }
       
       if (inventoryItem) {
-        // Successfully mapped to inventory item
         lineItems.push({
           item_id: inventoryItem.item_id,
           name: inventoryItem.name,
@@ -563,13 +510,11 @@ async function mapCommerceItemsToInventory(cartItems) {
           quantity: item.quantity || 1,
           unit: inventoryItem.unit || 'qty',
           item_order: index,
-          // Metadata for debugging
           _lookup_method: lookupMethod,
           _original_product_id: item.product_id,
           _original_sku: item.sku || item.product_sku
         });
       } else {
-        // Could not find inventory item
         const error = {
           product_id: item.product_id,
           sku: item.sku || item.product_sku,
@@ -597,23 +542,21 @@ async function mapCommerceItemsToInventory(cartItems) {
   return { lineItems, errors };
 }
 
-/**
- * Get inventory item by SKU (most reliable method)
- */
 async function getInventoryItemBySku(sku) {
   const cacheKey = `inventory_item_sku_${sku}`;
   
-  // Check cache first
   if (inventoryItemCache.has(cacheKey)) {
     return inventoryItemCache.get(cacheKey);
   }
   
   try {
-    const response = await inventoryApiRequest(`/items?sku=${encodeURIComponent(sku)}`);
+    const response = await inventoryApiRequest(`/items`, {
+      method: 'GET',
+      queryParams: { sku: sku }
+    });
     
     if (response.items && response.items.length > 0) {
       const item = response.items[0];
-      // Cache the result
       inventoryItemCache.set(cacheKey, item);
       return item;
     }
@@ -625,31 +568,28 @@ async function getInventoryItemBySku(sku) {
   }
 }
 
-/**
- * Get inventory item by name (fallback method)
- */
 async function getInventoryItemByName(productName) {
   const cacheKey = `inventory_item_name_${productName}`;
   
-  // Check cache first
   if (inventoryItemCache.has(cacheKey)) {
     return inventoryItemCache.get(cacheKey);
   }
   
   try {
-    const response = await inventoryApiRequest(`/items?item_name=${encodeURIComponent(productName)}`);
+    const response = await inventoryApiRequest(`/items`, {
+      method: 'GET',
+      queryParams: { item_name: productName }
+    });
     
     if (response.items && response.items.length > 0) {
-      // Find exact match first, then partial match
       let item = response.items.find(i => i.name === productName);
       if (!item) {
         item = response.items.find(i => i.name.toLowerCase().includes(productName.toLowerCase()));
       }
       if (!item) {
-        item = response.items[0]; // Use first result as last resort
+        item = response.items[0];
       }
       
-      // Cache the result
       inventoryItemCache.set(cacheKey, item);
       return item;
     }
@@ -661,13 +601,9 @@ async function getInventoryItemByName(productName) {
   }
 }
 
-/**
- * Get inventory item by ID (last resort method)
- */
 async function getInventoryItemById(itemId) {
   const cacheKey = `inventory_item_id_${itemId}`;
   
-  // Check cache first
   if (inventoryItemCache.has(cacheKey)) {
     return inventoryItemCache.get(cacheKey);
   }
@@ -677,7 +613,6 @@ async function getInventoryItemById(itemId) {
     
     if (response.item) {
       const item = response.item;
-      // Cache the result
       inventoryItemCache.set(cacheKey, item);
       return item;
     }
@@ -691,13 +626,11 @@ async function getInventoryItemById(itemId) {
 
 /**
  * Create or find contact in Zoho Inventory and extract address IDs
- * FIXED: Properly captures billing_address_id and shipping_address_id
  */
 async function createOrFindContact(customerData) {
   const contactName = `${customerData.firstName} ${customerData.lastName}`;
   
   try {
-    // First, try to find existing contact by email
     console.log('Searching for existing contact by email...');
     
     try {
@@ -710,11 +643,9 @@ async function createOrFindContact(customerData) {
         const existingContact = searchResponse.contacts[0];
         console.log('Found existing contact:', existingContact.contact_id);
         
-        // Extract address IDs from existing contact
         let billingAddressId = existingContact.billing_address?.address_id;
         let shippingAddressId = existingContact.shipping_address?.address_id;
         
-        // If no address IDs, we need to get full contact details
         if (!billingAddressId || !shippingAddressId) {
           console.log('Getting full contact details for address IDs...');
           
@@ -732,7 +663,6 @@ async function createOrFindContact(customerData) {
           }
         }
         
-        // Return existing contact info
         return {
           contact_id: existingContact.contact_id,
           billing_address_id: billingAddressId,
@@ -743,7 +673,6 @@ async function createOrFindContact(customerData) {
       console.log('Contact search failed, proceeding with creation...');
     }
 
-    // Create new contact if not found
     console.log('Creating new contact...');
     
     const contactData = {
@@ -756,7 +685,6 @@ async function createOrFindContact(customerData) {
       phone: customerData.phone,
       website: '',
       
-      // Billing address (default)
       billing_address: {
         address: customerData.billing_address.address,
         address2: customerData.billing_address.address2,
@@ -767,7 +695,6 @@ async function createOrFindContact(customerData) {
         phone: customerData.billing_address.phone
       },
       
-      // Shipping address
       shipping_address: {
         address: customerData.shipping_address.address,
         address2: customerData.shipping_address.address2,
@@ -778,9 +705,8 @@ async function createOrFindContact(customerData) {
         phone: customerData.shipping_address.phone
       },
       
-      // Guest-specific settings
       notes: `Guest customer - Order ${customerData.requestId}`,
-      payment_terms: 0, // Net 0 (immediate payment)
+      payment_terms: 0,
       currency_code: 'USD'
     };
 
@@ -795,7 +721,6 @@ async function createOrFindContact(customerData) {
       throw new Error('Contact creation failed - no contact_id returned');
     }
 
-    // CRITICAL: Extract address IDs from the response
     const billingAddressId = createdContact.billing_address?.address_id;
     const shippingAddressId = createdContact.shipping_address?.address_id || billingAddressId;
 
@@ -824,14 +749,11 @@ async function inventoryApiRequest(endpoint, options = {}) {
     throw new Error('ZOHO_INVENTORY_ORGANIZATION_ID environment variable is required');
   }
 
-  // Get access token (with caching to avoid rate limits)
   const token = await getZohoAccessToken();
   
-  // Build URL with query parameters
   const baseUrl = `https://www.zohoapis.com/inventory/v1${endpoint}`;
   const urlParams = new URLSearchParams({ organization_id: organizationId });
   
-  // Add any additional query parameters
   if (options.queryParams) {
     Object.entries(options.queryParams).forEach(([key, value]) => {
       if (value !== undefined && value !== null) {
@@ -866,7 +788,6 @@ async function inventoryApiRequest(endpoint, options = {}) {
     const responseText = await response.text();
     console.log(`Inventory API Response (${response.status}):`, responseText.substring(0, 500) + (responseText.length > 500 ? '...' : ''));
 
-    // Handle rate limiting
     if (response.status === 429) {
       throw new Error(`Rate limited: Too many API requests. Please wait before retrying.`);
     }
@@ -875,21 +796,6 @@ async function inventoryApiRequest(endpoint, options = {}) {
       throw new Error(`Inventory API error: ${response.status} - ${responseText || response.statusText}`);
     }
 
-    try {
-      const jsonResponse = JSON.parse(responseText);
-      
-      if (jsonResponse.code && jsonResponse.code !== 0) {
-        throw new Error(`Inventory API error: ${jsonResponse.code} - ${jsonResponse.message || 'Unknown error'}`);
-      }
-      
-      return jsonResponse;
-    } catch (parseError) {
-      if (parseError.message.includes('Inventory API error:')) {
-        throw parseError;
-      }
-      throw new Error(`Invalid JSON response: ${responseText}`);
-    }
-    
   } catch (fetchError) {
     console.error('API request failed:', fetchError);
     throw fetchError;
@@ -897,14 +803,12 @@ async function inventoryApiRequest(endpoint, options = {}) {
 }
 
 async function getZohoAccessToken() {
-  // Check if we have a valid cached token
   const now = Date.now();
   if (cachedAccessToken && now < tokenExpiry) {
     console.log('✓ Using cached Zoho access token');
     return cachedAccessToken;
   }
 
-  // Reuse your existing token logic from the hybrid API
   if (!process.env.ZOHO_REFRESH_TOKEN || !process.env.ZOHO_CLIENT_ID || !process.env.ZOHO_CLIENT_SECRET) {
     throw new Error('Missing required Zoho environment variables');
   }
@@ -928,7 +832,6 @@ async function getZohoAccessToken() {
     if (!response.ok) {
       const errorText = await response.text();
       
-      // Handle rate limiting specifically
       if (response.status === 400 && errorText.includes('too many requests')) {
         throw new Error(`Zoho auth rate limited: ${errorText}. Please wait 60 seconds before retrying.`);
       }
@@ -942,9 +845,8 @@ async function getZohoAccessToken() {
       throw new Error('No access token received from Zoho');
     }
 
-    // Cache the token (Zoho tokens typically last 1 hour)
     cachedAccessToken = data.access_token;
-    tokenExpiry = now + (55 * 60 * 1000); // Cache for 55 minutes to be safe
+    tokenExpiry = now + (55 * 60 * 1000);
     
     console.log('✓ New Zoho access token obtained and cached');
     return cachedAccessToken;
@@ -952,7 +854,6 @@ async function getZohoAccessToken() {
   } catch (error) {
     console.error('Failed to get Zoho access token:', error);
     
-    // If rate limited, provide helpful error message
     if (error.message.includes('rate limited') || error.message.includes('too many requests')) {
       throw new Error(`Authentication rate limited: ${error.message}. Please wait before retrying.`);
     }
