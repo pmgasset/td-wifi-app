@@ -67,6 +67,22 @@ export default async function handler(req, res) {
     let invoiceId = null;
 
     try {
+      // STEP 0: Map Commerce products to Inventory items (CRITICAL FIX)
+      console.log('Step 0: Mapping Commerce products to Inventory items...');
+      
+      const { lineItems, errors } = await mapCommerceItemsToInventory(cartItems);
+      
+      if (lineItems.length === 0) {
+        throw new Error(`No valid inventory items found. Errors: ${JSON.stringify(errors)}`);
+      }
+      
+      if (errors.length > 0) {
+        console.warn('Some products could not be mapped to inventory:', errors);
+        // Continue with successfully mapped items
+      }
+      
+      console.log(`✓ Mapped ${lineItems.length} items to inventory`);
+
       // STEP 1: Create or find contact in Zoho Inventory (FIXED)
       console.log('Step 1: Creating guest contact in Zoho Inventory...');
       
@@ -110,16 +126,8 @@ export default async function handler(req, res) {
         date: new Date().toISOString().split('T')[0],
         shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 days from now
         
-        // Line items from cart
-        line_items: cartItems.map((item, index) => ({
-          item_id: item.product_id, // Use product_id as item_id in Inventory
-          name: item.product_name || item.name,
-          description: item.description || `${item.product_name || item.name} - Guest Order`,
-          rate: item.product_price || item.price || 0,
-          quantity: item.quantity || 1,
-          unit: 'qty',
-          item_order: index
-        })),
+        // Line items from cart (FIXED - using mapped inventory items)
+        line_items: lineItems,
         
         // REMOVED: billing_address and shipping_address objects (this was causing the error)
         // billing_address: { ... }, // <-- This caused the 100-character limit error
@@ -159,16 +167,8 @@ export default async function handler(req, res) {
         date: new Date().toISOString().split('T')[0],
         due_date: new Date().toISOString().split('T')[0], // Due today (guest checkout)
         
-        // Copy line items from sales order
-        line_items: cartItems.map((item, index) => ({
-          item_id: item.product_id,
-          name: item.product_name || item.name,
-          description: item.description || `${item.product_name || item.name} - Guest Order`,
-          rate: item.product_price || item.price || 0,
-          quantity: item.quantity || 1,
-          unit: 'qty',
-          item_order: index
-        })),
+        // Copy line items from sales order (FIXED - using mapped inventory items)
+        line_items: lineItems,
         
         // REMOVED: billing_address and shipping_address objects (this was causing the error)
         // billing_address: { ... }, // <-- This caused the 100-character limit error
@@ -352,6 +352,191 @@ export default async function handler(req, res) {
 }
 
 // ===== HELPER FUNCTIONS (FIXED) =====
+
+// Cache to store inventory items and avoid repeated API calls
+const inventoryItemCache = new Map();
+
+/**
+ * Map Commerce cart items to Inventory line items using SKU/name lookup
+ * CRITICAL FIX: Resolves Commerce product_id to Inventory item_id mismatch
+ */
+async function mapCommerceItemsToInventory(cartItems) {
+  const lineItems = [];
+  const errors = [];
+  
+  console.log(`Mapping ${cartItems.length} cart items to inventory...`);
+  
+  for (const [index, item] of cartItems.entries()) {
+    try {
+      console.log(`Processing item ${index + 1}: ${item.product_name || item.name}`);
+      
+      let inventoryItem = null;
+      let lookupMethod = 'none';
+      
+      // Method 1: Try SKU-based lookup (most reliable)
+      if (item.sku || item.product_sku) {
+        const sku = item.sku || item.product_sku;
+        inventoryItem = await getInventoryItemBySku(sku);
+        if (inventoryItem) {
+          lookupMethod = 'sku';
+          console.log(`✓ Found inventory item by SKU: ${sku} -> ${inventoryItem.item_id}`);
+        }
+      }
+      
+      // Method 2: Try product name matching (fallback)
+      if (!inventoryItem && (item.product_name || item.name)) {
+        const productName = item.product_name || item.name;
+        inventoryItem = await getInventoryItemByName(productName);
+        if (inventoryItem) {
+          lookupMethod = 'name';
+          console.log(`✓ Found inventory item by name: ${productName} -> ${inventoryItem.item_id}`);
+        }
+      }
+      
+      // Method 3: Try direct product_id as item_id (last resort)
+      if (!inventoryItem && item.product_id) {
+        inventoryItem = await getInventoryItemById(item.product_id);
+        if (inventoryItem) {
+          lookupMethod = 'id';
+          console.log(`✓ Found inventory item by ID: ${item.product_id} -> ${inventoryItem.item_id}`);
+        }
+      }
+      
+      if (inventoryItem) {
+        // Successfully mapped to inventory item
+        lineItems.push({
+          item_id: inventoryItem.item_id,
+          name: inventoryItem.name,
+          description: `${inventoryItem.name} - Guest Order`,
+          rate: item.product_price || item.price || inventoryItem.rate || 0,
+          quantity: item.quantity || 1,
+          unit: inventoryItem.unit || 'qty',
+          item_order: index,
+          // Metadata for debugging
+          _lookup_method: lookupMethod,
+          _original_product_id: item.product_id,
+          _original_sku: item.sku || item.product_sku
+        });
+      } else {
+        // Could not find inventory item
+        const error = {
+          product_id: item.product_id,
+          sku: item.sku || item.product_sku,
+          name: item.product_name || item.name,
+          error: 'Product not found in inventory',
+          attempted_methods: ['sku', 'name', 'id']
+        };
+        errors.push(error);
+        console.error(`❌ Could not map to inventory:`, error);
+      }
+      
+    } catch (mappingError) {
+      const error = {
+        product_id: item.product_id,
+        sku: item.sku || item.product_sku,
+        name: item.product_name || item.name,
+        error: mappingError.message
+      };
+      errors.push(error);
+      console.error(`❌ Error mapping item:`, error);
+    }
+  }
+  
+  console.log(`Mapping complete: ${lineItems.length} items mapped, ${errors.length} errors`);
+  return { lineItems, errors };
+}
+
+/**
+ * Get inventory item by SKU (most reliable method)
+ */
+async function getInventoryItemBySku(sku) {
+  const cacheKey = `inventory_item_sku_${sku}`;
+  
+  // Check cache first
+  if (inventoryItemCache.has(cacheKey)) {
+    return inventoryItemCache.get(cacheKey);
+  }
+  
+  try {
+    const response = await inventoryApiRequest(`/items?sku=${encodeURIComponent(sku)}`);
+    
+    if (response.items && response.items.length > 0) {
+      const item = response.items[0];
+      // Cache the result
+      inventoryItemCache.set(cacheKey, item);
+      return item;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error(`Error fetching inventory item by SKU ${sku}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Get inventory item by name (fallback method)
+ */
+async function getInventoryItemByName(productName) {
+  const cacheKey = `inventory_item_name_${productName}`;
+  
+  // Check cache first
+  if (inventoryItemCache.has(cacheKey)) {
+    return inventoryItemCache.get(cacheKey);
+  }
+  
+  try {
+    const response = await inventoryApiRequest(`/items?item_name=${encodeURIComponent(productName)}`);
+    
+    if (response.items && response.items.length > 0) {
+      // Find exact match first, then partial match
+      let item = response.items.find(i => i.name === productName);
+      if (!item) {
+        item = response.items.find(i => i.name.toLowerCase().includes(productName.toLowerCase()));
+      }
+      if (!item) {
+        item = response.items[0]; // Use first result as last resort
+      }
+      
+      // Cache the result
+      inventoryItemCache.set(cacheKey, item);
+      return item;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error(`Error fetching inventory item by name ${productName}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Get inventory item by ID (last resort method)
+ */
+async function getInventoryItemById(itemId) {
+  const cacheKey = `inventory_item_id_${itemId}`;
+  
+  // Check cache first
+  if (inventoryItemCache.has(cacheKey)) {
+    return inventoryItemCache.get(cacheKey);
+  }
+  
+  try {
+    const response = await inventoryApiRequest(`/items/${itemId}`);
+    
+    if (response.item) {
+      const item = response.item;
+      // Cache the result
+      inventoryItemCache.set(cacheKey, item);
+      return item;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error(`Error fetching inventory item by ID ${itemId}:`, error);
+    return null;
+  }
+}
 
 /**
  * Create or find contact in Zoho Inventory and extract address IDs
@@ -552,14 +737,16 @@ async function getZohoAccessToken() {
 function getInventoryErrorSuggestion(errorMessage) {
   if (errorMessage?.includes('billing_address') && errorMessage?.includes('100 characters')) {
     return 'FIXED: Now using address_id instead of full billing_address object to avoid 100-character limit';
+  } else if (errorMessage?.includes('item_id') || errorMessage?.includes('item not found')) {
+    return 'FIXED: Now using SKU/name lookup to map Commerce products to Inventory items. Check that products exist in both systems.';
+  } else if (errorMessage?.includes('Product not found in inventory')) {
+    return 'Products from Commerce are not synced to Inventory. Consider enabling Zoho Commerce-Inventory sync or manually create inventory items.';
   } else if (errorMessage?.includes('address_id')) {
     return 'Check that contact was created successfully and address_id was extracted properly';
   } else if (errorMessage?.includes('organization_id')) {
     return 'Check ZOHO_INVENTORY_ORGANIZATION_ID environment variable';
   } else if (errorMessage?.includes('contact')) {
     return 'Contact creation failed - check customer information format';
-  } else if (errorMessage?.includes('item_id')) {
-    return 'Product not found in Inventory - check if products are synced from Commerce to Inventory';
   } else if (errorMessage?.includes('sales_order') || errorMessage?.includes('salesorder')) {
     return 'Sales order creation failed - check line items and pricing';
   } else if (errorMessage?.includes('invoice')) {
