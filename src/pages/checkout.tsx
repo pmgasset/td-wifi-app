@@ -63,59 +63,174 @@ const CheckoutPage = () => {
   const total = subtotal + shipping + tax;
 
   // NEW: Zoho Inventory Checkout Handler
-  const handleZohoInventoryCheckout = async (customerInfo: any, shippingAddress: any, cartItems: any[]) => {
-    try {
-      console.log('🛒 Starting Zoho Inventory checkout...');
+const handleZohoInventoryCheckout = async (customerInfo, shippingAddress, cartItems) => {
+  try {
+    console.log('🛒 Starting Zoho Inventory checkout...');
+    console.log('📦 Cart items:', cartItems.length);
+    console.log('👤 Customer:', customerInfo.email);
 
-      const response = await fetch('/api/guest-checkout-inventory', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          customerInfo,
-          shippingAddress,
-          cartItems,
-          orderNotes: orderNotes || 'Guest checkout order'
-        })
-      });
+    const response = await fetch('/api/guest-checkout-inventory', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        customerInfo,
+        shippingAddress,
+        cartItems,
+        orderNotes: orderNotes || 'Guest checkout order'
+      })
+    });
 
-      const result = await response.json();
+    console.log('📡 API Response Status:', response.status);
 
-      if (result.success) {
-        console.log('✅ Checkout successful:', result);
-        
-        // CRITICAL: Check for immediate payment redirect
-        if (result.redirect_to_payment && result.payment_url) {
-          console.log('🔄 Redirecting to payment:', result.payment_url);
-          
-          // Clear cart since order was created successfully
-          clearCart();
-          
-          // Show success message briefly before redirect
-          toast.success('Order created! Redirecting to payment...');
-          
-          // Small delay for user feedback, then redirect
-          setTimeout(() => {
-            window.location.href = result.payment_url;
-          }, 1500);
-          
-          return { redirected: true, payment_url: result.payment_url };
-        }
-        
-        // Handle success without immediate redirect
-        return result;
-        
-      } else {
-        console.error('❌ Checkout failed:', result);
-        throw new Error(result.details || result.error || 'Checkout failed');
-      }
-
-    } catch (error: any) {
-      console.error('❌ Checkout error:', error);
-      throw error;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ API Error Response:', errorText);
+      throw new Error(`Server error: ${response.status} - ${errorText}`);
     }
-  };
+
+    const result = await response.json();
+    console.log('✅ Checkout API Response:', result);
+
+    if (!result.success) {
+      console.error('❌ Checkout failed:', result);
+      throw new Error(result.details || result.error || 'Checkout failed');
+    }
+
+    // CRITICAL FIX: Enhanced payment URL validation and handling
+    const paymentUrl = result.checkout_url || result.payment_url;
+    
+    if (result.redirect_to_payment && paymentUrl) {
+      console.log('🔄 Payment URL received:', paymentUrl);
+      
+      // Validate payment URL
+      if (!isValidUrl(paymentUrl)) {
+        console.error('❌ Invalid payment URL received:', paymentUrl);
+        throw new Error('Invalid payment URL received from server');
+      }
+      
+      // Clear cart since order was created successfully
+      clearCart();
+      
+      // Show success message
+      toast.success(`Order ${result.invoice_number || 'created'}! Redirecting to payment...`);
+      
+      // CRITICAL FIX: Add delay and error handling for redirect
+      setTimeout(() => {
+        try {
+          console.log('🚀 Redirecting to:', paymentUrl);
+          window.location.href = paymentUrl;
+        } catch (redirectError) {
+          console.error('❌ Redirect failed:', redirectError);
+          // Fallback: Show payment URL to user
+          showPaymentLinkFallback(paymentUrl, result);
+        }
+      }, 1500);
+      
+      return { redirected: true, paymentUrl };
+    } else {
+      console.warn('⚠️ No payment redirect specified in response');
+      
+      // Handle success without automatic redirect
+      if (result.invoice_id) {
+        toast.success(`Order created! Invoice: ${result.invoice_number || result.invoice_id}`);
+        
+        // Manual payment page redirect
+        const manualPaymentUrl = `/payment/invoice/${result.invoice_id}?${new URLSearchParams({
+          amount: result.total_amount?.toString() || '0',
+          currency: 'USD',
+          customer_email: customerInfo.email,
+          invoice_number: result.invoice_number || '',
+          request_id: result.request_id || ''
+        }).toString()}`;
+        
+        console.log('🔄 Redirecting to manual payment page:', manualPaymentUrl);
+        router.push(manualPaymentUrl);
+        
+        return { redirected: true, paymentUrl: manualPaymentUrl };
+      } else {
+        throw new Error('Order created but no invoice ID received');
+      }
+    }
+
+  } catch (error) {
+    console.error('❌ Checkout error:', error);
+    
+    // Enhanced error handling
+    if (error.message.includes('rate limit')) {
+      toast.error('Server is busy. Please wait a moment and try again.');
+    } else if (error.message.includes('validation')) {
+      toast.error('Please check your information and try again.');
+    } else if (error.message.includes('inventory')) {
+      toast.error('Product availability issue. Please contact support.');
+    } else {
+      toast.error(`Checkout failed: ${error.message}`);
+    }
+    
+    throw error;
+  }
+};
+
+/**
+ * HELPER: Validate URL format
+ */
+function isValidUrl(string) {
+  try {
+    const url = new URL(string);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * HELPER: Show payment link fallback when redirect fails
+ */
+function showPaymentLinkFallback(paymentUrl, orderResult) {
+  // Create a modal or alert with the payment link
+  const fallbackHtml = `
+    <div style="
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+      background: rgba(0,0,0,0.8); z-index: 9999; 
+      display: flex; align-items: center; justify-content: center;
+    ">
+      <div style="
+        background: white; padding: 2rem; border-radius: 8px; 
+        max-width: 500px; margin: 1rem; text-align: center;
+      ">
+        <h3 style="margin-bottom: 1rem; color: #059669;">Order Created Successfully!</h3>
+        <p style="margin-bottom: 1rem;">
+          Invoice: ${orderResult.invoice_number || 'N/A'}<br>
+          Amount: $${orderResult.total_amount || 'N/A'}
+        </p>
+        <p style="margin-bottom: 1.5rem;">
+          Please click the button below to complete your payment:
+        </p>
+        <a href="${paymentUrl}" 
+           style="
+             background: #3B82F6; color: white; padding: 12px 24px; 
+             text-decoration: none; border-radius: 6px; display: inline-block;
+           "
+           target="_blank">
+          Complete Payment
+        </a>
+        <p style="margin-top: 1rem; font-size: 0.875rem; color: #6B7280;">
+          A new tab will open with your payment page
+        </p>
+      </div>
+    </div>
+  `;
+  
+  document.body.insertAdjacentHTML('beforeend', fallbackHtml);
+  
+  // Remove modal after 30 seconds
+  setTimeout(() => {
+    const modal = document.querySelector('[style*="z-index: 9999"]');
+    if (modal) modal.remove();
+  }, 30000);
+}
+
 
   // Form validation
   const validateForm = () => {

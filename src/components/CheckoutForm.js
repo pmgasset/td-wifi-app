@@ -30,73 +30,159 @@ export default function CheckoutForm({ cartItems, onSuccess, onError }) {
     setStatusMessage(message);
   };
 
-  const handleZohoInventoryCheckout = async () => {
-    setIsProcessing(true);
-    updateCheckoutStatus('processing', 'Creating your order...');
+const handleZohoInventoryCheckoutComponent = async () => {
+  setIsProcessing(true);
+  updateCheckoutStatus('processing', 'Creating your order...');
 
-    try {
-      console.log('🛒 Starting Zoho Inventory checkout...');
+  try {
+    console.log('🛒 Starting Zoho Inventory checkout...');
 
-      const response = await fetch('/api/guest-checkout-inventory', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          customerInfo,
-          shippingAddress,
-          cartItems,
-          orderNotes: 'Guest checkout order'
-        })
-      });
+    const response = await fetch('/api/guest-checkout-inventory', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        customerInfo,
+        shippingAddress,
+        cartItems,
+        orderNotes: 'Guest checkout order'
+      })
+    });
 
-      const result = await response.json();
+    const result = await response.json();
 
-      if (result.success) {
-        console.log('✅ Checkout successful:', result);
+    if (result.success) {
+      console.log('✅ Checkout successful:', result);
+      
+      // CRITICAL FIX: Enhanced payment redirect handling
+      const paymentUrl = result.checkout_url || result.payment_url;
+      
+      if (result.redirect_to_payment && paymentUrl) {
+        console.log('🔄 Redirecting to payment:', paymentUrl);
         
-        // CRITICAL: Check for immediate payment redirect
-        if (result.redirect_to_payment && result.payment_url) {
-          console.log('🔄 Redirecting to payment:', result.payment_url);
-          
-          updateCheckoutStatus('redirecting', 'Redirecting to secure payment...');
-          
-          // Call success callback if provided
-          if (onSuccess) {
-            onSuccess(result);
-          }
-          
-          // Small delay to show the message, then redirect
-          setTimeout(() => {
-            window.location.href = result.payment_url;
-          }, 1500);
-          
-          return;
-        }
+        updateCheckoutStatus('redirecting', 'Redirecting to secure payment...');
         
-        // Fallback: No automatic redirect
-        console.log('ℹ️ No redirect specified, showing success message');
-        updateCheckoutStatus('success', `Order ${result.invoice_number} created successfully!`);
-        
+        // Call success callback if provided
         if (onSuccess) {
           onSuccess(result);
         }
-
-      } else {
-        throw new Error(result.details || result.error || 'Checkout failed');
+        
+        // Enhanced redirect with error handling
+        setTimeout(() => {
+          try {
+            if (isValidUrl(paymentUrl)) {
+              window.location.href = paymentUrl;
+            } else {
+              throw new Error('Invalid payment URL');
+            }
+          } catch (redirectError) {
+            console.error('❌ Redirect failed:', redirectError);
+            updateCheckoutStatus('error', 'Redirect failed. Please contact support.');
+            if (onError) {
+              onError(new Error('Payment redirect failed'));
+            }
+          }
+        }, 1500);
+        
+        return;
+      }
+      
+      // Fallback: Show success without redirect
+      updateCheckoutStatus('success', `Order ${result.invoice_number} created successfully!`);
+      
+      if (onSuccess) {
+        onSuccess(result);
       }
 
-    } catch (error) {
-      console.error('❌ Checkout failed:', error);
-      updateCheckoutStatus('error', `Checkout failed: ${error.message}`);
+    } else {
+      console.error('❌ Checkout failed:', result);
+      const errorMessage = result.details || result.error || 'Checkout failed';
+      updateCheckoutStatus('error', errorMessage);
       
       if (onError) {
-        onError(error);
+        onError(new Error(errorMessage));
       }
-      
-      setIsProcessing(false);
     }
-  };
+
+  } catch (error) {
+    console.error('❌ Checkout error:', error);
+    updateCheckoutStatus('error', `Checkout failed: ${error.message}`);
+    
+    if (onError) {
+      onError(error);
+    }
+  } finally {
+    setIsProcessing(false);
+  }
+};
+
+/**
+ * ENHANCED: Main form submission handler
+ * Add this to your checkout form's onSubmit
+ */
+const handleEnhancedSubmit = async (e) => {
+  e.preventDefault();
+  
+  if (!validateForm()) {
+    toast.error('Please fix the validation errors');
+    return;
+  }
+
+  if (!agreeToTerms) {
+    toast.error('Please agree to the terms and conditions');
+    return;
+  }
+
+  setIsProcessing(true);
+  
+  try {
+    // Prepare cart items with enhanced validation
+    const cartItems = prepareCartItems(items);
+    
+    // Validate cart items
+    if (!cartItems || cartItems.length === 0) {
+      throw new Error('Cart is empty');
+    }
+    
+    // Check for invalid items
+    const invalidItems = cartItems.filter(item => 
+      !item.product_price || item.product_price <= 0 ||
+      !item.quantity || item.quantity <= 0
+    );
+    
+    if (invalidItems.length > 0) {
+      throw new Error('Some items in your cart have invalid pricing or quantities');
+    }
+    
+    console.log('📦 Validated cart items:', cartItems.length);
+    
+    // Call the enhanced checkout handler
+    const result = await handleZohoInventoryCheckout(customerInfo, shippingAddress, cartItems);
+    
+    if (!result.redirected) {
+      // Handle success without redirect (shouldn't happen but just in case)
+      console.log('Order created successfully:', result);
+      clearCart();
+      router.push('/checkout/success');
+    }
+
+  } catch (error) {
+    console.error('❌ Form submission error:', error);
+    toast.error(`Checkout failed: ${error.message}`);
+  } finally {
+    setIsProcessing(false);
+  }
+};
+
+// Export the enhanced functions
+export {
+  handleZohoInventoryCheckout,
+  handleZohoInventoryCheckoutComponent,
+  handleEnhancedSubmit,
+  isValidUrl,
+  showPaymentLinkFallback
+};
 
   const handleSubmit = async (e) => {
     e.preventDefault();

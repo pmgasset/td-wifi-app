@@ -357,15 +357,17 @@ export default async function handler(req, res) {
 
 /**
  * SUB-AGENT: Generate payment URL with multiple fallback options
- * FIXED: Correct Zoho payment link API usage
+ * CRITICAL FIX: Corrected API endpoint path and improved fallback chain
  */
 async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo, requestId) {
   console.log('🔄 Sub-agent: Generating payment URL...');
   
-  // Option 1: Try Stripe checkout
+  // Option 1: Try Stripe checkout (FIXED ENDPOINT PATH)
   try {
     console.log('Attempting Stripe checkout session...');
-    const stripeResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/api/create-stripe-session`, {
+    
+    // CRITICAL FIX: Use correct API path
+    const stripeResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/api/stripe/create-checkout-session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -385,63 +387,72 @@ async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo,
 
     if (stripeResponse.ok) {
       const stripeData = await stripeResponse.json();
-      if (stripeData.checkout_url) {
-        console.log('✓ Generated Stripe checkout URL');
+      if (stripeData.success && stripeData.checkout_url) {
+        console.log('✅ Generated Stripe checkout URL');
         return stripeData.checkout_url;
+      } else {
+        console.warn('⚠️ Stripe response successful but no checkout URL:', stripeData);
       }
+    } else {
+      const errorText = await stripeResponse.text();
+      console.warn('⚠️ Stripe API responded with error:', stripeResponse.status, errorText);
     }
   } catch (stripeError) {
-    console.warn('Could not create Stripe session:', stripeError.message);
+    console.warn('⚠️ Stripe checkout failed:', stripeError.message);
   }
 
-  // Option 2: Try Zoho payment link (FIXED API ENDPOINT)
+  // Option 2: Try Zoho invoice sharing URL (REPLACEMENT FOR BROKEN PAYMENT LINK API)
   try {
-    console.log('Attempting Zoho payment link...');
+    console.log('Attempting Zoho invoice sharing...');
     
-    // CRITICAL FIX: Use correct Zoho payment link API
-    // Try different API approaches based on Zoho documentation
-    const paymentLinkResponse = await inventoryApiRequest(`/invoices/${invoiceId}/paymentlink`, {
-      method: 'POST', // FIXED: Should be POST, not GET
+    // CRITICAL FIX: Use invoice sharing instead of non-existent payment link API
+    const shareResponse = await inventoryApiRequest(`/invoices/${invoiceId}/share`, {
+      method: 'POST',
       body: {
-        // Include required parameters for payment link generation
-        payment_gateways: ['paypal', 'stripe'], // Optional: specify gateways
+        send_invoice: false,
+        share_via_email: false,
+        payment_options: {
+          online_payment: true,
+          payment_gateways: ['stripe', 'paypal']
+        }
       }
     });
 
-    if (paymentLinkResponse.payment_link?.payment_link_url) {
-      console.log('✓ Found Zoho payment URL:', paymentLinkResponse.payment_link.payment_link_url);
-      return paymentLinkResponse.payment_link.payment_link_url;
+    if (shareResponse.share_url) {
+      console.log('✅ Generated Zoho sharing URL');
+      return shareResponse.share_url;
     }
-  } catch (paymentLinkError) {
-    console.warn('⚠️ Could not get Zoho payment link:', paymentLinkError.message);
-    
-    // Try alternative Zoho payment link endpoint
-    try {
-      const altPaymentResponse = await inventoryApiRequest(`/invoices/${invoiceId}/paymentlinks`, {
-        method: 'GET'
-      });
-      
-      if (altPaymentResponse.payment_links && altPaymentResponse.payment_links.length > 0) {
-        const paymentLink = altPaymentResponse.payment_links[0].payment_link_url;
-        console.log('✓ Found alternative Zoho payment URL:', paymentLink);
-        return paymentLink;
-      }
-    } catch (altError) {
-      console.warn('⚠️ Alternative payment link also failed:', altError.message);
-    }
+  } catch (zohoShareError) {
+    console.warn('⚠️ Zoho invoice sharing failed:', zohoShareError.message);
   }
 
-  // Option 3: Fallback to custom payment page
+  // Option 3: Use Zoho's built-in invoice portal URL
+  try {
+    console.log('Generating Zoho invoice portal URL...');
+    
+    // Generate direct Zoho invoice URL
+    const zohoInvoiceUrl = `https://inventory.zoho.com/app/#/invoices/${invoiceId}/details?organization=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`;
+    console.log('✅ Generated Zoho invoice portal URL');
+    return zohoInvoiceUrl;
+  } catch (zohoPortalError) {
+    console.warn('⚠️ Zoho portal URL generation failed:', zohoPortalError.message);
+  }
+
+  // Option 4: Fallback to custom payment page (IMPROVED VERSION)
   const fallbackUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/payment/invoice/${invoiceId}?` + 
     new URLSearchParams({
       amount: total.toString(),
       currency: 'USD',
       customer_email: customerInfo.email,
+      customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
       invoice_number: invoiceNumber,
-      request_id: requestId
+      request_id: requestId,
+      // Add success/cancel URLs for custom payment page
+      success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/success?invoice_id=${invoiceId}`,
+      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/cancel`
     }).toString();
   
-  console.log('✓ Generated fallback payment URL:', fallbackUrl);
+  console.log('✅ Generated fallback payment URL');
   return fallbackUrl;
 }
 
