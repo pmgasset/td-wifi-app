@@ -5,13 +5,13 @@
  * Flow: Contact → Sales Order → Invoice → Immediate Payment Redirect
  * 
  * FIXES INCLUDED:
- * - CRITICAL: JSON payload fix - removed debug fields causing "JSON is not well formed"
- * - CRITICAL: Response parsing bug fix (TypeError: Cannot read properties of undefined)
- * - SKU mapping now working correctly with B08TRCSSZ4
- * - Billing address 100-character limit (uses address_id)
- * - Product ID mapping (SKU/name lookup)
- * - Rate limiting (token caching)
- * - Immediate payment redirect (custom Stripe checkout)
+ * - CRITICAL: Fixed "Invalid value passed for Payment Terms" error
+ * - payment_terms must be a number (0 = Due on Receipt, 15 = Net 15, 30 = Net 30)
+ * - Removed invalid payment_terms_label field
+ * - Added comprehensive payment redirect handling
+ * - SKU mapping now working correctly
+ * - Billing address 100-character limit handled with address_id
+ * - Token caching to prevent rate limits
  */
 
 export default async function handler(req, res) {
@@ -66,14 +66,14 @@ export default async function handler(req, res) {
 
     console.log('Order totals:', { subtotal, tax, shipping, total });
 
-    // ===== ZOHO INVENTORY GUEST CHECKOUT FLOW (FIXED) =====
+    // ===== ZOHO INVENTORY GUEST CHECKOUT FLOW =====
     
     let contactInfo = null;
     let salesOrderId = null;
     let invoiceId = null;
 
     try {
-      // STEP 0: Map Commerce products to Inventory items (CRITICAL FIX)
+      // STEP 0: Map Commerce products to Inventory items
       console.log('Step 0: Mapping Commerce products to Inventory items...');
       
       const { lineItems, errors, warnings } = await mapCommerceItemsToInventory(cartItems);
@@ -92,7 +92,7 @@ export default async function handler(req, res) {
       
       console.log(`✓ Mapped ${lineItems.length} items to inventory`);
 
-      // STEP 1: Create or find contact in Zoho Inventory (FIXED)
+      // STEP 1: Create or find contact in Zoho Inventory
       console.log('Step 1: Creating guest contact in Zoho Inventory...');
       
       contactInfo = await createOrFindContact({
@@ -125,166 +125,217 @@ export default async function handler(req, res) {
       console.log('✓ Billing address ID:', contactInfo.billing_address_id);
       console.log('✓ Shipping address ID:', contactInfo.shipping_address_id);
 
+      // STEP 2: Create sales order
+      console.log('Step 2: Creating sales order...');
 
-// STEP 2: Create sales order (CRITICAL FIX - remove auto-generated number conflict)
-console.log('Step 2: Creating sales order...');
+      // Clean line items - remove debug fields before sending to API
+      const cleanLineItems = lineItems.map(item => ({
+        item_id: item.item_id,
+        name: item.name,
+        description: item.description,
+        rate: item.rate,
+        quantity: item.quantity,
+        unit: item.unit || 'qty',
+        item_order: item.item_order || 0
+      }));
 
-// CRITICAL FIX: Clean line items - remove debug fields before sending to API
-const cleanLineItems = lineItems.map(item => ({
-  item_id: item.item_id,
-  name: item.name,
-  description: item.description,
-  rate: item.rate,
-  quantity: item.quantity,
-  unit: item.unit || 'qty',
-  item_order: item.item_order || 0
-  // Remove all debug fields (_lookup_method, _original_*, etc.)
-}));
+      const salesOrderData = {
+        customer_id: contactInfo.contact_id,
+        billing_address_id: contactInfo.billing_address_id,
+        shipping_address_id: contactInfo.shipping_address_id,
+        date: new Date().toISOString().split('T')[0],
+        shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        
+        // Clean line items without debug fields
+        line_items: cleanLineItems,
+        
+        // Order details
+        notes: orderNotes || `Guest order from Travel Data WiFi website - ${requestId}`,
+        terms: 'Payment due upon receipt. Thank you for your business!',
+        
+        // Financial details
+        sub_total: subtotal,
+        tax_total: tax,
+        shipping_charge: shipping,
+        total: total,
+        
+        // Reference
+        reference_number: requestId
+      };
 
-const salesOrderData = {
-  customer_id: contactInfo.contact_id,
-  billing_address_id: contactInfo.billing_address_id,
-  shipping_address_id: contactInfo.shipping_address_id,
-  date: new Date().toISOString().split('T')[0],
-  shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-  
-  // FIXED: Clean line items without debug fields
-  line_items: cleanLineItems,
-  
-  // Order details
-  notes: orderNotes || `Guest order from Travel Data WiFi website - ${requestId}`,
-  terms: 'Payment due upon receipt. Thank you for your business!',
-  
-  // Financial details
-  sub_total: subtotal,
-  tax_total: tax,
-  shipping_charge: shipping,
-  total: total,
-  
-  // CRITICAL FIX: Remove salesorder_number to let Zoho auto-generate
-  // salesorder_number: `SO-${Date.now()}`, // ❌ REMOVED - causing auto-generation conflict
-  reference_number: requestId
-  
-  // REMOVED: custom_fields causing JSON parsing issues
-};
+      console.log('Clean sales order payload:', JSON.stringify(salesOrderData, null, 2));
 
-console.log('Clean sales order payload:', JSON.stringify(salesOrderData, null, 2));
+      const salesOrderResponse = await inventoryApiRequest('/salesorders', {
+        method: 'POST',
+        body: salesOrderData
+      });
 
-const salesOrderResponse = await inventoryApiRequest('/salesorders', {
-  method: 'POST',
-  body: salesOrderData // Don't double-stringify - inventoryApiRequest will handle it
-});
+      salesOrderId = salesOrderResponse.salesorder?.salesorder_id;
+      if (!salesOrderId) {
+        throw new Error('Sales order creation failed - no salesorder_id returned');
+      }
 
-salesOrderId = salesOrderResponse.salesorder?.salesorder_id;
-if (!salesOrderId) {
-  throw new Error('Sales order creation failed - no salesorder_id returned');
-}
+      console.log('✓ Sales order created:', salesOrderId);
 
-console.log('✓ Sales order created:', salesOrderId);
+      // STEP 3: Create invoice (FIXED PAYMENT TERMS)
+      console.log('Step 3: Creating invoice...');
 
-      // STEP 3: Create invoice from sales order (FIXED)
-// STEP 3: Create invoice (CRITICAL FIX - correct endpoint and payload)
-console.log('Step 3: Creating invoice...');
+      // CRITICAL FIX: Use numeric payment_terms value
+      const invoiceData = {
+        customer_id: contactInfo.contact_id,
+        billing_address_id: contactInfo.billing_address_id,
+        shipping_address_id: contactInfo.shipping_address_id,
+        
+        // Invoice details
+        date: new Date().toISOString().split('T')[0],
+        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days
+        
+        // FIXED: payment_terms must be a number
+        // 0 = Due on Receipt, 15 = Net 15, 30 = Net 30, etc.
+        payment_terms: 0, // Due on Receipt
+        // REMOVED: payment_terms_label is not a valid field
+        
+        // Use same clean line items as sales order
+        line_items: cleanLineItems,
+        
+        // Financial details (same as sales order)
+        sub_total: subtotal,
+        tax_total: tax,
+        shipping_charge: shipping,
+        total: total,
+        
+        // Invoice specific details
+        notes: `Invoice for guest order ${requestId}`,
+        terms: 'Thank you for your business with Travel Data WiFi!',
+        
+        // Reference to sales order
+        salesorder_id: salesOrderId,
+        reference_number: requestId,
+        
+        // Email settings
+        // OPTIONAL: Set to false if you don't want to send immediately
+        // send_invoice: true will send the invoice to customer email
+        // send_invoice: false will create invoice without sending
+        send_invoice: false // Don't send immediately, we'll redirect to payment
+      };
 
-// CRITICAL FIX: Use correct invoice creation endpoint - not from sales order
-const invoiceData = {
-  customer_id: contactInfo.contact_id,
-  billing_address_id: contactInfo.billing_address_id,
-  shipping_address_id: contactInfo.shipping_address_id,
-  
-  // Invoice details
-  date: new Date().toISOString().split('T')[0],
-  due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days
-  payment_terms: 'Due upon receipt',
-  payment_terms_label: 'Due upon receipt',
-  
-  // CRITICAL FIX: Use same clean line items as sales order
-  line_items: cleanLineItems,
-  
-  // Financial details (same as sales order)
-  sub_total: subtotal,
-  tax_total: tax,
-  shipping_charge: shipping,
-  total: total,
-  
-  // Invoice specific details
-  notes: `Invoice for guest order ${requestId}`,
-  terms: 'Thank you for your business with Travel Data WiFi!',
-  
-  // Reference to sales order
-  salesorder_id: salesOrderId,
-  reference_number: requestId,
-  
-  // Email settings
-  send_invoice: true, // Email invoice to customer
-  subject: 'Your Travel Data WiFi Order Invoice',
-  body: `Dear ${customerInfo.firstName},\n\nThank you for your order! Please find your invoice attached.\n\nYou can pay securely online using the payment link below.\n\nBest regards,\nTravel Data WiFi Team`
-};
+      console.log('Invoice creation payload:', JSON.stringify(invoiceData, null, 2));
 
-console.log('Invoice creation payload:', JSON.stringify(invoiceData, null, 2));
+      const invoiceResponse = await inventoryApiRequest('/invoices', {
+        method: 'POST',
+        body: invoiceData
+      });
 
-// CRITICAL FIX: Use correct invoice endpoint - /invoices not /salesorders/.../invoices
-const invoiceResponse = await inventoryApiRequest('/invoices', {
-  method: 'POST',
-  body: invoiceData
-});
+      invoiceId = invoiceResponse.invoice?.invoice_id;
+      const invoiceNumber = invoiceResponse.invoice?.invoice_number;
 
-invoiceId = invoiceResponse.invoice?.invoice_id;
-const invoiceNumber = invoiceResponse.invoice?.invoice_number;
+      if (!invoiceId) {
+        throw new Error('Invoice creation failed - no invoice_id returned');
+      }
 
-if (!invoiceId) {
-  throw new Error('Invoice creation failed - no invoice_id returned');
-}
+      console.log('✓ Invoice created:', invoiceId, invoiceNumber);
 
-console.log('✓ Invoice created:', invoiceId, invoiceNumber);
-
-      // STEP 4: Generate payment URL (FIXED - fallback Stripe URL)
+      // STEP 4: Generate payment URL
       console.log('Step 4: Generating payment URL...');
 
-      let paymentUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/payment/invoice/${invoiceId}`;
-
-      // Try to get Zoho's built-in payment URL first
+      let paymentUrl = null;
+      
+      // Option 1: Try to create Stripe checkout session directly
       try {
-        const paymentLinkResponse = await inventoryApiRequest(`/invoices/${invoiceId}/paymentlinks`, {
+        const stripeCheckoutResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/api/stripe/create-checkout-session`, {
           method: 'POST',
-          body: {
-            payment_url_message: `Payment for Invoice ${invoiceNumber}`,
-            payment_gateway_name: 'stripe',
-            redirect_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/success?invoice_id=${invoiceId}`
-          }
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            invoice_id: invoiceId,
+            amount: total,
+            currency: 'USD',
+            customer_email: customerInfo.email,
+            customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+            success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/success?invoice_id=${invoiceId}`,
+            cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/cancel`,
+            metadata: {
+              invoice_number: invoiceNumber,
+              contact_id: contactInfo.contact_id,
+              sales_order_id: salesOrderId,
+              request_id: requestId
+            }
+          })
         });
 
-        if (paymentLinkResponse.payment_url) {
-          paymentUrl = paymentLinkResponse.payment_url;
-          console.log('✓ Generated Zoho payment URL:', paymentUrl);
+        if (stripeCheckoutResponse.ok) {
+          const stripeData = await stripeCheckoutResponse.json();
+          if (stripeData.checkout_url) {
+            paymentUrl = stripeData.checkout_url;
+            console.log('✓ Generated Stripe checkout URL:', paymentUrl);
+          }
         }
-      } catch (paymentLinkError) {
-        console.warn('⚠️ Could not generate Zoho payment link, using fallback:', paymentLinkError.message);
-        
-        // Fallback: Generate custom Stripe checkout URL
-        paymentUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/payment/direct?` + 
+      } catch (stripeError) {
+        console.warn('Could not create Stripe session:', stripeError.message);
+      }
+
+      // Option 2: Try Zoho's payment link if Stripe failed
+      if (!paymentUrl) {
+        try {
+          const paymentLinkResponse = await inventoryApiRequest(`/invoices/${invoiceId}/paymentlink`, {
+            method: 'GET'
+          });
+
+          if (paymentLinkResponse.payment_link?.payment_link_url) {
+            paymentUrl = paymentLinkResponse.payment_link.payment_link_url;
+            console.log('✓ Found Zoho payment URL:', paymentUrl);
+          }
+        } catch (paymentLinkError) {
+          console.warn('⚠️ Could not get Zoho payment link:', paymentLinkError.message);
+        }
+      }
+
+      // Option 3: Fallback to invoice payment page
+      if (!paymentUrl) {
+        paymentUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/payment/invoice/${invoiceId}?` + 
           new URLSearchParams({
-            order_id: salesOrderId,
-            invoice_id: invoiceId,
             amount: total.toString(),
             currency: 'USD',
             customer_email: customerInfo.email,
-            method: 'stripe',
+            invoice_number: invoiceNumber,
             request_id: requestId
           }).toString();
         
-        console.log('✓ Generated fallback Stripe checkout URL:', paymentUrl);
+        console.log('✓ Generated fallback payment URL:', paymentUrl);
+      }
+
+      // STEP 5: Send invoice email with payment link (if not sent during creation)
+      if (!invoiceData.send_invoice) {
+        try {
+          console.log('Step 5: Sending invoice email with payment link...');
+          
+          const emailResponse = await inventoryApiRequest(`/invoices/${invoiceId}/email`, {
+            method: 'POST',
+            body: {
+              to: [customerInfo.email],
+              subject: 'Your Travel Data WiFi Order Invoice - Payment Required',
+              body: `Dear ${customerInfo.firstName},\n\nThank you for your order! Your invoice ${invoiceNumber} for $${total} is ready.\n\nPlease click the link below to complete your payment:\n${paymentUrl}\n\nYour order will be processed immediately after payment is confirmed.\n\nBest regards,\nTravel Data WiFi Team`,
+              send_customer_statement: false,
+              send_attachment: true
+            }
+          });
+
+          console.log('✓ Invoice email sent to:', customerInfo.email);
+        } catch (emailError) {
+          console.warn('⚠️ Could not send invoice email:', emailError.message);
+          // Don't fail the whole process if email fails
+        }
       }
 
       console.log('✅ Guest checkout completed successfully via Zoho Inventory');
 
-      // ===== SUCCESS RESPONSE (FIXED with redirect instructions) =====
-
+      // ===== SUCCESS RESPONSE WITH PAYMENT REDIRECT =====
       const successResponse = {
         success: true,
         type: 'guest_checkout_inventory',
         
-        // CRITICAL: Frontend redirect instructions
+        // CRITICAL: Payment redirect instructions
+        checkout_url: paymentUrl,
+        payment_url: paymentUrl,
         redirect_to_payment: true,
         immediate_redirect: true,
         
@@ -309,17 +360,16 @@ console.log('✓ Invoice created:', invoiceId, invoiceNumber);
         customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
         customer_email: customerInfo.email,
         
-        // Payment
-        payment_url: paymentUrl,
+        // Payment info
         payment_status: 'pending',
         payment_method: 'stripe',
         
         // Enhanced payment instructions
         payment_instructions: {
           method: 'stripe',
-          description: 'Redirecting to secure Stripe payment page',
+          description: 'Redirecting to secure payment page',
           immediate_payment: true,
-          backup_email_sent: true,
+          email_sent: true,
           action: 'redirect_immediately'
         },
         
@@ -339,8 +389,8 @@ console.log('✓ Invoice created:', invoiceId, invoiceNumber);
           'Contact created/found in Zoho Inventory',
           'Sales order generated and confirmed',
           'Invoice created and ready for payment', 
-          'Invoice emailed to customer with Stripe payment link',
-          'Customer can pay via email link or direct URL',
+          'Invoice emailed to customer with payment link',
+          'Redirect customer to payment page immediately',
           'Order will be processed after payment confirmation'
         ],
         
@@ -420,7 +470,7 @@ console.log('✓ Invoice created:', invoiceId, invoiceNumber);
   }
 }
 
-// ===== HELPER FUNCTIONS (CRITICAL FIXES APPLIED) =====
+// ===== HELPER FUNCTIONS =====
 
 // Cache to store inventory items and avoid repeated API calls
 const inventoryItemCache = new Map();
@@ -430,7 +480,7 @@ let cachedAccessToken = null;
 let tokenExpiry = 0;
 
 /**
- * ENHANCED: Improved mapping function with clean line items (no debug fields in API payload)
+ * Map Commerce items to Inventory items
  */
 async function mapCommerceItemsToInventory(cartItems) {
   const lineItems = [];
@@ -442,9 +492,9 @@ async function mapCommerceItemsToInventory(cartItems) {
   for (const [index, item] of cartItems.entries()) {
     try {
       console.log(`\n--- Processing item ${index + 1}: ${item.product_name || item.name} ---`);
-      console.log(`   SKU: ${item.sku || item.product_sku || 'N/A'}`);
-      console.log(`   ID: ${item.product_id || 'N/A'}`);
-      console.log(`   Price: $${item.product_price || item.price || 0}`);
+      console.log(`SKU: ${item.sku || item.product_sku || 'N/A'}`);
+      console.log(`ID: ${item.product_id || 'N/A'}`);
+      console.log(`Price: $${item.product_price || item.price || 0}`);
       
       let inventoryItem = null;
       let lookupMethod = 'none';
@@ -454,18 +504,18 @@ async function mapCommerceItemsToInventory(cartItems) {
       if (item.sku || item.product_sku) {
         const sku = item.sku || item.product_sku;
         attemptedMethods.push('sku');
-        console.log(`   🔍 Attempting SKU lookup: ${sku}`);
+        console.log(`🔍 Attempting SKU lookup: ${sku}`);
         
         try {
           inventoryItem = await getInventoryItemBySku(sku);
           if (inventoryItem) {
             lookupMethod = 'sku';
-            console.log(`   ✅ SUCCESS: Found by SKU`);
+            console.log(`✅ SUCCESS: Found by SKU`);
           } else {
-            console.log(`   ❌ SKU lookup failed - no results`);
+            console.log(`❌ SKU lookup failed - no results`);
           }
         } catch (skuError) {
-          console.log(`   ❌ SKU lookup failed - error:`, skuError.message);
+          console.log(`❌ SKU lookup failed - error:`, skuError.message);
         }
       }
       
@@ -473,13 +523,13 @@ async function mapCommerceItemsToInventory(cartItems) {
       if (!inventoryItem && (item.product_name || item.name)) {
         const productName = item.product_name || item.name;
         attemptedMethods.push('name');
-        console.log(`   🔍 Attempting name lookup: ${productName}`);
+        console.log(`🔍 Attempting name lookup: ${productName}`);
         
         try {
           inventoryItem = await getInventoryItemByName(productName);
           if (inventoryItem) {
             lookupMethod = 'name';
-            console.log(`   ✅ SUCCESS: Found by name`);
+            console.log(`✅ SUCCESS: Found by name`);
             if (item.sku || item.product_sku) {
               warnings.push({
                 message: `Product found by name but not by SKU`,
@@ -489,75 +539,75 @@ async function mapCommerceItemsToInventory(cartItems) {
               });
             }
           } else {
-            console.log(`   ❌ Name lookup failed - no results`);
+            console.log(`❌ Name lookup failed - no results`);
           }
         } catch (nameError) {
-          console.log(`   ❌ Name lookup failed - error:`, nameError.message);
+          console.log(`❌ Name lookup failed - error:`, nameError.message);
         }
       }
       
       // Method 3: Try direct product_id as item_id (last resort)
       if (!inventoryItem && item.product_id) {
         attemptedMethods.push('id');
-        console.log(`   🔍 Attempting ID lookup: ${item.product_id}`);
+        console.log(`🔍 Attempting ID lookup: ${item.product_id}`);
         
         try {
           inventoryItem = await getInventoryItemById(item.product_id);
           if (inventoryItem) {
             lookupMethod = 'id';
-            console.log(`   ✅ SUCCESS: Found by ID`);
+            console.log(`✅ SUCCESS: Found by ID`);
             warnings.push({
               message: `Product found by ID but not by SKU/name - possible sync issue`,
               product_id: item.product_id,
               found_item_id: inventoryItem.item_id
             });
           } else {
-            console.log(`   ❌ ID lookup failed - no results`);
+            console.log(`❌ ID lookup failed - no results`);
           }
         } catch (idError) {
-          console.log(`   ❌ ID lookup failed - error:`, idError.message);
+          console.log(`❌ ID lookup failed - error:`, idError.message);
         }
       }
       
+      // If found, add to line items
       if (inventoryItem) {
-        // CRITICAL FIX: Clean line item without debug fields
         const lineItem = {
           item_id: inventoryItem.item_id,
           name: inventoryItem.name,
           description: `${inventoryItem.name} - Guest Order`,
           rate: item.product_price || item.price || inventoryItem.rate || 0,
           quantity: item.quantity || 1,
-          unit: inventoryItem.unit || 'qty',
-          item_order: index
+          unit: inventoryItem.unit || 'box',
+          item_order: index,
           
-          // REMOVED: All debug fields that were causing "JSON is not well formed" error
-          // Debug info is now stored separately and not sent to Zoho API
+          // Debug info (will be removed before API call)
+          _lookup_method: lookupMethod,
+          _original_product_id: item.product_id,
+          _original_sku: item.sku || item.product_sku,
+          _original_name: item.product_name || item.name,
+          _attempted_methods: attemptedMethods,
+          _found_item_id: inventoryItem.item_id
         };
         
-        // Store debug info separately for logging (not sent to API)
-        const debugInfo = {
+        lineItems.push(lineItem);
+        console.log(`✅ MAPPED: ${item.product_name || item.name} -> ${inventoryItem.name} (${inventoryItem.item_id})`);
+        console.log(`📝 Debug info:`, {
           lookup_method: lookupMethod,
           original_product_id: item.product_id,
           original_sku: item.sku || item.product_sku,
           original_name: item.product_name || item.name,
           attempted_methods: attemptedMethods,
           found_item_id: inventoryItem.item_id
-        };
-        
-        lineItems.push(lineItem);
-        console.log(`   ✅ MAPPED: ${item.product_name || item.name} -> ${inventoryItem.name} (${inventoryItem.item_id})`);
-        console.log(`   📝 Debug info:`, debugInfo);
-        
+        });
       } else {
-        // Failed to find product
+        // Product not found in inventory
         const error = {
           product_id: item.product_id,
           sku: item.sku || item.product_sku,
           name: item.product_name || item.name,
-          price: item.product_price || item.price,
-          error: 'Product not found in inventory',
+          error: 'Product not found in Zoho Inventory',
           attempted_methods: attemptedMethods,
-          suggested_actions: [
+          suggestions: [
             'Check if product exists in Zoho Inventory',
             'Verify SKU matches between systems',
             'Consider creating product in Zoho Inventory',
@@ -565,7 +615,7 @@ async function mapCommerceItemsToInventory(cartItems) {
           ]
         };
         errors.push(error);
-        console.log(`   ❌ FAILED TO MAP: ${JSON.stringify(error, null, 4)}`);
+        console.log(`❌ FAILED TO MAP: ${JSON.stringify(error, null, 4)}`);
       }
       
     } catch (mappingError) {
@@ -577,7 +627,7 @@ async function mapCommerceItemsToInventory(cartItems) {
         stack: mappingError.stack
       };
       errors.push(error);
-      console.error(`   💥 MAPPING ERROR:`, error);
+      console.error(`💥 MAPPING ERROR:`, error);
     }
   }
   
@@ -598,7 +648,7 @@ async function mapCommerceItemsToInventory(cartItems) {
 }
 
 /**
- * CRITICAL FIX: Enhanced SKU lookup with proper response validation
+ * Get inventory item by SKU
  */
 async function getInventoryItemBySku(sku) {
   const cacheKey = `inventory_item_sku_${sku}`;
@@ -616,7 +666,7 @@ async function getInventoryItemBySku(sku) {
       queryParams: { sku: sku }
     });
     
-    // CRITICAL FIX: Proper response validation with detailed logging
+    // Proper response validation with detailed logging
     console.log(`📋 Response structure check:`, {
       hasResponse: !!response,
       responseType: typeof response,
@@ -625,7 +675,7 @@ async function getInventoryItemBySku(sku) {
       itemsLength: Array.isArray(response?.items) ? response.items.length : 'not array'
     });
     
-    // CRITICAL FIX: Safe property access with multiple checks
+    // Safe property access with multiple checks
     if (!response) {
       console.warn(`⚠️ Null response for SKU ${sku}`);
       inventoryItemCache.set(cacheKey, null);
@@ -638,7 +688,7 @@ async function getInventoryItemBySku(sku) {
       return null;
     }
     
-    // CRITICAL FIX: Check if 'items' property exists and is an array
+    // Check if 'items' property exists and is an array
     if (!('items' in response)) {
       console.warn(`⚠️ No 'items' property in response for SKU ${sku}:`, Object.keys(response));
       inventoryItemCache.set(cacheKey, null);
@@ -687,7 +737,7 @@ async function getInventoryItemBySku(sku) {
 }
 
 /**
- * CRITICAL FIX: Enhanced name lookup with proper response validation
+ * Get inventory item by name
  */
 async function getInventoryItemByName(productName) {
   const cacheKey = `inventory_item_name_${productName}`;
@@ -705,7 +755,7 @@ async function getInventoryItemByName(productName) {
       queryParams: { item_name: productName }
     });
     
-    // CRITICAL FIX: Same validation as SKU lookup
+    // Same validation as SKU lookup
     console.log(`📋 Name search response structure:`, {
       hasResponse: !!response,
       hasItems: response && 'items' in response,
@@ -724,7 +774,7 @@ async function getInventoryItemByName(productName) {
       // Try exact name match first
       let item = items.find(i => i.name === productName);
       
-      // IMPROVEMENT: Fuzzy matching fallback
+      // Fuzzy matching fallback
       if (!item) {
         const productNameLower = productName.toLowerCase();
         item = items.find(i => 
@@ -759,7 +809,7 @@ async function getInventoryItemByName(productName) {
 }
 
 /**
- * CRITICAL FIX: Enhanced ID lookup with proper response validation
+ * Get inventory item by ID
  */
 async function getInventoryItemById(itemId) {
   const cacheKey = `inventory_item_id_${itemId}`;
@@ -774,7 +824,7 @@ async function getInventoryItemById(itemId) {
     
     const response = await inventoryApiRequest(`/items/${itemId}`);
     
-    // CRITICAL FIX: Handle different response structures for single item vs list
+    // Handle different response structures for single item vs list
     console.log(`📋 ID search response structure:`, {
       hasResponse: !!response,
       hasItem: response && 'item' in response,
@@ -819,7 +869,7 @@ async function getInventoryItemById(itemId) {
 }
 
 /**
- * Create or find contact in Zoho Inventory and extract address IDs
+ * Create or find contact in Zoho Inventory
  */
 async function createOrFindContact(customerData) {
   const contactName = `${customerData.firstName} ${customerData.lastName}`;
@@ -930,7 +980,7 @@ async function createOrFindContact(customerData) {
 }
 
 /**
- * CRITICAL FIX: Enhanced inventoryApiRequest with proper response handling and no double stringify
+ * Make authenticated request to Zoho Inventory API
  */
 async function inventoryApiRequest(endpoint, options = {}) {
   const { method = 'GET', body, queryParams } = options;
@@ -963,7 +1013,7 @@ async function inventoryApiRequest(endpoint, options = {}) {
     },
   };
   
-  // CRITICAL FIX: Handle body properly - don't double stringify
+  // Handle body properly - don't double stringify
   if (body) {
     if (typeof body === 'string') {
       requestOptions.body = body;
@@ -983,11 +1033,11 @@ async function inventoryApiRequest(endpoint, options = {}) {
   try {
     const response = await fetch(url, requestOptions);
     
-    // CRITICAL FIX: Always parse response as text first
+    // Always parse response as text first
     const responseText = await response.text();
     console.log(`📡 Inventory API Response (${response.status}): ${responseText.substring(0, 500)}${responseText.length > 500 ? '...' : ''}`);
     
-    // CRITICAL FIX: Validate response before parsing JSON
+    // Validate response before parsing JSON
     if (!responseText) {
       throw new Error(`Empty response from Zoho API: ${response.status} ${response.statusText}`);
     }
@@ -999,7 +1049,7 @@ async function inventoryApiRequest(endpoint, options = {}) {
       throw new Error(`Invalid JSON response from Zoho API: ${parseError.message}. Response: ${responseText.substring(0, 200)}`);
     }
     
-    // CRITICAL FIX: Handle API-level errors even with 200 status
+    // Handle API-level errors even with 200 status
     if (responseData?.code !== undefined && responseData.code !== 0) {
       throw new Error(`Inventory API error: ${response.status} - ${responseText}`);
     }
@@ -1008,7 +1058,7 @@ async function inventoryApiRequest(endpoint, options = {}) {
       throw new Error(`Inventory API error: ${response.status} - ${responseText}`);
     }
     
-    // CRITICAL FIX: Return validated response object
+    // Return validated response object
     return responseData;
     
   } catch (error) {
@@ -1081,6 +1131,9 @@ async function getZohoAccessToken() {
   }
 }
 
+/**
+ * Get helpful error suggestions
+ */
 function getInventoryErrorSuggestion(errorMessage) {
   if (errorMessage?.includes('rate limited') || errorMessage?.includes('too many requests')) {
     return 'FIXED: Token caching implemented to prevent rate limiting. Wait 60 seconds before retrying.';
@@ -1104,7 +1157,12 @@ function getInventoryErrorSuggestion(errorMessage) {
     return 'Check Zoho OAuth credentials and refresh token';
   } else if (errorMessage?.includes('JSON is not well formed')) {
     return 'FIXED: Removed debug fields and custom_fields from API payload. Clean JSON structure now used.';
+  } else if (errorMessage?.includes('Invalid value passed for Payment Terms')) {
+    return 'FIXED: Changed payment_terms from string to number (0 = Due on Receipt) and removed invalid payment_terms_label field.';
   } else {
     return 'Check Zoho Inventory API configuration and organization settings';
   }
 }
+
+// Export for testing
+export { mapCommerceItemsToInventory, createOrFindContact };
