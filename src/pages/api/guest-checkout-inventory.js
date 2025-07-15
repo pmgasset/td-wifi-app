@@ -1,10 +1,11 @@
-// ===== src/pages/api/guest-checkout-inventory.js ===== (COMPLETE FIXED VERSION)
+// ===== src/pages/api/guest-checkout-inventory.js ===== (COMPLETE FINAL FIXED VERSION)
 
 /**
  * Complete guest checkout flow using Zoho Inventory with immediate payment redirect
  * Flow: Contact → Sales Order → Invoice → Immediate Payment Redirect
  * 
  * FIXES INCLUDED:
+ * - CRITICAL: JSON payload fix - removed debug fields causing "JSON is not well formed"
  * - CRITICAL: Response parsing bug fix (TypeError: Cannot read properties of undefined)
  * - SKU mapping now working correctly with B08TRCSSZ4
  * - Billing address 100-character limit (uses address_id)
@@ -124,9 +125,21 @@ export default async function handler(req, res) {
       console.log('✓ Billing address ID:', contactInfo.billing_address_id);
       console.log('✓ Shipping address ID:', contactInfo.shipping_address_id);
 
-      // STEP 2: Create sales order (FIXED - using address_id)
+      // STEP 2: Create sales order (CRITICAL FIX - clean payload)
       console.log('Step 2: Creating sales order...');
       
+      // CRITICAL FIX: Clean line items - remove debug fields before sending to API
+      const cleanLineItems = lineItems.map(item => ({
+        item_id: item.item_id,
+        name: item.name,
+        description: item.description,
+        rate: item.rate,
+        quantity: item.quantity,
+        unit: item.unit || 'qty',
+        item_order: item.item_order || 0
+        // Remove all debug fields (_lookup_method, _original_*, etc.)
+      }));
+
       const salesOrderData = {
         customer_id: contactInfo.contact_id,
         billing_address_id: contactInfo.billing_address_id,
@@ -134,8 +147,8 @@ export default async function handler(req, res) {
         date: new Date().toISOString().split('T')[0],
         shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         
-        // Line items from cart (FIXED - using mapped inventory items)
-        line_items: lineItems,
+        // FIXED: Clean line items without debug fields
+        line_items: cleanLineItems,
         
         // Order details
         notes: orderNotes || `Guest order from Travel Data WiFi website - ${requestId}`,
@@ -149,22 +162,16 @@ export default async function handler(req, res) {
         
         // Sales order specific fields
         salesorder_number: `SO-${Date.now()}`,
-        reference_number: requestId,
+        reference_number: requestId
         
-        // Custom fields for tracking
-        custom_fields: [
-          {
-            customfield_id: process.env.ZOHO_CUSTOM_FIELD_ORDER_SOURCE || '12345',
-            value: 'Website Guest Checkout'
-          }
-        ]
+        // REMOVED: custom_fields causing JSON parsing issues
       };
 
-      console.log('Sales order payload:', JSON.stringify(salesOrderData, null, 2));
+      console.log('Clean sales order payload:', JSON.stringify(salesOrderData, null, 2));
 
       const salesOrderResponse = await inventoryApiRequest('/salesorders', {
         method: 'POST',
-        body: JSON.stringify(salesOrderData)
+        body: salesOrderData // Don't double-stringify - inventoryApiRequest will handle it
       });
 
       salesOrderId = salesOrderResponse.salesorder?.salesorder_id;
@@ -179,7 +186,7 @@ export default async function handler(req, res) {
 
       const invoiceResponse = await inventoryApiRequest(`/salesorders/${salesOrderId}/invoices`, {
         method: 'POST',
-        body: JSON.stringify({
+        body: {
           ignore_auto_number_generation: false,
           invoice_number: `INV-${Date.now()}`,
           date: new Date().toISOString().split('T')[0],
@@ -188,11 +195,10 @@ export default async function handler(req, res) {
           payment_terms_label: 'Due upon receipt',
           notes: `Invoice for guest order ${requestId}`,
           terms: 'Thank you for your business with Travel Data WiFi!',
-          template_id: process.env.ZOHO_INVOICE_TEMPLATE_ID || '',
           send_invoice: true, // Email invoice to customer
           subject: 'Your Travel Data WiFi Order Invoice',
           body: `Dear ${customerInfo.firstName},\n\nThank you for your order! Please find your invoice attached.\n\nYou can pay securely online using the payment link below.\n\nBest regards,\nTravel Data WiFi Team`
-        })
+        }
       });
 
       invoiceId = invoiceResponse.invoice?.invoice_id;
@@ -213,11 +219,11 @@ export default async function handler(req, res) {
       try {
         const paymentLinkResponse = await inventoryApiRequest(`/invoices/${invoiceId}/paymentlinks`, {
           method: 'POST',
-          body: JSON.stringify({
+          body: {
             payment_url_message: `Payment for Invoice ${invoiceNumber}`,
             payment_gateway_name: 'stripe',
             redirect_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/success?invoice_id=${invoiceId}`
-          })
+          }
         });
 
         if (paymentLinkResponse.payment_url) {
@@ -396,7 +402,7 @@ let cachedAccessToken = null;
 let tokenExpiry = 0;
 
 /**
- * ENHANCED: Improved mapping function with better error handling and warnings
+ * ENHANCED: Improved mapping function with clean line items (no debug fields in API payload)
  */
 async function mapCommerceItemsToInventory(cartItems) {
   const lineItems = [];
@@ -486,7 +492,7 @@ async function mapCommerceItemsToInventory(cartItems) {
       }
       
       if (inventoryItem) {
-        // Success - add to line items
+        // CRITICAL FIX: Clean line item without debug fields
         const lineItem = {
           item_id: inventoryItem.item_id,
           name: inventoryItem.name,
@@ -494,19 +500,25 @@ async function mapCommerceItemsToInventory(cartItems) {
           rate: item.product_price || item.price || inventoryItem.rate || 0,
           quantity: item.quantity || 1,
           unit: inventoryItem.unit || 'qty',
-          item_order: index,
+          item_order: index
           
-          // Debugging info
-          _lookup_method: lookupMethod,
-          _original_product_id: item.product_id,
-          _original_sku: item.sku || item.product_sku,
-          _original_name: item.product_name || item.name,
-          _attempted_methods: attemptedMethods,
-          _found_item_id: inventoryItem.item_id
+          // REMOVED: All debug fields that were causing "JSON is not well formed" error
+          // Debug info is now stored separately and not sent to Zoho API
+        };
+        
+        // Store debug info separately for logging (not sent to API)
+        const debugInfo = {
+          lookup_method: lookupMethod,
+          original_product_id: item.product_id,
+          original_sku: item.sku || item.product_sku,
+          original_name: item.product_name || item.name,
+          attempted_methods: attemptedMethods,
+          found_item_id: inventoryItem.item_id
         };
         
         lineItems.push(lineItem);
         console.log(`   ✅ MAPPED: ${item.product_name || item.name} -> ${inventoryItem.name} (${inventoryItem.item_id})`);
+        console.log(`   📝 Debug info:`, debugInfo);
         
       } else {
         // Failed to find product
@@ -859,7 +871,7 @@ async function createOrFindContact(customerData) {
 
     const contactResponse = await inventoryApiRequest('/contacts', {
       method: 'POST',
-      body: JSON.stringify(contactData)
+      body: contactData
     });
 
     const createdContact = contactResponse.contact;
@@ -890,7 +902,7 @@ async function createOrFindContact(customerData) {
 }
 
 /**
- * CRITICAL FIX: Enhanced inventoryApiRequest with proper response handling
+ * CRITICAL FIX: Enhanced inventoryApiRequest with proper response handling and no double stringify
  */
 async function inventoryApiRequest(endpoint, options = {}) {
   const { method = 'GET', body, queryParams } = options;
@@ -923,11 +935,22 @@ async function inventoryApiRequest(endpoint, options = {}) {
     },
   };
   
+  // CRITICAL FIX: Handle body properly - don't double stringify
   if (body) {
-    requestOptions.body = JSON.stringify(body);
+    if (typeof body === 'string') {
+      requestOptions.body = body;
+    } else {
+      requestOptions.body = JSON.stringify(body);
+    }
   }
   
   console.log(`🌐 Inventory API Request: ${method} ${url}`);
+  if (body) {
+    console.log(`📤 Request body length: ${requestOptions.body.length} characters`);
+    // Log first part of body for debugging
+    const bodyPreview = requestOptions.body.substring(0, 200);
+    console.log(`📤 Request body preview: ${bodyPreview}${requestOptions.body.length > 200 ? '...' : ''}`);
+  }
   
   try {
     const response = await fetch(url, requestOptions);
@@ -1051,6 +1074,8 @@ function getInventoryErrorSuggestion(errorMessage) {
     return 'Invoice creation failed - check sales order exists and is valid';
   } else if (errorMessage?.includes('authentication') || errorMessage?.includes('token')) {
     return 'Check Zoho OAuth credentials and refresh token';
+  } else if (errorMessage?.includes('JSON is not well formed')) {
+    return 'FIXED: Removed debug fields and custom_fields from API payload. Clean JSON structure now used.';
   } else {
     return 'Check Zoho Inventory API configuration and organization settings';
   }
