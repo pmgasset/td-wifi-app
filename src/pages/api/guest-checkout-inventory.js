@@ -236,16 +236,21 @@ export default async function handler(req, res) {
         
         // Method 2: Try to get the public link for the invoice
         try {
-          const publicLinkResponse = await inventoryApiRequest(`/invoices/${invoiceId}/publicview`, {
+          const publicLinkResponse = await inventoryApiRequest(`/invoices/${invoiceId}`, {
             method: 'GET'
           });
           
-          if (publicLinkResponse.public_url) {
-            paymentUrl = publicLinkResponse.public_url;
-            console.log('✓ Generated public invoice URL:', paymentUrl);
+          const invoice = publicLinkResponse.invoice;
+          
+          // Check for various possible public URL fields
+          if (invoice?.public_view_url || invoice?.customer_portal_url || invoice?.hosted_url) {
+            paymentUrl = invoice.public_view_url || invoice.customer_portal_url || invoice.hosted_url;
+            console.log('✓ Found invoice public URL:', paymentUrl);
+          } else {
+            console.log('⚠️ No public URL available in invoice details');
           }
         } catch (publicLinkError) {
-          console.log('⚠️ Could not get public invoice URL');
+          console.log('⚠️ Could not get invoice details for public URL');
         }
         
         // Method 3: Generate direct Zoho Inventory URL
@@ -337,10 +342,11 @@ export default async function handler(req, res) {
         },
         
         next_steps: [
-          'Contact created in Zoho Inventory',
+          'Contact created/found in Zoho Inventory',
           'Sales order generated and confirmed',
-          'Invoice created and ready for payment',
-          'Click payment link to complete purchase',
+          'Invoice created and ready for payment', 
+          'Invoice emailed to customer with Stripe payment link',
+          'Customer can pay via email link or direct URL',
           'Order will be processed after payment confirmation'
         ],
         
