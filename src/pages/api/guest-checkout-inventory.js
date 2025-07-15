@@ -360,8 +360,6 @@ export default async function handler(req, res) {
 async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo, requestId) {
   console.log('🔄 Sub-agent: Generating payment URL...');
   
-  // IMMEDIATE SOLUTION: Always use your custom payment page
-  // This page will handle Stripe, Zoho Payments, and direct Zoho invoice options
   const reliablePaymentUrl = `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/payment/invoice/${invoiceId}?` + 
     new URLSearchParams({
       amount: total.toString(),
@@ -372,7 +370,6 @@ async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo,
       request_id: requestId,
       success_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/success?invoice_id=${invoiceId}`,
       cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL || 'https://traveldatawifi.com'}/checkout/cancel`,
-      // Add Zoho details for the payment page to use
       zoho_org_id: process.env.ZOHO_INVENTORY_ORGANIZATION_ID,
       zoho_invoice_id: invoiceId
     }).toString();
