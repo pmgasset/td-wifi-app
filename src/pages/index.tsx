@@ -256,6 +256,12 @@ const getProductDescription = (product: Product): string => {
               <div className="inline-flex items-center space-x-2 bg-white/20 rounded-full px-4 py-2 mb-6">
                 <Star className="h-5 w-5 text-yellow-400" />
                 <span className="text-sm font-medium">Trusted by 50,000+ Digital Nomads</span>
+                <div className="flex -space-x-1 ml-2">
+                  <div className="w-6 h-6 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full border-2 border-white"></div>
+                  <div className="w-6 h-6 bg-gradient-to-r from-green-400 to-blue-400 rounded-full border-2 border-white"></div>
+                  <div className="w-6 h-6 bg-gradient-to-r from-orange-400 to-red-400 rounded-full border-2 border-white"></div>
+                  <div className="w-6 h-6 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full border-2 border-white"></div>
+                </div>
               </div>
               
               <h1 className="text-4xl lg:text-6xl font-bold mb-6 leading-tight">
@@ -306,7 +312,12 @@ const getProductDescription = (product: Product): string => {
             </div>
 
             {/* Pricing Card */}
-            <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-8 border border-white/20">
+            <div className="relative bg-white/10 backdrop-blur-sm rounded-2xl p-8 border border-white/20">
+              {/* Floating Icon */}
+              <div className="absolute -top-4 -right-4 w-12 h-12 bg-gradient-to-r from-green-400 to-blue-400 rounded-full flex items-center justify-center shadow-lg">
+                <CheckCircle className="h-6 w-6 text-white" />
+              </div>
+              
               <div className="text-center">
                 <div className="text-5xl font-bold mb-2">$99</div>
                 <div className="text-xl text-gray-300 mb-6">per month</div>
@@ -328,8 +339,81 @@ const getProductDescription = (product: Product): string => {
                     <CheckCircle className="h-5 w-5 text-green-400" />
                   </div>
                 </div>
+                
+                {/* Visual Enhancement */}
+                <div className="mt-6 pt-4 border-t border-white/20">
+                  <div className="flex items-center justify-center space-x-4 text-sm text-gray-300">
+                    <div className="flex items-center">
+                      <Globe className="h-4 w-4 mr-1" />
+                      50 States
+                    </div>
+                    <div className="flex items-center">
+                      <Shield className="h-4 w-4 mr-1" />
+                      Secure
+                    </div>
+                    <div className="flex items-center">
+                      <Zap className="h-4 w-4 mr-1" />
+                      Fast Setup
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Visual Enhancement Section */}
+      <section className="py-12 bg-gradient-to-r from-blue-50 to-purple-50 relative overflow-hidden">
+        {/* Background Pattern */}
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-10 left-10 w-20 h-20 bg-blue-400 rounded-full"></div>
+          <div className="absolute top-32 right-20 w-16 h-16 bg-purple-400 rounded-full"></div>
+          <div className="absolute bottom-20 left-1/4 w-12 h-12 bg-green-400 rounded-full"></div>
+          <div className="absolute bottom-10 right-10 w-24 h-24 bg-orange-400 rounded-full"></div>
+        </div>
+        
+        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">
+              🚀 Built for Modern Travelers
+            </h2>
+            <p className="text-xl text-gray-600">
+              Everything you need to stay connected on your adventures
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+            {[
+              {
+                icon: "🏔️",
+                title: "Remote Locations",
+                description: "Stay connected even in the most remote camping spots"
+              },
+              {
+                icon: "🏠",
+                title: "Work From RV",
+                description: "Reliable internet for video calls and remote work"
+              },
+              {
+                icon: "🗺️",
+                title: "50 State Coverage",
+                description: "Seamless connectivity across all United States"
+              },
+              {
+                icon: "⚡",
+                title: "5G Speed",
+                description: "Lightning-fast internet for streaming and gaming"
+              }
+            ].map((feature, index) => (
+              <div key={index} className="text-center group">
+                <div className="text-4xl mb-4 transform group-hover:scale-110 transition-transform">
+                  {feature.icon}
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">{feature.title}</h3>
+                <p className="text-gray-600 text-sm">{feature.description}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -671,12 +755,6 @@ const getProductDescription = (product: Product): string => {
               
               <p className="text-xs text-gray-500 text-center">
                 We respect your privacy. Unsubscribe at any time.
-                <div className="bg-red-500 text-white p-4 m-4">
-  🔴 If this is RED, Tailwind is working!
-</div>
-<div style={{backgroundColor: 'blue', color: 'white', padding: '16px', margin: '16px'}}>
-  🔵 This should always be BLUE (inline styles)
-</div>
               </p>
             </form>
           </div>
