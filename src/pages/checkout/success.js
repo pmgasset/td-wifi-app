@@ -22,8 +22,8 @@ import {
   Truck
 } from 'lucide-react';
 
-// Updated import - using the correct path from your project structure
-import Layout from '../components/Layout';
+// Updated import - correct path for pages/checkout/success.js to components/Layout
+import Layout from '../../components/Layout';
 
 export default function CheckoutSuccessPage() {
   const router = useRouter();
