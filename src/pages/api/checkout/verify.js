@@ -14,12 +14,13 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { payment_intent, order_id, session_id } = req.body;
+    const { payment_intent, order_id: requestOrderId, session_id } = req.body;
 
-    console.log('Verifying checkout...', { payment_intent, order_id, session_id });
+    console.log('Verifying checkout...', { payment_intent, requestOrderId, session_id });
 
     let orderData = null;
     let paymentData = null;
+    let orderId = requestOrderId; // Use a mutable variable
 
     // Verify Stripe payment first
     if (payment_intent) {
@@ -44,8 +45,8 @@ export default async function handler(req, res) {
 
         // Get order ID from payment metadata
         const orderIdFromPayment = paymentIntent.metadata?.orderId;
-        if (orderIdFromPayment && !order_id) {
-          order_id = orderIdFromPayment;
+        if (orderIdFromPayment && !orderId) {
+          orderId = orderIdFromPayment;
         }
 
       } catch (stripeError) {
@@ -58,15 +59,15 @@ export default async function handler(req, res) {
     }
 
     // Get order details from Zoho
-    if (order_id) {
+    if (orderId) {
       try {
-        orderData = await getZohoOrderDetails(order_id);
+        orderData = await getZohoOrderDetails(orderId);
       } catch (zohoError) {
         console.warn('Zoho order lookup failed:', zohoError.message);
         
         // If Zoho fails, create a basic order response from payment data
         if (paymentData) {
-          orderData = createFallbackOrderData(paymentData, order_id);
+          orderData = createFallbackOrderData(paymentData, orderId);
         }
       }
     }
