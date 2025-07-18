@@ -78,7 +78,7 @@ const StreamlinedHomepage = () => {
       }
     } catch (err) {
       console.error('Error fetching products:', err);
-      setError(err.message);
+      setError(err instanceof Error ? err.message : 'Failed to load products');
     } finally {
       setLoading(false);
     }
@@ -89,6 +89,7 @@ const StreamlinedHomepage = () => {
       addItem(product, 1);
       toast.success(`${getProductName(product)} added to cart!`);
     } catch (err) {
+      console.error('Error adding to cart:', err);
       toast.error('Failed to add item to cart');
     }
   };
@@ -246,6 +247,23 @@ const StreamlinedHomepage = () => {
                         </div>
                       </div>
                     )}
+
+            {/* No Products State */}
+            {!loading && !error && products.length === 0 && (
+              <div className="text-center py-16">
+                <div className="bg-gray-50 rounded-lg p-8 max-w-md mx-auto">
+                  <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Products Available</h3>
+                  <p className="text-gray-600 mb-4">We're currently updating our product catalog.</p>
+                  <button 
+                    onClick={fetchProducts}
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Refresh
+                  </button>
+                </div>
+              </div>
+            )}
                     
                     <div className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300">
                       {/* Product Image */}
