@@ -333,7 +333,8 @@ async function createZohoOrderAfterPayment(orderData, paymentIntent) {
     shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     line_items: lineItems,
     notes: `Payment completed via Stripe. Payment Intent: ${paymentIntent.id}. Request ID: ${orderData.requestId}`,
-    terms: 'Paid via Stripe'
+    terms: 'Paid via Stripe',
+    status: 'confirmed'  // Create confirmed sales order instead of draft
   };
   
   // Use address IDs if available, otherwise fallback to address object
