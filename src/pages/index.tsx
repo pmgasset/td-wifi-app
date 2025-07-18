@@ -233,6 +233,47 @@ const getProductDescription = (product: Product): string => {
 
   return (
     <Layout>
+      {/* DEBUG SECTION - Remove after logo works */}
+      <section className="py-8 bg-yellow-50 border-t border-b border-yellow-200">
+        <div className="max-w-4xl mx-auto px-4 text-center">
+          <h3 className="text-lg font-semibold text-yellow-800 mb-4">🔧 Logo Debug Test</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white p-4 rounded-lg">
+              <h4 className="font-semibold mb-2">Direct Logo Test</h4>
+              <img 
+                src="/logo.svg" 
+                alt="Logo Test" 
+                className="w-16 h-16 mx-auto border"
+                onLoad={() => console.log('✅ Debug logo loaded')}
+                onError={() => console.log('❌ Debug logo failed')}
+              />
+              <p className="text-sm text-gray-600 mt-2">Should show your logo</p>
+            </div>
+            <div className="bg-white p-4 rounded-lg">
+              <h4 className="font-semibold mb-2">Logo URL Test</h4>
+              <a 
+                href="/logo.svg" 
+                target="_blank" 
+                className="text-blue-600 hover:underline"
+              >
+                Click to open logo directly
+              </a>
+              <p className="text-sm text-gray-600 mt-2">Should open your logo in new tab</p>
+            </div>
+            <div className="bg-white p-4 rounded-lg">
+              <h4 className="font-semibold mb-2">Fallback Icon</h4>
+              <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl flex items-center justify-center mx-auto">
+                <Wifi className="h-8 w-8 text-white" />
+              </div>
+              <p className="text-sm text-gray-600 mt-2">Fallback if logo fails</p>
+            </div>
+          </div>
+          <p className="text-sm text-yellow-700 mt-4">
+            Check browser console (F12) for logo load messages. Remove this section once logo works!
+          </p>
+        </div>
+      </section>
+
       {/* Live Activity Bar */}
       <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white py-2 text-center">
         <div className="flex items-center justify-center space-x-6 text-sm">
