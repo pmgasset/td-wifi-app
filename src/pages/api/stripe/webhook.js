@@ -332,7 +332,7 @@ async function createZohoOrderAfterPayment(orderData, paymentIntent) {
     date: new Date().toISOString().split('T')[0],
     shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     line_items: lineItems,
-    notes: `Payment completed via Stripe. Payment Intent: ${paymentIntent.id}`,
+    notes: `Payment completed via Stripe. Payment Intent: ${paymentIntent.id}. Request ID: ${orderData.requestId}`,
     terms: 'Paid via Stripe'
   };
   
@@ -353,12 +353,8 @@ async function createZohoOrderAfterPayment(orderData, paymentIntent) {
     console.log('⚠️ Using address object fallback for sales order');
   }
   
-  // Add custom fields for tracking
-  salesOrderData.custom_fields = [
-    { label: 'Payment Method', value: 'Stripe' },
-    { label: 'Payment Intent ID', value: paymentIntent.id },
-    { label: 'Request ID', value: orderData.requestId }
-  ];
+  // Add notes with payment tracking info instead of custom fields
+  salesOrderData.notes = `Payment completed via Stripe. Payment Intent: ${paymentIntent.id}. Request ID: ${orderData.requestId}`;
   
   console.log('📦 Creating sales order in Zoho...');
   console.log('📋 Sales order data:', JSON.stringify(salesOrderData, null, 2));
