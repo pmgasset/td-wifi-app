@@ -62,7 +62,7 @@ export default function EnhancedCheckoutPage() {
   const [agreeToTerms, setAgreeToTerms] = useState(false);
   
   // Validation
-  const [validationErrors, setValidationErrors] = useState([]);
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
   // Redirect if cart is empty
   useEffect(() => {
@@ -83,7 +83,7 @@ export default function EnhancedCheckoutPage() {
   /**
    * Handle checkout details submission
    */
-  const handleDetailsSubmit = async (e) => {
+  const handleDetailsSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     
     // Validate form
@@ -154,7 +154,7 @@ export default function EnhancedCheckoutPage() {
   /**
    * Handle successful payment
    */
-  const handlePaymentSuccess = (paymentIntent) => {
+  const handlePaymentSuccess = (paymentIntent: any) => {
     console.log('✅ Payment successful:', paymentIntent.id);
     toast.success('Payment successful! Redirecting to confirmation...');
     
@@ -172,7 +172,7 @@ export default function EnhancedCheckoutPage() {
   /**
    * Handle payment error
    */
-  const handlePaymentError = (error) => {
+  const handlePaymentError = (error: any) => {
     console.error('❌ Payment error:', error);
     toast.error(error.message || 'Payment failed. Please try again.');
   };
