@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-// Type definitions
+// Type definitions (updated to match your existing API structure)
 interface ProductImage {
   url?: string;
   image_url?: string;
@@ -18,6 +18,8 @@ interface ProductImage {
 
 interface ProductDocument {
   document_id: string;
+  is_default_image?: boolean;
+  image_url?: string;
 }
 
 interface Product {
@@ -27,14 +29,18 @@ interface Product {
   product_name?: string;
   price?: string | number;
   rate?: string | number;
+  product_price?: string | number;
+  min_rate?: string | number;
   status?: string;
   show_in_storefront?: boolean;
   is_featured?: boolean;
   description?: string;
+  product_description?: string;
   short_description?: string;
   seo_url?: string;
   url?: string;
   images?: ProductImage[];
+  product_images?: string[];
   image_url?: string;
   documents?: ProductDocument[];
 }
@@ -173,38 +179,57 @@ const EnhancedHomepage = () => {
     }
   };
 
-  // Helper functions
-  const getProductName = (product: Product): string => {
-    return product.name || product.product_name || 'Router';
-  };
+// Helper functions (using existing product helper functions from your codebase)
+const getProductName = (product: Product): string => {
+  return product.product_name || product.name || 'Router';
+};
 
-  const getProductPrice = (product: Product): number | null => {
-    const price = parseFloat(String(product.price || product.rate || 0));
-    return price > 0 ? price : null;
-  };
+const getProductPrice = (product: Product): number | null => {
+  const price = parseFloat(String(product.price || product.rate || product.product_price || product.min_rate || 0));
+  return price > 0 ? price : null;
+};
 
-  const getProductImage = (product: Product): string | null => {
-    // Check for actual product images from your API
-    if (product.images && product.images.length > 0) {
-      const imageUrl = product.images[0].url || product.images[0].image_url;
-      if (imageUrl) return imageUrl;
-    }
+const getProductImageUrl = (product: Product): string => {
+  // Use the same logic as your existing ProductImage component
+  
+  // Method 1: Check product_images array first
+  if (product.product_images && Array.isArray(product.product_images) && product.product_images.length > 0) {
+    const validImage = product.product_images.find(img => img && typeof img === 'string' && img.trim().length > 0);
+    if (validImage) return validImage;
+  }
+  
+  // Method 2: Check documents with images
+  if (product.documents && Array.isArray(product.documents) && product.documents.length > 0) {
+    // Look for default image first
+    const defaultImage = product.documents.find((doc: any) => doc.is_default_image);
+    if (defaultImage?.image_url) return defaultImage.image_url;
     
-    if (product.image_url) {
-      return product.image_url;
-    }
+    // Fall back to first document with image_url
+    const firstImageDoc = product.documents.find((doc: any) => doc.image_url);
+    if (firstImageDoc?.image_url) return firstImageDoc.image_url;
     
-    if (product.documents && product.documents.length > 0) {
-      return `/product-images/${product.documents[0].document_id}`;
+    // Construct URL from document_id (Zoho's URL pattern)
+    const firstDoc = product.documents[0];
+    if (firstDoc?.document_id) {
+      return `/product-images/${firstDoc.document_id}`;
     }
-    
-    // Return null if no image available - we'll handle this in the component
-    return null;
-  };
+  }
+  
+  // Method 3: Check for direct image URL field
+  if (product.image_url) {
+    return product.image_url;
+  }
+  
+  // Return base64 placeholder SVG (same as your existing code)
+  return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
+};
 
-  const getProductDescription = (product: Product): string => {
-    return product.description || product.short_description || 'High-performance mobile internet router';
-  };
+const getProductDescription = (product: Product): string => {
+  // Strip HTML from description like your existing helper
+  const rawDescription = product.product_description || product.description || product.short_description || 'High-performance mobile internet router';
+  // Simple HTML stripping
+  return rawDescription.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+};
 
   return (
     <Layout>
@@ -375,25 +400,15 @@ const EnhancedHomepage = () => {
                     <div className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300 border border-gray-100">
                       {/* Product Image */}
                       <div className="aspect-w-16 aspect-h-12 bg-gradient-to-br from-blue-100 to-purple-100">
-                        {getProductImage(product) ? (
-                          <img 
-                            src={getProductImage(product)!}
-                            alt={getProductName(product)}
-                            className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
-                            onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-                              const target = e.target as HTMLImageElement;
-                              // Hide the image if it fails to load
-                              target.style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <div className="w-full h-48 flex items-center justify-center bg-gradient-to-br from-blue-100 to-purple-100">
-                            <div className="text-center text-gray-500">
-                              <Wifi className="h-12 w-12 mx-auto mb-2 text-blue-400" />
-                              <span className="text-sm">Product Image</span>
-                            </div>
-                          </div>
-                        )}
+                        <img 
+                          src={getProductImageUrl(product)}
+                          alt={getProductName(product)}
+                          className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
+                          onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                            console.log('Image failed to load for product:', getProductName(product));
+                            // Image will fallback to the base64 SVG placeholder automatically
+                          }}
+                        />
                         
                         <div className="absolute top-4 right-4 bg-white/90 rounded-full px-3 py-1 text-sm font-semibold">
                           <Star className="h-4 w-4 inline mr-1 text-yellow-400" />
