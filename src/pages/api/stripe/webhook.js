@@ -1,17 +1,6 @@
 // src/pages/api/stripe/webhook.js
 /**
  * Stripe Webhook Handler - Creates Zoho Order AFTER Successful Payment
- * 
- * This endpoint is called by Stripe when payment is completed.
- * Only THEN do we create the order in Zoho, preventing abandoned orders.
- * 
- * Flow:
- * 1. Customer pays → Stripe calls this webhook
- * 2. Verify webhook signature
- * 3. Extract order data from Payment Intent metadata
- * 4. Create customer address in Zoho (if needed)
- * 5. Create sales order in Zoho
- * 6. Update Payment Intent with order ID
  */
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -26,16 +15,6 @@ async function getRawBody(req) {
 }
 
 export default async function handler(req, res) {
-  // Set CORS headers for webhook
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, stripe-signature');
-
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
   if (req.method !== 'POST') {
     console.log(`❌ Webhook received ${req.method} request, expected POST`);
     return res.status(405).json({ error: 'Method not allowed' });
@@ -45,15 +24,13 @@ export default async function handler(req, res) {
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   console.log(`\n=== STRIPE WEBHOOK RECEIVED ===`);
-  console.log('Method:', req.method);
   console.log('Has signature:', !!sig);
   console.log('Has webhook secret:', !!endpointSecret);
 
   if (!endpointSecret) {
     console.error('❌ STRIPE_WEBHOOK_SECRET not configured');
     return res.status(500).json({ 
-      error: 'Webhook secret not configured',
-      note: 'Add STRIPE_WEBHOOK_SECRET to your environment variables'
+      error: 'Webhook secret not configured'
     });
   }
 
@@ -63,27 +40,16 @@ export default async function handler(req, res) {
   }
 
   let event;
-  let rawBody;
 
   try {
     // Get the raw body properly
-    rawBody = await getRawBody(req);
+    const rawBody = await getRawBody(req);
     console.log('Raw body length:', rawBody.length);
     
     // Verify webhook signature with raw body
     event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
     console.log('✅ Webhook signature verified');
     console.log('Event type:', event.type);
-    
-  } catch (err) {
-    console.error(`❌ Webhook signature verification failed:`, err.message);
-    console.log('Raw body preview:', rawBody ? rawBody.toString().substring(0, 100) : 'No body');
-    console.log('Signature:', sig ? sig.substring(0, 50) + '...' : 'No signature');
-    return res.status(400).json({ 
-      error: 'Webhook signature verification failed',
-      details: err.message
-    });
-  }
     
   } catch (err) {
     console.error(`❌ Webhook signature verification failed:`, err.message);
@@ -150,7 +116,7 @@ export default async function handler(req, res) {
         console.error('Failed to update Payment Intent with error:', updateError);
       }
       
-      // Return success to Stripe (payment was successful, order creation can be retried)
+      // Return success to Stripe (payment was successful)
       return res.json({ 
         received: true, 
         status: 'error',
@@ -165,11 +131,7 @@ export default async function handler(req, res) {
   res.json({ received: true, event_type: event.type });
 }
 
-/**
- * SUB-AGENT: Extract order data from Payment Intent metadata
- */
 function extractOrderDataFromMetadata(metadata) {
-  // Parse cart items from metadata
   let cartItems = [];
   try {
     if (metadata.cart_items) {
@@ -183,7 +145,6 @@ function extractOrderDataFromMetadata(metadata) {
     }
   } catch (parseError) {
     console.warn('Could not parse cart items from metadata:', parseError);
-    // Create default item
     cartItems = [{
       product_id: 'unknown',
       product_name: 'Travel Data WiFi Product',
@@ -216,206 +177,161 @@ function extractOrderDataFromMetadata(metadata) {
     },
     customerId: metadata.customer_id || null,
     orderNotes: metadata.order_notes || '',
-    requestId: metadata.request_id || '',
-    createAccount: metadata.create_account === 'true',
-    accountCreated: metadata.account_created === 'true'
+    requestId: metadata.request_id || ''
   };
 }
 
-/**
- * SUB-AGENT: Create Zoho order after payment confirmation
- */
 async function createZohoOrderAfterPayment(orderData, paymentIntent) {
-  console.log('🔄 Sub-agent: Creating Zoho order after payment confirmation...');
+  console.log('🔄 Creating Zoho order after payment confirmation...');
   
-  try {
-    const token = await getZohoAccessToken();
+  const token = await getZohoAccessToken();
+  
+  // Handle customer addresses
+  let billingAddressId = null;
+  let shippingAddressId = null;
+  
+  if (orderData.customerId) {
+    console.log('📍 Creating customer addresses in Zoho...');
     
-    // Handle customer addresses first (the issue you mentioned)
-    let billingAddressId = null;
-    let shippingAddressId = null;
+    const addressData = {
+      attention: `${orderData.customerInfo.firstName} ${orderData.customerInfo.lastName}`,
+      address: orderData.shippingAddress.address1.substring(0, 99),
+      address_2: orderData.shippingAddress.address2?.substring(0, 99) || '',
+      city: orderData.shippingAddress.city,
+      state: orderData.shippingAddress.state,
+      zip: orderData.shippingAddress.zipCode,
+      country: orderData.shippingAddress.country,
+      phone: orderData.customerInfo.phone || ''
+    };
     
-    if (orderData.customerId) {
-      console.log('📍 Creating customer addresses in Zoho...');
+    try {
+      const addressResponse = await fetch(
+        `https://www.zohoapis.com/inventory/v1/contacts/${orderData.customerId}/address?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Zoho-oauthtoken ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            billing_address: addressData,
+            shipping_address: addressData
+          })
+        }
+      );
       
-      // Create billing address
-      const addressData = {
-        attention: `${orderData.customerInfo.firstName} ${orderData.customerInfo.lastName}`,
-        address: orderData.shippingAddress.address1.substring(0, 99), // Limit to 99 chars
-        address_2: orderData.shippingAddress.address2?.substring(0, 99) || '',
+      const addressResult = await addressResponse.json();
+      
+      if (addressResult.address) {
+        billingAddressId = addressResult.address.billing_address_id;
+        shippingAddressId = addressResult.address.shipping_address_id;
+        console.log('✅ Customer addresses created');
+      }
+    } catch (addressError) {
+      console.warn('⚠️ Address creation failed:', addressError.message);
+    }
+  }
+  
+  // Prepare line items
+  const lineItems = orderData.cartItems.map(item => ({
+    item_id: item.product_id,
+    name: item.product_name,
+    rate: parseFloat(item.product_price),
+    quantity: parseInt(item.quantity),
+    unit: 'qty'
+  }));
+  
+  // Prepare order data
+  const salesOrderData = {
+    customer_id: orderData.customerId || undefined,
+    date: new Date().toISOString().split('T')[0],
+    shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    line_items: lineItems,
+    
+    ...(billingAddressId ? {
+      billing_address_id: billingAddressId,
+      shipping_address_id: shippingAddressId
+    } : {
+      shipping_address: {
+        address: orderData.shippingAddress.address1.substring(0, 99),
         city: orderData.shippingAddress.city,
         state: orderData.shippingAddress.state,
         zip: orderData.shippingAddress.zipCode,
-        country: orderData.shippingAddress.country,
-        phone: orderData.customerInfo.phone || ''
-      };
-      
-      try {
-        const addressResponse = await fetch(
-          `https://www.zohoapis.com/inventory/v1/contacts/${orderData.customerId}/address?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Zoho-oauthtoken ${token}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              billing_address: addressData,
-              shipping_address: addressData // Same for both
-            })
-          }
-        );
-        
-        const addressResult = await addressResponse.json();
-        
-        if (addressResult.address) {
-          billingAddressId = addressResult.address.billing_address_id;
-          shippingAddressId = addressResult.address.shipping_address_id;
-          console.log('✅ Customer addresses created');
-        }
-      } catch (addressError) {
-        console.warn('⚠️ Address creation failed, will use inline address:', addressError.message);
+        country: orderData.shippingAddress.country
       }
-    }
+    }),
     
-    // Prepare line items
-    const lineItems = orderData.cartItems.map(item => ({
-      item_id: item.product_id,
-      name: item.product_name,
-      rate: parseFloat(item.product_price),
-      quantity: parseInt(item.quantity),
-      unit: 'qty'
-    }));
+    notes: `Payment completed via Stripe. Payment Intent: ${paymentIntent.id}`,
+    terms: 'Paid via Stripe',
     
-    // Prepare order data
-    const salesOrderData = {
-      customer_id: orderData.customerId || undefined,
-      date: new Date().toISOString().split('T')[0],
-      shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      
-      // Line items
-      line_items: lineItems,
-      
-      // Use address IDs if available, otherwise use address object
-      ...(billingAddressId ? {
-        billing_address_id: billingAddressId,
-        shipping_address_id: shippingAddressId
-      } : {
-        shipping_address: {
-          address: orderData.shippingAddress.address1.substring(0, 99), // Limit to 99 chars
-          city: orderData.shippingAddress.city,
-          state: orderData.shippingAddress.state,
-          zip: orderData.shippingAddress.zipCode,
-          country: orderData.shippingAddress.country
-        }
-      }),
-      
-      // Payment info
-      notes: `Payment completed via Stripe. Payment Intent: ${paymentIntent.id}`,
-      terms: 'Paid via Stripe',
-      
-      // Custom fields
-      custom_fields: [
-        {
-          label: 'Payment Method',
-          value: 'Stripe'
-        },
-        {
-          label: 'Payment Intent ID',
-          value: paymentIntent.id
-        },
-        {
-          label: 'Request ID',
-          value: orderData.requestId
-        }
-      ]
-    };
-    
-    // If no customer ID, add customer info directly
-    if (!orderData.customerId) {
-      salesOrderData.customer_name = `${orderData.customerInfo.firstName} ${orderData.customerInfo.lastName}`;
-      salesOrderData.contact_persons = [{
-        name: `${orderData.customerInfo.firstName} ${orderData.customerInfo.lastName}`,
-        email: orderData.customerInfo.email,
-        phone: orderData.customerInfo.phone || ''
-      }];
-    }
-    
-    console.log('📦 Creating sales order in Zoho...');
-    const response = await fetch(
-      `https://www.zohoapis.com/inventory/v1/salesorders?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Zoho-oauthtoken ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(salesOrderData)
-      }
-    );
-    
-    const result = await response.json();
-    
-    if (!response.ok || !result.salesorder) {
-      throw new Error(`Zoho order creation failed: ${result.message || JSON.stringify(result)}`);
-    }
-    
-    const orderId = result.salesorder.salesorder_id;
-    const orderNumber = result.salesorder.salesorder_number;
-    
-    console.log('✅ Zoho order created after payment:', { orderId, orderNumber });
-    
-    return { orderId, orderNumber };
-    
-  } catch (error) {
-    console.error('❌ Post-payment Zoho order creation failed:', error);
-    throw error;
-  }
-}
-
-/**
- * Get Zoho access token (cached)
- */
-let cachedToken = null;
-let tokenExpiry = null;
-
-async function getZohoAccessToken() {
-  if (cachedToken && tokenExpiry && Date.now() < tokenExpiry) {
-    return cachedToken;
+    custom_fields: [
+      { label: 'Payment Method', value: 'Stripe' },
+      { label: 'Payment Intent ID', value: paymentIntent.id },
+      { label: 'Request ID', value: orderData.requestId }
+    ]
+  };
+  
+  // If no customer ID, add customer info directly
+  if (!orderData.customerId) {
+    salesOrderData.customer_name = `${orderData.customerInfo.firstName} ${orderData.customerInfo.lastName}`;
+    salesOrderData.contact_persons = [{
+      name: `${orderData.customerInfo.firstName} ${orderData.customerInfo.lastName}`,
+      email: orderData.customerInfo.email,
+      phone: orderData.customerInfo.phone || ''
+    }];
   }
   
-  try {
-    const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
+  console.log('📦 Creating sales order in Zoho...');
+  const response = await fetch(
+    `https://www.zohoapis.com/inventory/v1/salesorders?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`,
+    {
       method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        refresh_token: process.env.ZOHO_REFRESH_TOKEN,
-        client_id: process.env.ZOHO_CLIENT_ID,
-        client_secret: process.env.ZOHO_CLIENT_SECRET,
-        grant_type: 'refresh_token'
-      })
-    });
-    
-    const data = await response.json();
-    
-    if (!data.access_token) {
-      throw new Error('Failed to get Zoho access token');
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(salesOrderData)
     }
-    
-    cachedToken = data.access_token;
-    tokenExpiry = Date.now() + (data.expires_in * 1000) - 60000;
-    
-    return cachedToken;
-    
-  } catch (error) {
-    console.error('❌ Zoho token error:', error);
-    throw new Error('Authentication failed');
+  );
+  
+  const result = await response.json();
+  
+  if (!response.ok || !result.salesorder) {
+    throw new Error(`Zoho order creation failed: ${result.message || JSON.stringify(result)}`);
   }
+  
+  const orderId = result.salesorder.salesorder_id;
+  const orderNumber = result.salesorder.salesorder_number;
+  
+  console.log('✅ Zoho order created after payment:', { orderId, orderNumber });
+  
+  return { orderId, orderNumber };
 }
 
-// Configure to receive raw body for webhook signature verification
+async function getZohoAccessToken() {
+  const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      refresh_token: process.env.ZOHO_REFRESH_TOKEN,
+      client_id: process.env.ZOHO_CLIENT_ID,
+      client_secret: process.env.ZOHO_CLIENT_SECRET,
+      grant_type: 'refresh_token'
+    })
+  });
+  
+  const data = await response.json();
+  
+  if (!data.access_token) {
+    throw new Error('Failed to get Zoho access token');
+  }
+  
+  return data.access_token;
+}
+
+// Disable body parser for raw body
 export const config = {
   api: {
-    bodyParser: false, // Disable Next.js body parser to get raw body
+    bodyParser: false,
   },
 }
