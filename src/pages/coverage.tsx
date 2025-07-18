@@ -83,6 +83,18 @@ const CoveragePage = () => {
     setFormData(prev => ({ ...prev, address: suggestion.description }));
     setShowSuggestions(false);
     setShowForm(true);
+    
+    // Automatically scroll to the form after a brief delay
+    setTimeout(() => {
+      const formElement = document.getElementById('coverage-form');
+      if (formElement) {
+        formElement.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'start',
+          inline: 'nearest'
+        });
+      }
+    }, 100);
   };
 
   const handleInputChange = (field: keyof CoverageFormData, value: string) => {
@@ -106,6 +118,18 @@ const CoveragePage = () => {
       if (response.ok) {
         setCoverageResult(result);
         toast.success('Coverage check request submitted! We\'ll contact you within 24 hours.');
+        
+        // Automatically scroll to success section
+        setTimeout(() => {
+          const successElement = document.getElementById('coverage-success');
+          if (successElement) {
+            successElement.scrollIntoView({ 
+              behavior: 'smooth', 
+              block: 'start',
+              inline: 'nearest'
+            });
+          }
+        }, 100);
       } else {
         throw new Error(result.error || 'Failed to submit coverage request');
       }
@@ -204,7 +228,22 @@ const CoveragePage = () => {
                 </div>
                 
                 <button
-                  onClick={() => formData.address && setShowForm(true)}
+                  onClick={() => {
+                    if (formData.address) {
+                      setShowForm(true);
+                      // Automatically scroll to the form after a brief delay
+                      setTimeout(() => {
+                        const formElement = document.getElementById('coverage-form');
+                        if (formElement) {
+                          formElement.scrollIntoView({ 
+                            behavior: 'smooth', 
+                            block: 'start',
+                            inline: 'nearest'
+                          });
+                        }
+                      }, 100);
+                    }
+                  }}
                   disabled={!formData.address}
                   className="px-8 py-4 bg-logo-signal text-white rounded-r-lg font-bold text-lg hover:bg-logo-forest transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -271,7 +310,7 @@ const CoveragePage = () => {
 
       {/* Lead Capture Form */}
       {showForm && !coverageResult && (
-        <section className="py-16 bg-gray-50">
+        <section id="coverage-form" className="py-16 bg-gray-50">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="bg-white rounded-2xl shadow-xl p-8">
               <div className="text-center mb-8">
@@ -436,7 +475,7 @@ const CoveragePage = () => {
 
       {/* Success State */}
       {coverageResult && (
-        <section className="py-16 bg-gray-50">
+        <section id="coverage-success" className="py-16 bg-gray-50">
           <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
               <CheckCircle className="h-16 w-16 text-green-500 mx-auto mb-6" />
