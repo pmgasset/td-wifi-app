@@ -671,6 +671,12 @@ const getProductDescription = (product: Product): string => {
               
               <p className="text-xs text-gray-500 text-center">
                 We respect your privacy. Unsubscribe at any time.
+                <div className="bg-red-500 text-white p-4 m-4">
+  🔴 If this is RED, Tailwind is working!
+</div>
+<div style={{backgroundColor: 'blue', color: 'white', padding: '16px', margin: '16px'}}>
+  🔵 This should always be BLUE (inline styles)
+</div>
               </p>
             </form>
           </div>
