@@ -27,12 +27,12 @@ import {
 } from 'lucide-react';
 
 import Layout from '../components/Layout';
-import { useCart } from '../context/CartContext';
+import { useCartStore } from '../store/cart';
 import StripePaymentForm from '../components/StripePaymentForm';
 
 export default function EnhancedCheckoutPage() {
   const router = useRouter();
-  const { items, total, clearCart } = useCart();
+  const { items, getTotalPrice, clearCart, isHydrated } = useCartStore();
   
   // Checkout flow states
   const [currentStep, setCurrentStep] = useState('details'); // 'details', 'payment', 'success'
@@ -73,7 +73,7 @@ export default function EnhancedCheckoutPage() {
 
   // Calculate totals
   const subtotal = items?.reduce((sum, item) => {
-    return sum + (item.price * item.quantity);
+    return sum + (item.product_price * item.quantity);
   }, 0) || 0;
   
   const tax = Math.round(subtotal * 0.0875 * 100) / 100; // 8.75% tax
@@ -217,7 +217,7 @@ export default function EnhancedCheckoutPage() {
   };
 
   // Loading state
-  if (!items || items.length === 0) {
+  if (isLoading || !isHydrated) {
     return (
       <Layout>
         <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -621,17 +621,17 @@ export default function EnhancedCheckoutPage() {
               {/* Cart Items */}
               <div className="space-y-4 mb-6">
                 {items.map((item) => (
-                  <div key={item.id} className="flex items-center space-x-4">
+                  <div key={item.product_id} className="flex items-center space-x-4">
                     <img
-                      src={item.image || '/images/placeholder.jpg'}
-                      alt={item.name}
+                      src={item.product_images?.[0] || '/images/placeholder.jpg'}
+                      alt={item.product_name}
                       className="w-16 h-16 object-cover rounded-lg"
                     />
                     <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">{item.name}</h3>
+                      <h3 className="font-medium text-gray-900">{item.product_name}</h3>
                       <p className="text-sm text-gray-600">Qty: {item.quantity}</p>
                       <p className="text-sm font-medium text-gray-900">
-                        ${(item.price * item.quantity).toFixed(2)}
+                        ${(item.product_price * item.quantity).toFixed(2)}
                       </p>
                     </div>
                   </div>
