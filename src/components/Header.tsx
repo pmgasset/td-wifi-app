@@ -37,15 +37,16 @@ const Header: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Desktop Layout */}
           <div className="hidden lg:block">
-            {/* Top Row - Centered Logo */}
+            {/* Top Row - Centered Logo Only */}
             <div className="flex justify-center items-center mb-4">
-              <Link href="/" className="flex items-center space-x-4 group">
+              <Link href="/" className="group">
                 <img 
                   src="/logo.svg" 
                   alt="Travel Data WiFi Logo" 
                   className={`transition-all duration-300 ${
-                    isScrolled ? 'w-12 h-12' : 'w-20 h-20'
+                    isScrolled ? 'h-12' : 'h-20'
                   }`}
+                  style={{ width: 'auto' }}
                   onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
                     console.log('Header logo failed to load, showing fallback');
                     const target = e.target as HTMLImageElement;
@@ -55,22 +56,17 @@ const Header: React.FC = () => {
                   }}
                 />
                 <div className={`bg-gradient-to-r from-travel-blue to-blue-600 rounded-xl flex items-center justify-center hidden transition-all duration-300 ${
-                  isScrolled ? 'w-12 h-12' : 'w-20 h-20'
+                  isScrolled ? 'w-48 h-12' : 'w-80 h-20'
                 }`}>
-                  <Wifi className={`text-white transition-all duration-300 ${
-                    isScrolled ? 'h-6 w-6' : 'h-10 w-10'
-                  }`} />
-                </div>
-                <div className="text-center">
-                  <span className={`font-bold text-travel-blue transition-all duration-300 ${
-                    isScrolled ? 'text-xl' : 'text-2xl'
-                  }`}>
-                    Travel Data WiFi
-                  </span>
-                  <div className={`text-gray-500 transition-all duration-300 ${
-                    isScrolled ? 'text-xs -mt-1' : 'text-sm'
-                  }`}>
-                    Stay Connected Anywhere
+                  <div className="flex items-center space-x-3">
+                    <Wifi className={`text-white transition-all duration-300 ${
+                      isScrolled ? 'h-6 w-6' : 'h-10 w-10'
+                    }`} />
+                    <span className={`font-bold text-white transition-all duration-300 ${
+                      isScrolled ? 'text-xl' : 'text-3xl'
+                    }`}>
+                      Travel Data WiFi
+                    </span>
                   </div>
                 </div>
               </Link>
@@ -114,14 +110,15 @@ const Header: React.FC = () => {
           {/* Mobile/Tablet Layout */}
           <div className="lg:hidden">
             <div className="flex justify-between items-center">
-              {/* Mobile Logo */}
-              <Link href="/" className="flex items-center space-x-3">
+              {/* Mobile Logo Only */}
+              <Link href="/" className="group">
                 <img 
                   src="/logo.svg" 
                   alt="Travel Data WiFi Logo" 
                   className={`transition-all duration-300 ${
-                    isScrolled ? 'w-10 h-10' : 'w-14 h-14'
+                    isScrolled ? 'h-10' : 'h-16'
                   }`}
+                  style={{ width: 'auto' }}
                   onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
                     const target = e.target as HTMLImageElement;
                     target.style.display = 'none';
@@ -130,22 +127,17 @@ const Header: React.FC = () => {
                   }}
                 />
                 <div className={`bg-gradient-to-r from-travel-blue to-blue-600 rounded-xl flex items-center justify-center hidden transition-all duration-300 ${
-                  isScrolled ? 'w-10 h-10' : 'w-14 h-14'
+                  isScrolled ? 'w-32 h-10' : 'w-48 h-16'
                 }`}>
-                  <Wifi className={`text-white transition-all duration-300 ${
-                    isScrolled ? 'h-5 w-5' : 'h-7 w-7'
-                  }`} />
-                </div>
-                <div>
-                  <span className={`font-bold text-travel-blue transition-all duration-300 ${
-                    isScrolled ? 'text-lg' : 'text-xl'
-                  }`}>
-                    Travel Data WiFi
-                  </span>
-                  <div className={`text-gray-500 transition-all duration-300 ${
-                    isScrolled ? 'text-xs -mt-1' : 'text-sm -mt-1'
-                  }`}>
-                    Stay Connected Anywhere
+                  <div className="flex items-center space-x-2">
+                    <Wifi className={`text-white transition-all duration-300 ${
+                      isScrolled ? 'h-4 w-4' : 'h-6 w-6'
+                    }`} />
+                    <span className={`font-bold text-white transition-all duration-300 ${
+                      isScrolled ? 'text-sm' : 'text-lg'
+                    }`}>
+                      Travel Data WiFi
+                    </span>
                   </div>
                 </div>
               </Link>
