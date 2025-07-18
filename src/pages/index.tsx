@@ -63,41 +63,83 @@ const EnhancedHomepage = () => {
   const fetchProducts = async () => {
     try {
       setLoading(true);
-      console.log('Fetching products from API...');
+      setError(null);
+      console.log('Fetching products from /api/products...');
       
-      const response = await fetch('/api/products');
+      const response = await fetch('/api/products', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
       console.log('API Response status:', response.status);
+      console.log('API Response headers:', Object.fromEntries(response.headers.entries()));
       
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`API returned ${response.status}: ${response.statusText}. Response: ${errorText}`);
       }
       
       const data = await response.json();
-      console.log('API Response data:', data);
+      console.log('API Response data structure:', {
+        hasProducts: !!data.products,
+        productsType: typeof data.products,
+        productsLength: Array.isArray(data.products) ? data.products.length : 'not array',
+        keys: Object.keys(data),
+        firstProduct: data.products?.[0] ? Object.keys(data.products[0]) : 'no products'
+      });
       
-      if (data.products && Array.isArray(data.products)) {
-        const activeProducts = data.products.filter((product: Product) => 
-          product.status === 'active' && 
-          product.show_in_storefront !== false
-        );
-        
-        console.log('Active products found:', activeProducts.length);
-        
-        const sortedProducts = activeProducts.sort((a: Product, b: Product) => {
-          const aScore = (a.is_featured ? 1000 : 0) + (parseFloat(String(a.price || 0)) || 0);
-          const bScore = (b.is_featured ? 1000 : 0) + (parseFloat(String(b.price || 0)) || 0);
-          return bScore - aScore;
-        });
-        
-        setProducts(sortedProducts.slice(0, 3));
-        console.log('Products set:', sortedProducts.slice(0, 3));
-      } else {
-        console.error('Invalid data structure:', data);
-        throw new Error('Invalid product data format from API');
+      if (!data.products) {
+        throw new Error('API response missing "products" field');
       }
+      
+      if (!Array.isArray(data.products)) {
+        throw new Error(`Expected products to be array, got ${typeof data.products}`);
+      }
+
+      if (data.products.length === 0) {
+        console.warn('API returned empty products array');
+        setProducts([]);
+        return;
+      }
+      
+      const activeProducts = data.products.filter((product: Product) => {
+        const isActive = product.status === 'active' && product.show_in_storefront !== false;
+        if (!isActive) {
+          console.log('Filtered out product:', product.name || product.product_name, 'Status:', product.status, 'Show in storefront:', product.show_in_storefront);
+        }
+        return isActive;
+      });
+      
+      console.log(`Found ${activeProducts.length} active products out of ${data.products.length} total`);
+      
+      if (activeProducts.length === 0) {
+        console.warn('No active products found after filtering');
+        setProducts([]);
+        return;
+      }
+      
+      const sortedProducts = activeProducts.sort((a: Product, b: Product) => {
+        const aScore = (a.is_featured ? 1000 : 0) + (parseFloat(String(a.price || a.rate || 0)) || 0);
+        const bScore = (b.is_featured ? 1000 : 0) + (parseFloat(String(b.price || b.rate || 0)) || 0);
+        return bScore - aScore;
+      });
+      
+      const topProducts = sortedProducts.slice(0, 3);
+      console.log('Setting top 3 products:', topProducts.map(p => ({
+        id: p.product_id || p.id,
+        name: p.name || p.product_name,
+        price: p.price || p.rate,
+        featured: p.is_featured
+      })));
+      
+      setProducts(topProducts);
+      
     } catch (err) {
       console.error('Error fetching products:', err);
-      setError(err instanceof Error ? err.message : 'Failed to load products');
+      setError(err instanceof Error ? err.message : 'Unknown error occurred');
     } finally {
       setLoading(false);
     }
@@ -287,16 +329,21 @@ const EnhancedHomepage = () => {
           {/* Error State */}
           {error && (
             <div className="flex items-center justify-center py-16">
-              <div className="text-center bg-red-50 rounded-xl p-8 max-w-md border border-red-200">
+              <div className="text-center bg-red-50 rounded-xl p-8 max-w-2xl border border-red-200">
                 <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-red-900 mb-2">Unable to load products</h3>
+                <h3 className="text-lg font-semibold text-red-900 mb-2">Products API Error</h3>
                 <p className="text-red-700 mb-4 text-sm">{error}</p>
-                <button 
-                  onClick={fetchProducts}
-                  className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition-colors"
-                >
-                  Try Again
-                </button>
+                <div className="space-y-3">
+                  <button 
+                    onClick={fetchProducts}
+                    className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Retry API Call
+                  </button>
+                  <div className="text-xs text-red-600">
+                    Check browser console for detailed API debugging info
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -398,15 +445,15 @@ const EnhancedHomepage = () => {
           {/* No Products State */}
           {!loading && !error && products.length === 0 && (
             <div className="text-center py-16">
-              <div className="bg-gray-100 rounded-xl p-8 max-w-md mx-auto">
-                <AlertCircle className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Products Found</h3>
-                <p className="text-gray-600 mb-4">Unable to load products from the API.</p>
+              <div className="bg-blue-50 rounded-xl p-8 max-w-md mx-auto border border-blue-200">
+                <AlertCircle className="h-12 w-12 text-blue-500 mx-auto mb-4" />
+                <h3 className="text-lg font-semibold text-blue-900 mb-2">No Products Found</h3>
+                <p className="text-blue-700 mb-4">The API returned no active products to display.</p>
                 <button 
                   onClick={fetchProducts}
                   className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
                 >
-                  Retry
+                  Refresh Products
                 </button>
               </div>
             </div>
