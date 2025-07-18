@@ -8,6 +8,10 @@
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+// Cache for Zoho CRM access token
+let crmTokenCache = null;
+let crmTokenExpiry = 0;
+
 /**
  * Helper function to get raw body for webhook signature verification
  */
@@ -20,11 +24,8 @@ async function getRawBody(req) {
 }
 
 /**
- * Get Zoho CRM access token (reuse from coverage-lead.js)
+ * Get Zoho CRM access token with caching
  */
-let crmTokenCache = null;
-let crmTokenExpiry = 0;
-
 async function getZohoCRMAccessToken() {
   // Check cache first
   if (crmTokenCache && Date.now() < crmTokenExpiry) {
@@ -169,7 +170,7 @@ function extractLeadDataFromPaymentIntent(paymentIntent) {
 }
 
 /**
- * Utility functions for lead scoring and categorization
+ * Determine lead rating from cart value and items
  */
 function determineLeadRatingFromCart(amount, cartItems) {
   // High-value purchases
@@ -182,6 +183,9 @@ function determineLeadRatingFromCart(amount, cartItems) {
   return 'Cold';
 }
 
+/**
+ * Determine industry from product names
+ */
 function determineIndustryFromProducts(cartItems) {
   if (!cartItems || cartItems.length === 0) return 'Technology';
   
@@ -200,6 +204,9 @@ function determineIndustryFromProducts(cartItems) {
   return 'Technology';
 }
 
+/**
+ * Determine company size estimate from cart quantities
+ */
 function determineCompanySizeFromCart(cartItems) {
   if (!cartItems || cartItems.length === 0) return 1;
   
@@ -213,6 +220,9 @@ function determineCompanySizeFromCart(cartItems) {
   return 1;
 }
 
+/**
+ * Format product interest for CRM field
+ */
 function formatProductInterest(cartItems) {
   if (!cartItems || cartItems.length === 0) return 'General Interest';
   
@@ -223,6 +233,9 @@ function formatProductInterest(cartItems) {
     .substring(0, 255); // CRM field limit
 }
 
+/**
+ * Format lead description with checkout details
+ */
 function formatLeadDescription(leadData) {
   const lines = [
     `Checkout initiated for $${leadData.amount.toFixed(2)} via Stripe`,
@@ -249,7 +262,7 @@ function formatLeadDescription(leadData) {
 }
 
 /**
- * Utility function to determine if lead rating should be upgraded
+ * Determine if lead rating should be upgraded
  */
 function shouldUpgradeLeadRating(currentRating, newRating) {
   const ratingPriority = { 'Hot': 3, 'Warm': 2, 'Cold': 1 };
@@ -288,7 +301,7 @@ function appendToLeadDescription(existingDescription, leadData, isHigherValue) {
   const newEntry = [
     `\n--- Additional Checkout Activity (${new Date().toISOString()}) ---`,
     `New checkout for $${leadData.amount.toFixed(2)} via Stripe`,
-    `Payment Intent: ${leadData.paymentIntentId}`,
+    `Payment Intent: ${leadData.paymentIntentId}`
   ];
   
   if (isHigherValue) {
@@ -314,7 +327,7 @@ function appendToLeadDescription(existingDescription, leadData, isHigherValue) {
 }
 
 /**
- * Send internal notification about new or updated checkout lead
+ * Send internal notification about lead operation
  */
 async function sendCheckoutLeadNotification(leadData, leadId) {
   try {
@@ -338,23 +351,9 @@ async function sendCheckoutLeadNotification(leadData, leadId) {
         amountIncrease: leadData.amount - (leadData.previousAmount || 0),
         isHigherValue: leadData.amount > (leadData.previousAmount || 0)
       });
-      
-      // TODO: Send enhanced notification for updated leads
-      // This could trigger different workflows for returning customers
-      // await sendSlackNotification({
-      //   type: 'lead_updated',
-      //   message: `🔄 Returning customer ${leadData.email} started new checkout for $${leadData.amount} (previous: $${leadData.previousAmount})`
-      // });
-      
     } else {
       // Standard notification for new leads
       console.log('🔔 New Checkout Lead Created:', notificationData);
-      
-      // TODO: Send standard new lead notification
-      // await sendSlackNotification({
-      //   type: 'lead_created',
-      //   message: `🆕 New checkout lead: ${leadData.email} - $${leadData.amount} (${leadData.cartItems?.length || 0} items)`
-      // });
     }
     
   } catch (error) {
@@ -364,7 +363,7 @@ async function sendCheckoutLeadNotification(leadData, leadId) {
 }
 
 /**
- * Find existing lead by email address
+ * Find existing lead by email address in Zoho CRM
  */
 async function findExistingLeadByEmail(email, accessToken) {
   try {
@@ -386,71 +385,7 @@ async function findExistingLeadByEmail(email, accessToken) {
       if (searchResponse.status === 204) {
         // No leads found (204 No Content is normal response)
         console.log('✅ No existing lead found for email:', email);
-        return res.json({ 
-        received: true, 
-        status: 'lead_updated',
-        session_id: session.id
-      });
-      
-    } catch (error) {
-      console.error('❌ Lead status update failed:', error);
-      return res.status(500).json({
-        error: 'Lead update failed',
-        details: error.message
-      });
-    }
-  }
-
-  // Handle payment_intent.succeeded for lead status updates
-  else if (event.type === 'payment_intent.succeeded') {
-    const paymentIntent = event.data.object;
-    console.log(`\n=== PAYMENT INTENT SUCCEEDED [${paymentIntent.id}] ===`);
-    
-    try {
-      // Update lead status if it exists
-      if (paymentIntent.metadata?.zoho_crm_lead_id) {
-        console.log('🔄 Sub-agent: Updating lead status to "Payment Completed"...');
-        
-        await updateZohoCRMLeadStatus(
-          paymentIntent.metadata.zoho_crm_lead_id,
-          'Payment Completed',
-          `Payment succeeded. Amount: ${(paymentIntent.amount / 100).toFixed(2)}, Payment Intent: ${paymentIntent.id}`
-        );
-        
-        console.log('✅ Lead status updated to Payment Completed');
-      }
-      
-      return res.json({ 
-        received: true, 
-        status: 'lead_updated',
-        payment_intent_id: paymentIntent.id
-      });
-      
-    } catch (error) {
-      console.error('❌ Lead status update failed:', error);
-      return res.status(500).json({
-        error: 'Lead update failed',
-        details: error.message
-      });
-    }
-  }
-
-  // Unhandled event type
-  else {
-    console.log(`⚠️ Unhandled event type: ${event.type}`);
-    return res.json({ received: true, status: 'unhandled_event' });
-  }
-}
-
-// Export the handler and config using CommonJS
-module.exports = handler;
-
-// Configure Next.js to provide raw body for webhook signature verification
-module.exports.config = {
-  api: {
-    bodyParser: false,
-  },
-}; null;
+        return null;
       }
       
       const errorData = await searchResponse.text();
@@ -682,7 +617,7 @@ async function createNewLead(leadData, leadRating, industry, accessToken) {
     
     console.log('✅ New lead created successfully:', leadId);
 
-    // Send internal notification (optional)
+    // Send internal notification
     await sendCheckoutLeadNotification({
       ...leadData,
       isUpdate: false
@@ -701,7 +636,7 @@ async function createNewLead(leadData, leadRating, industry, accessToken) {
 }
 
 /**
- * Create or update lead in Zoho CRM (with deduplication)
+ * Create or update lead in Zoho CRM with deduplication
  */
 async function createZohoCRMLead(leadData) {
   // Get Zoho CRM access token
@@ -711,7 +646,7 @@ async function createZohoCRMLead(leadData) {
   const leadRating = determineLeadRatingFromCart(leadData.amount, leadData.cartItems);
   const industry = determineIndustryFromProducts(leadData.cartItems);
   
-  // STEP 1: Check if lead already exists by email
+  // Check if lead already exists by email
   console.log('🔍 Checking for existing lead with email:', leadData.email);
   const existingLead = await findExistingLeadByEmail(leadData.email, accessToken);
   
@@ -739,7 +674,7 @@ async function updateZohoCRMLeadStatus(leadId, status, notes) {
     }]
   };
 
-  const response = await fetch(`https://www.zohoapis.com/crm/v3/Leads`, {
+  const response = await fetch('https://www.zohoapis.com/crm/v3/Leads', {
     method: 'PUT',
     headers: {
       'Authorization': `Zoho-oauthtoken ${accessToken}`,
@@ -757,7 +692,7 @@ async function updateZohoCRMLeadStatus(leadId, status, notes) {
 }
 
 /**
- * Main webhook handler
+ * Main webhook handler function
  */
 async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -791,7 +726,7 @@ async function handler(req, res) {
     console.log('Event type:', event.type);
     
   } catch (err) {
-    console.error(`❌ Webhook signature verification failed:`, err.message);
+    console.error('❌ Webhook signature verification failed:', err.message);
     return res.status(400).json({ 
       error: 'Webhook signature verification failed',
       details: err.message
@@ -812,8 +747,8 @@ async function handler(req, res) {
         return res.json({ received: true, status: 'no_lead_data' });
       }
 
-      // Create or update lead in Zoho CRM using sub-agent
-      console.log('🔄 Sub-agent: Creating/updating lead in Zoho CRM...');
+      // Create or update lead in Zoho CRM
+      console.log('🔄 Creating/updating lead in Zoho CRM...');
       const crmResult = await createZohoCRMLead(leadData);
       
       console.log('✅ Lead operation completed successfully in Zoho CRM');
@@ -826,7 +761,7 @@ async function handler(req, res) {
           zoho_crm_lead_id: crmResult.leadId,
           lead_created_at: new Date().toISOString(),
           lead_webhook_processed: 'true',
-          lead_operation: crmResult.status // 'created' or 'updated'
+          lead_operation: crmResult.status
         }
       });
       
@@ -863,7 +798,7 @@ async function handler(req, res) {
     }
   }
 
-  // Handle other relevant events
+  // Handle checkout.session.completed event
   else if (event.type === 'checkout.session.completed') {
     const session = event.data.object;
     console.log(`\n=== CHECKOUT SESSION COMPLETED [${session.id}] ===`);
@@ -874,7 +809,7 @@ async function handler(req, res) {
       
       // Update lead status if it exists
       if (paymentIntent.metadata?.zoho_crm_lead_id) {
-        console.log('🔄 Sub-agent: Updating lead status to "Payment Completed"...');
+        console.log('🔄 Updating lead status to "Payment Completed"...');
         
         await updateZohoCRMLeadStatus(
           paymentIntent.metadata.zoho_crm_lead_id,
@@ -885,4 +820,68 @@ async function handler(req, res) {
         console.log('✅ Lead status updated to Payment Completed');
       }
       
-      return
+      return res.json({ 
+        received: true, 
+        status: 'lead_updated',
+        session_id: session.id
+      });
+      
+    } catch (error) {
+      console.error('❌ Lead status update failed:', error);
+      return res.status(500).json({
+        error: 'Lead update failed',
+        details: error.message
+      });
+    }
+  }
+
+  // Handle payment_intent.succeeded event
+  else if (event.type === 'payment_intent.succeeded') {
+    const paymentIntent = event.data.object;
+    console.log(`\n=== PAYMENT INTENT SUCCEEDED [${paymentIntent.id}] ===`);
+    
+    try {
+      // Update lead status if it exists
+      if (paymentIntent.metadata?.zoho_crm_lead_id) {
+        console.log('🔄 Updating lead status to "Payment Completed"...');
+        
+        await updateZohoCRMLeadStatus(
+          paymentIntent.metadata.zoho_crm_lead_id,
+          'Payment Completed',
+          `Payment succeeded. Amount: ${(paymentIntent.amount / 100).toFixed(2)}, Payment Intent: ${paymentIntent.id}`
+        );
+        
+        console.log('✅ Lead status updated to Payment Completed');
+      }
+      
+      return res.json({ 
+        received: true, 
+        status: 'lead_updated',
+        payment_intent_id: paymentIntent.id
+      });
+      
+    } catch (error) {
+      console.error('❌ Lead status update failed:', error);
+      return res.status(500).json({
+        error: 'Lead update failed',
+        details: error.message
+      });
+    }
+  }
+
+  // Unhandled event type
+  else {
+    console.log(`⚠️ Unhandled event type: ${event.type}`);
+    return res.json({ received: true, status: 'unhandled_event' });
+  }
+}
+
+// Export the handler function
+module.exports = handler;
+
+// Configure Next.js to provide raw body for webhook signature verification
+module.exports.config = {
+  api: {
+    bodyParser: false
+  }
+};
