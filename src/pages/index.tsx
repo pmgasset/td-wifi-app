@@ -128,7 +128,7 @@ const EnhancedHomepage = () => {
       });
       
       const topProducts = sortedProducts.slice(0, 3);
-      console.log('Setting top 3 products:', topProducts.map(p => ({
+      console.log('Setting top 3 products:', topProducts.map((p: Product) => ({
         id: p.product_id || p.id,
         name: p.name || p.product_name,
         price: p.price || p.rate,
