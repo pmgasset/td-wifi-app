@@ -30,24 +30,59 @@ import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
 import StripePaymentForm from '../components/StripePaymentForm';
 
+// TypeScript interfaces to match your cart store
+interface CartItem {
+  product_id: string;
+  product_name: string;
+  product_price: number;
+  quantity: number;
+  product_images: string[];
+}
+
+interface CustomerInfo {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+}
+
+interface ShippingAddress {
+  address1: string;
+  address2: string;
+  city: string;
+  state: string;
+  zipCode: string;
+  country: string;
+}
+
 export default function EnhancedCheckoutPage() {
   const router = useRouter();
-  const { items, getTotalPrice, clearCart, isHydrated } = useCartStore();
+  const { items, clearCart, isHydrated } = useCartStore();
   
   // Checkout flow states
-  const [currentStep, setCurrentStep] = useState('details'); // 'details', 'payment', 'success'
+  const [currentStep, setCurrentStep] = useState<'details' | 'payment' | 'success'>('details');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [paymentData, setPaymentData] = useState(null);
+  const [paymentData, setPaymentData] = useState<any>(null);
+  
+  // Loading state
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Wait for cart to hydrate
+  useEffect(() => {
+    if (isHydrated) {
+      setIsLoading(false);
+    }
+  }, [isHydrated]);
   
   // Form data
-  const [customerInfo, setCustomerInfo] = useState({
+  const [customerInfo, setCustomerInfo] = useState<CustomerInfo>({
     firstName: '',
     lastName: '',
     email: '',
     phone: ''
   });
   
-  const [shippingAddress, setShippingAddress] = useState({
+  const [shippingAddress, setShippingAddress] = useState<ShippingAddress>({
     address1: '',
     address2: '',
     city: '',
@@ -64,14 +99,14 @@ export default function EnhancedCheckoutPage() {
   // Validation
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
-  // Redirect if cart is empty
+  // Redirect if cart is empty (after hydration)
   useEffect(() => {
-    if (!items || items.length === 0) {
+    if (isHydrated && (!items || items.length === 0)) {
       router.push('/cart');
     }
-  }, [items, router]);
+  }, [items, router, isHydrated]);
 
-  // Calculate totals
+  // Calculate totals using cart store data structure
   const subtotal = items?.reduce((sum, item) => {
     return sum + (item.product_price * item.quantity);
   }, 0) || 0;
@@ -100,7 +135,7 @@ export default function EnhancedCheckoutPage() {
     try {
       console.log('🔄 Creating Stripe checkout session...');
       
-      // ✅ FIXED: Call the new direct Stripe checkout API
+      // Call the new direct Stripe checkout API
       const response = await fetch('/api/checkout/stripe-direct', {
         method: 'POST',
         headers: {
@@ -109,12 +144,13 @@ export default function EnhancedCheckoutPage() {
         body: JSON.stringify({
           customerInfo,
           shippingAddress,
-          cartItems: items.map(item => ({
-            product_id: item.id || item.product_id,
-            product_name: item.name || item.product_name,
-            product_price: item.price || item.product_price,
+          // Map cart items to match cart store structure
+          cartItems: items.map((item: CartItem) => ({
+            product_id: item.product_id,
+            product_name: item.product_name,
+            product_price: item.product_price,
             quantity: item.quantity,
-            sku: item.sku || item.product_sku
+            sku: item.product_id // Use product_id as SKU fallback
           })),
           orderNotes,
           createAccount,
@@ -130,7 +166,7 @@ export default function EnhancedCheckoutPage() {
       
       console.log('✅ Stripe checkout session created:', result);
       
-      // ✅ FIXED: Handle the new Stripe API response format
+      // Handle the new Stripe API response format
       if (result.customer.accountCreated) {
         toast.success('Account created! Complete your payment below.');
       } else if (result.customer.customerId) {
@@ -143,7 +179,7 @@ export default function EnhancedCheckoutPage() {
       setPaymentData(result);
       setCurrentStep('payment');
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Checkout error:', error);
       toast.error(error.message || 'Something went wrong. Please try again.');
     } finally {
@@ -180,8 +216,8 @@ export default function EnhancedCheckoutPage() {
   /**
    * Form validation
    */
-  const validateForm = () => {
-    const errors = [];
+  const validateForm = (): string[] => {
+    const errors: string[] = [];
     
     // Customer info validation
     if (!customerInfo.firstName.trim()) errors.push('First name is required');
@@ -224,6 +260,27 @@ export default function EnhancedCheckoutPage() {
           <div className="text-center">
             <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
             <p className="text-gray-600">Loading checkout...</p>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
+
+  // Show empty cart message if no items
+  if (!items || items.length === 0) {
+    return (
+      <Layout>
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold text-gray-900 mb-4">Your Cart is Empty</h1>
+            <p className="text-gray-600 mb-6">Add some items to your cart before checkout.</p>
+            <button
+              onClick={() => router.push('/products')}
+              className="bg-blue-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-blue-700 transition-colors"
+            >
+              Continue Shopping
+            </button>
           </div>
         </div>
       </Layout>
@@ -620,7 +677,7 @@ export default function EnhancedCheckoutPage() {
               
               {/* Cart Items */}
               <div className="space-y-4 mb-6">
-                {items.map((item) => (
+                {items.map((item: CartItem) => (
                   <div key={item.product_id} className="flex items-center space-x-4">
                     <img
                       src={item.product_images?.[0] || '/images/placeholder.jpg'}
