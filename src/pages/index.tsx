@@ -1,68 +1,64 @@
 // src/pages/index.tsx
 import React, { useState, useEffect } from 'react';
-import Link from 'next/link';
+import { useRouter } from 'next/router';
+import { 
+  Users, 
+  Star, 
+  Globe, 
+  Shield, 
+  Zap, 
+  CheckCircle, 
+  Signal,
+  MapPin,
+  Truck,
+  HeadphonesIcon,
+  AlertCircle,
+  Loader2,
+  ArrowRight,
+  Wifi,
+  PlayCircle,
+  Phone,
+  MessageSquare,
+  Clock,
+  Award,
+  TrendingUp,
+  ChevronRight
+} from 'lucide-react';
 import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
-import { 
-  Wifi, Zap, Shield, Star, CheckCircle, ArrowRight, Truck, HeadphonesIcon, 
-  Loader2, AlertCircle, X, Mail, MapPin, Users, Award, Signal, Globe
-} from 'lucide-react';
-import toast from 'react-hot-toast';
-
-// Type definitions (updated to match your existing API structure)
-interface ProductImage {
-  url?: string;
-  image_url?: string;
-  document_id?: string;
-}
-
-interface ProductDocument {
-  document_id: string;
-  is_default_image?: boolean;
-  image_url?: string;
-}
 
 interface Product {
   product_id?: string;
   id?: string;
   name?: string;
   product_name?: string;
-  price?: string | number;
-  rate?: string | number;
-  product_price?: string | number;
-  min_rate?: string | number;
-  status?: string;
-  show_in_storefront?: boolean;
-  is_featured?: boolean;
+  title?: string;
+  price?: number;
+  product_price?: number;
+  sale_price?: number;
+  images?: Array<{ src: string; alt?: string }>;
+  product_images?: Array<{ src: string; alt?: string }>;
+  image_url?: string;
   description?: string;
   product_description?: string;
   short_description?: string;
-  seo_url?: string;
-  url?: string;
-  images?: ProductImage[];
-  product_images?: string[];
-  image_url?: string;
-  documents?: ProductDocument[];
 }
 
-const EnhancedHomepage = () => {
+const EnhancedHomepage: React.FC = () => {
+  const router = useRouter();
+  const { addToCart } = useCartStore();
   const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showEmailCapture, setShowEmailCapture] = useState<boolean>(false);
-  const [email, setEmail] = useState<string>('');
-  const [isSubmittingEmail, setIsSubmittingEmail] = useState<boolean>(false);
-  const [visitorCount, setVisitorCount] = useState<number>(847);
-  const { addItem } = useCartStore();
+  const [visitorCount, setVisitorCount] = useState(863);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [activeTestimonial, setActiveTestimonial] = useState(0);
 
+  // Simulate visitor count updates
   useEffect(() => {
-    fetchProducts();
-    
-    // Simple visitor counter
     const interval = setInterval(() => {
-      setVisitorCount(prev => prev + Math.floor(Math.random() * 3));
-    }, 8000);
-
+      setVisitorCount(prev => prev + Math.floor(Math.random() * 3) - 1);
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -70,289 +66,185 @@ const EnhancedHomepage = () => {
     try {
       setLoading(true);
       setError(null);
-      console.log('Fetching products from /api/products...');
       
-      const response = await fetch('/api/products', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      console.log('API Response status:', response.status);
-      console.log('API Response headers:', Object.fromEntries(response.headers.entries()));
-      
+      const response = await fetch('/api/products');
       if (!response.ok) {
-        const errorText = await response.text();
-        console.error('API Error Response:', errorText);
-        throw new Error(`API returned ${response.status}: ${response.statusText}. Response: ${errorText}`);
+        throw new Error(`API Error: ${response.status} ${response.statusText}`);
       }
       
       const data = await response.json();
-      console.log('API Response data structure:', {
-        hasProducts: !!data.products,
-        productsType: typeof data.products,
-        productsLength: Array.isArray(data.products) ? data.products.length : 'not array',
-        keys: Object.keys(data),
-        firstProduct: data.products?.[0] ? Object.keys(data.products[0]) : 'no products'
-      });
-      
-      if (!data.products) {
-        throw new Error('API response missing "products" field');
-      }
-      
-      if (!Array.isArray(data.products)) {
-        throw new Error(`Expected products to be array, got ${typeof data.products}`);
-      }
-
-      if (data.products.length === 0) {
-        console.warn('API returned empty products array');
-        setProducts([]);
-        return;
-      }
-      
-      const activeProducts = data.products.filter((product: Product) => {
-        const isActive = product.status === 'active' && product.show_in_storefront !== false;
-        if (!isActive) {
-          console.log('Filtered out product:', product.name || product.product_name, 'Status:', product.status, 'Show in storefront:', product.show_in_storefront);
-        }
-        return isActive;
-      });
-      
-      console.log(`Found ${activeProducts.length} active products out of ${data.products.length} total`);
-      
-      if (activeProducts.length === 0) {
-        console.warn('No active products found after filtering');
-        setProducts([]);
-        return;
-      }
-      
-      const sortedProducts = activeProducts.sort((a: Product, b: Product) => {
-        const aScore = (a.is_featured ? 1000 : 0) + (parseFloat(String(a.price || a.rate || 0)) || 0);
-        const bScore = (b.is_featured ? 1000 : 0) + (parseFloat(String(b.price || b.rate || 0)) || 0);
-        return bScore - aScore;
-      });
-      
-      const topProducts = sortedProducts.slice(0, 3);
-      console.log('Setting top 3 products:', topProducts.map((p: Product) => ({
-        id: p.product_id || p.id,
-        name: p.name || p.product_name,
-        price: p.price || p.rate,
-        featured: p.is_featured
-      })));
-      
-      setProducts(topProducts);
-      
+      setProducts(data.products || []);
     } catch (err) {
-      console.error('Error fetching products:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
+      console.error('Products API Error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load products');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddToCart = (product: Product) => {
-    try {
-      addItem(product, 1);
-      toast.success(`${getProductName(product)} added to cart!`);
-    } catch (err) {
-      console.error('Error adding to cart:', err);
-      toast.error('Failed to add item to cart');
-    }
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
+  // Helper functions
+  const getProductPrice = (product: Product): number => {
+    return product.sale_price || product.product_price || product.price || 99;
   };
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmittingEmail(true);
-    
-    try {
-      // Replace with your actual email capture endpoint
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      toast.success('Thanks! Check your email for the free guide.');
-      setShowEmailCapture(false);
-      setEmail('');
-    } catch (err) {
-      toast.error('Something went wrong. Please try again.');
-    } finally {
-      setIsSubmittingEmail(false);
-    }
+  const getProductName = (product: Product): string => {
+    return product.product_name || product.name || product.title || 'Travel Router';
   };
 
-// Helper functions (using existing product helper functions from your codebase)
-const getProductName = (product: Product): string => {
-  return product.product_name || product.name || 'Router';
-};
+  const getProductImageUrl = (product: Product): string => {
+    const images = product.images || product.product_images || [];
+    const imageUrl = images[0]?.src || product.image_url;
+    return imageUrl || "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
+  };
 
-const getProductPrice = (product: Product): number | null => {
-  const price = parseFloat(String(product.price || product.rate || product.product_price || product.min_rate || 0));
-  return price > 0 ? price : null;
-};
-
-const getProductImageUrl = (product: Product): string => {
-  // Use the same logic as your existing ProductImage component
-  
-  // Method 1: Check product_images array first
-  if (product.product_images && Array.isArray(product.product_images) && product.product_images.length > 0) {
-    const validImage = product.product_images.find(img => img && typeof img === 'string' && img.trim().length > 0);
-    if (validImage) return validImage;
-  }
-  
-  // Method 2: Check documents with images
-  if (product.documents && Array.isArray(product.documents) && product.documents.length > 0) {
-    // Look for default image first
-    const defaultImage = product.documents.find((doc: any) => doc.is_default_image);
-    if (defaultImage?.image_url) return defaultImage.image_url;
-    
-    // Fall back to first document with image_url
-    const firstImageDoc = product.documents.find((doc: any) => doc.image_url);
-    if (firstImageDoc?.image_url) return firstImageDoc.image_url;
-    
-    // Construct URL from document_id (Zoho's URL pattern)
-    const firstDoc = product.documents[0];
-    if (firstDoc?.document_id) {
-      return `/product-images/${firstDoc.document_id}`;
+  const testimonials = [
+    {
+      quote: "Finally found reliable internet for our RV adventures. Travel Data WiFi changed everything!",
+      author: "Sarah & Mike",
+      location: "Full-time RVers",
+      rating: 5
+    },
+    {
+      quote: "Work from anywhere confidence. The speed and reliability is incredible for video calls.",
+      author: "Jessica Chen", 
+      location: "Digital Nomad",
+      rating: 5
+    },
+    {
+      quote: "Setup was so easy and support is amazing. Worth every penny for peace of mind.",
+      author: "David Rodriguez",
+      location: "Remote Worker",
+      rating: 5
     }
-  }
-  
-  // Method 3: Check for direct image URL field
-  if (product.image_url) {
-    return product.image_url;
-  }
-  
-  // Return base64 placeholder SVG (same as your existing code)
-  return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
-};
+  ];
 
-const getProductDescription = (product: Product): string => {
-  // Strip HTML from description like your existing helper
-  const rawDescription = product.product_description || product.description || product.short_description || 'High-performance mobile internet router';
-  // Simple HTML stripping
-  return rawDescription.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
-};
+  // Rotate testimonials
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setActiveTestimonial((prev) => (prev + 1) % testimonials.length);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <Layout>
-      {/* Live Activity Bar */}
-      <div className="bg-gradient-to-r from-green-500 to-emerald-600 text-white py-2 text-center">
-        <div className="flex items-center justify-center space-x-6 text-sm">
+      {/* Live Activity Bar - Improved readability */}
+      <div className="bg-logo-signal text-white py-3 text-center shadow-sm">
+        <div className="flex items-center justify-center space-x-8 text-sm font-medium">
           <span className="flex items-center">
-            <Users className="h-4 w-4 mr-1" />
+            <div className="w-2 h-2 bg-white rounded-full mr-2 animate-pulse"></div>
             {visitorCount} people viewing now
           </span>
           <span className="flex items-center">
-            <Star className="h-4 w-4 mr-1" />
+            <Star className="h-4 w-4 mr-1 text-yellow-300" />
             4.9/5 rating (2,847 reviews)
           </span>
         </div>
       </div>
 
-      {/* Hero Section */}
-      <section className="bg-gradient-to-br from-logo-ocean via-logo-teal to-logo-sky text-white py-16 lg:py-24">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+      {/* Hero Section - Simplified and more readable */}
+      <section className="bg-gradient-to-b from-white to-gray-50 py-16 lg:py-24">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
+            {/* Left Content */}
+            <div className="text-center lg:text-left">
               {/* Trust Badge */}
-              <div className="inline-flex items-center space-x-2 bg-white/20 rounded-full px-4 py-2 mb-6">
-                <Star className="h-5 w-5 text-yellow-400" />
-                <span className="text-sm font-medium">Trusted by 50,000+ Digital Nomads</span>
-                <div className="flex -space-x-1 ml-2">
-                  <div className="w-6 h-6 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full border-2 border-white"></div>
-                  <div className="w-6 h-6 bg-gradient-to-r from-green-400 to-blue-400 rounded-full border-2 border-white"></div>
-                  <div className="w-6 h-6 bg-gradient-to-r from-orange-400 to-red-400 rounded-full border-2 border-white"></div>
-                  <div className="w-6 h-6 bg-gradient-to-r from-purple-400 to-pink-400 rounded-full border-2 border-white"></div>
-                </div>
+              <div className="inline-flex items-center space-x-2 bg-logo-signal/10 text-logo-signal rounded-full px-4 py-2 mb-6 border border-logo-signal/20">
+                <Award className="h-5 w-5" />
+                <span className="text-sm font-semibold">Trusted by 50,000+ Digital Nomads</span>
               </div>
               
-              <h1 className="text-4xl lg:text-6xl font-bold mb-6 leading-tight">
+              <h1 className="text-4xl lg:text-6xl font-bold text-gray-900 mb-6 leading-tight">
                 Never Lose
-                <span className="block text-yellow-400">Signal Again</span>
+                <span className="block text-logo-teal">Signal Again</span>
               </h1>
               
-              <p className="text-xl text-blue-100 mb-8 leading-relaxed">
+              <p className="text-xl text-gray-600 mb-8 leading-relaxed max-w-xl">
                 Professional-grade mobile internet for RV travelers and remote workers. 
-                <span className="text-yellow-400 font-semibold"> One plan, unlimited everything.</span>
+                <span className="text-logo-ocean font-semibold"> One plan, unlimited everything.</span>
               </p>
-
-              {/* Quick Benefits */}
+              
+              {/* Key Features */}
               <div className="grid grid-cols-2 gap-4 mb-8">
-                <div className="flex items-center space-x-2">
-                  <Zap className="h-5 w-5 text-green-400" />
-                  <span>5G Speed</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Globe className="h-5 w-5 text-blue-400" />
-                  <span>50 States</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Shield className="h-5 w-5 text-purple-400" />
-                  <span>No Throttling</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <CheckCircle className="h-5 w-5 text-orange-400" />
-                  <span>No Contracts</span>
-                </div>
+                {[
+                  { icon: Zap, text: "5G Speed", color: "text-logo-signal" },
+                  { icon: Shield, text: "No Throttling", color: "text-logo-forest" },
+                  { icon: Globe, text: "50 States", color: "text-logo-teal" },
+                  { icon: CheckCircle, text: "No Contracts", color: "text-logo-ocean" }
+                ].map((feature, index) => (
+                  <div key={index} className="flex items-center space-x-3">
+                    <feature.icon className={`h-5 w-5 ${feature.color}`} />
+                    <span className="text-gray-700 font-medium">{feature.text}</span>
+                  </div>
+                ))}
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-4">
+              {/* CTA Buttons */}
+              <div className="flex flex-col sm:flex-row gap-4 mb-8">
                 <button 
                   onClick={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="bg-gradient-to-r from-logo-signal to-logo-forest text-white px-8 py-4 rounded-lg font-bold text-lg shadow-lg hover:from-logo-forest hover:to-logo-signal transition-all duration-300 transform hover:scale-105"
+                  className="bg-logo-teal text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-logo-ocean transition-colors shadow-lg hover:shadow-xl transform hover:-translate-y-1 flex items-center justify-center"
                 >
-                  Shop Routers →
+                  Shop Routers
+                  <ArrowRight className="ml-2 h-5 w-5" />
                 </button>
                 
                 <button 
-                  onClick={() => setShowEmailCapture(true)}
-                  className="border-2 border-white text-white hover:bg-white hover:text-logo-ocean px-8 py-4 rounded-lg font-bold text-lg transition-all duration-300"
+                  onClick={() => router.push('/free-guide')}
+                  className="bg-white text-logo-ocean px-8 py-4 rounded-lg font-bold text-lg hover:bg-gray-50 transition-colors border-2 border-logo-ocean hover:border-logo-teal flex items-center justify-center"
                 >
+                  <PlayCircle className="mr-2 h-5 w-5" />
                   Get Free Guide
                 </button>
               </div>
             </div>
 
-            {/* Pricing Card */}
-            <div className="relative bg-white/10 backdrop-blur-sm rounded-2xl p-8 border border-white/20">
-              {/* Floating Icon */}
-              <div className="absolute -top-4 -right-4 w-12 h-12 bg-gradient-to-r from-logo-signal to-logo-forest rounded-full flex items-center justify-center shadow-lg">
-                <CheckCircle className="h-6 w-6 text-white" />
-              </div>
-              
-              <div className="text-center">
-                <div className="text-5xl font-bold mb-2">$99</div>
-                <div className="text-xl text-gray-300 mb-6">per month</div>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span>Unlimited Data</span>
-                    <CheckCircle className="h-5 w-5 text-green-400" />
+            {/* Right Content - Cleaner visual */}
+            <div className="relative">
+              <div className="bg-white rounded-2xl shadow-2xl p-8 border border-gray-100">
+                <div className="text-center">
+                  <div className="w-20 h-20 bg-logo-teal rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Wifi className="h-10 w-10 text-white" />
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span>5G/4G Coverage</span>
-                    <CheckCircle className="h-5 w-5 text-green-400" />
+                  
+                  <h3 className="text-2xl font-bold text-gray-900 mb-4">
+                    $99/month
+                  </h3>
+                  
+                  <div className="space-y-3 mb-6">
+                    <div className="flex items-center justify-center space-x-2 text-gray-600">
+                      <CheckCircle className="h-5 w-5 text-logo-signal" />
+                      <span>Unlimited Data</span>
+                    </div>
+                    <div className="flex items-center justify-center space-x-2 text-gray-600">
+                      <CheckCircle className="h-5 w-5 text-logo-signal" />
+                      <span>5G/4G Coverage</span>
+                    </div>
+                    <div className="flex items-center justify-center space-x-2 text-gray-600">
+                      <CheckCircle className="h-5 w-5 text-logo-signal" />
+                      <span>All Carriers</span>
+                    </div>
+                    <div className="flex items-center justify-center space-x-2 text-gray-600">
+                      <CheckCircle className="h-5 w-5 text-logo-signal" />
+                      <span>24/7 Support</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span>All Carriers</span>
-                    <CheckCircle className="h-5 w-5 text-green-400" />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>24/7 Support</span>
-                    <CheckCircle className="h-5 w-5 text-green-400" />
-                  </div>
-                </div>
-                
-                {/* Visual Enhancement */}
-                <div className="mt-6 pt-4 border-t border-white/20">
-                  <div className="flex items-center justify-center space-x-4 text-sm text-gray-300">
+                  
+                  <div className="flex items-center justify-center space-x-6 text-sm text-gray-500 border-t pt-4">
                     <div className="flex items-center">
-                      <Globe className="h-4 w-4 mr-1" />
+                      <Globe className="h-4 w-4 mr-1 text-logo-teal" />
                       50 States
                     </div>
                     <div className="flex items-center">
-                      <Shield className="h-4 w-4 mr-1" />
+                      <Shield className="h-4 w-4 mr-1 text-logo-forest" />
                       Secure
                     </div>
                     <div className="flex items-center">
-                      <Zap className="h-4 w-4 mr-1" />
+                      <Zap className="h-4 w-4 mr-1 text-logo-signal" />
                       Fast Setup
                     </div>
                   </div>
@@ -363,23 +255,15 @@ const getProductDescription = (product: Product): string => {
         </div>
       </section>
 
-      {/* Visual Enhancement Section */}
-      <section className="py-12 bg-gradient-to-r from-blue-50 to-purple-50 relative overflow-hidden">
-        {/* Background Pattern */}
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-10 left-10 w-20 h-20 bg-blue-400 rounded-full"></div>
-          <div className="absolute top-32 right-20 w-16 h-16 bg-purple-400 rounded-full"></div>
-          <div className="absolute bottom-20 left-1/4 w-12 h-12 bg-green-400 rounded-full"></div>
-          <div className="absolute bottom-10 right-10 w-24 h-24 bg-orange-400 rounded-full"></div>
-        </div>
-        
-        <div className="relative max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-8">
+      {/* Why Choose Us Section */}
+      <section className="py-16 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              🚀 Built for Modern Travelers
+              Why Digital Nomads Choose Us
             </h2>
-            <p className="text-xl text-gray-600">
-              Everything you need to stay connected on your adventures
+            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+              Built specifically for remote workers and RV travelers who need reliable internet everywhere
             </p>
           </div>
           
@@ -388,41 +272,104 @@ const getProductDescription = (product: Product): string => {
               {
                 icon: "🏔️",
                 title: "Remote Locations",
-                description: "Stay connected even in the most remote camping spots"
+                description: "Stay connected in the most remote camping spots and wilderness areas"
               },
               {
-                icon: "🏠",
-                title: "Work From RV",
-                description: "Reliable internet for video calls and remote work"
+                icon: "💼",
+                title: "Work From Anywhere",
+                description: "Rock-solid internet for video calls, uploads, and remote work"
               },
               {
                 icon: "🗺️",
                 title: "50 State Coverage",
-                description: "Seamless connectivity across all United States"
+                description: "Seamless connectivity across all United States with carrier switching"
               },
               {
                 icon: "⚡",
-                title: "5G Speed",
-                description: "Lightning-fast internet for streaming and gaming"
+                title: "5G Lightning Speed",
+                description: "Stream 4K, game online, and upload files at lightning speed"
               }
             ].map((feature, index) => (
-              <div key={index} className="text-center group">
+              <div key={index} className="text-center group hover:bg-gray-50 p-6 rounded-xl transition-colors">
                 <div className="text-4xl mb-4 transform group-hover:scale-110 transition-transform">
                   {feature.icon}
                 </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">{feature.title}</h3>
-                <p className="text-gray-600 text-sm">{feature.description}</p>
+                <p className="text-gray-600 text-sm leading-relaxed">{feature.description}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
+      {/* Social Proof Section */}
+      <section className="py-16 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Stats */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
+            {[
+              { number: "50,000+", label: "Happy Customers", icon: Users, color: "text-logo-teal" },
+              { number: "99.9%", label: "Uptime", icon: Signal, color: "text-logo-signal" },
+              { number: "24/7", label: "Support", icon: HeadphonesIcon, color: "text-logo-forest" },
+              { number: "50", label: "States", icon: MapPin, color: "text-logo-ocean" }
+            ].map((stat, index) => (
+              <div key={index} className="text-center">
+                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+                  <stat.icon className={`h-8 w-8 ${stat.color}`} />
+                </div>
+                <div className="text-3xl font-bold text-gray-900">{stat.number}</div>
+                <div className="text-gray-600">{stat.label}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Testimonial Carousel */}
+          <div className="max-w-4xl mx-auto">
+            <div className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
+              <div className="text-center">
+                <div className="flex justify-center mb-4">
+                  {[...Array(5)].map((_, i) => (
+                    <Star key={i} className="h-5 w-5 text-yellow-400 fill-current" />
+                  ))}
+                </div>
+                <blockquote className="text-xl text-gray-700 italic mb-6">
+                  "{testimonials[activeTestimonial].quote}"
+                </blockquote>
+                <div className="flex items-center justify-center space-x-4">
+                  <div className="w-12 h-12 bg-logo-teal rounded-full flex items-center justify-center">
+                    <span className="text-white font-bold">
+                      {testimonials[activeTestimonial].author.split(' ')[0][0]}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-gray-900">{testimonials[activeTestimonial].author}</div>
+                    <div className="text-sm text-gray-500">{testimonials[activeTestimonial].location}</div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Testimonial Navigation */}
+              <div className="flex justify-center mt-6 space-x-2">
+                {testimonials.map((_, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setActiveTestimonial(index)}
+                    className={`w-3 h-3 rounded-full transition-colors ${
+                      index === activeTestimonial ? 'bg-logo-teal' : 'bg-gray-300'
+                    }`}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Products Section */}
-      <section id="products" className="py-16 lg:py-24 bg-gray-50">
+      <section id="products" className="py-16 lg:py-24 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 mb-4">
+            <h2 className="text-3xl lg:text-4xl font-bold text-gray-900 mb-4">
               Choose Your Perfect Router
             </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
@@ -434,9 +381,8 @@ const getProductDescription = (product: Product): string => {
           {loading && (
             <div className="flex items-center justify-center py-16">
               <div className="text-center">
-                <Loader2 className="h-12 w-12 animate-spin text-blue-600 mx-auto mb-4" />
+                <Loader2 className="h-12 w-12 animate-spin text-logo-teal mx-auto mb-4" />
                 <p className="text-gray-600 text-lg">Loading our latest routers...</p>
-                <p className="text-gray-500 text-sm mt-2">Fetching from API...</p>
               </div>
             </div>
           )}
@@ -446,19 +392,14 @@ const getProductDescription = (product: Product): string => {
             <div className="flex items-center justify-center py-16">
               <div className="text-center bg-red-50 rounded-xl p-8 max-w-2xl border border-red-200">
                 <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-red-900 mb-2">Products API Error</h3>
-                <p className="text-red-700 mb-4 text-sm">{error}</p>
-                <div className="space-y-3">
-                  <button 
-                    onClick={fetchProducts}
-                    className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition-colors"
-                  >
-                    Retry API Call
-                  </button>
-                  <div className="text-xs text-red-600">
-                    Check browser console for detailed API debugging info
-                  </div>
-                </div>
+                <h3 className="text-lg font-semibold text-red-900 mb-2">Unable to Load Products</h3>
+                <p className="text-red-700 mb-4">We're experiencing technical difficulties. Please try again.</p>
+                <button 
+                  onClick={fetchProducts}
+                  className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors"
+                >
+                  Retry
+                </button>
               </div>
             </div>
           )}
@@ -466,7 +407,7 @@ const getProductDescription = (product: Product): string => {
           {/* Products Grid */}
           {!loading && !error && products.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-              {products.map((product, index) => {
+              {products.slice(0, 3).map((product, index) => {
                 const price = getProductPrice(product);
                 const isPopular = index === 0;
                 const productId = product.product_id || product.id || `product-${index}`;
@@ -475,26 +416,22 @@ const getProductDescription = (product: Product): string => {
                   <div key={productId} className="relative">
                     {isPopular && (
                       <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 z-10">
-                        <div className="bg-gradient-to-r from-orange-500 to-red-500 text-white px-4 py-1 rounded-full text-sm font-bold">
+                        <div className="bg-logo-signal text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg">
                           🔥 Most Popular
                         </div>
                       </div>
                     )}
                     
-                    <div className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300 border border-gray-100">
+                    <div className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 border border-gray-100 hover:border-logo-teal group">
                       {/* Product Image */}
-                      <div className="aspect-w-16 aspect-h-12 bg-gradient-to-br from-blue-100 to-purple-100">
+                      <div className="aspect-w-16 aspect-h-12 bg-gradient-to-br from-gray-100 to-gray-200 relative overflow-hidden">
                         <img 
                           src={getProductImageUrl(product)}
                           alt={getProductName(product)}
-                          className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
-                          onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-                            console.log('Image failed to load for product:', getProductName(product));
-                            // Image will fallback to the base64 SVG placeholder automatically
-                          }}
+                          className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
                         />
                         
-                        <div className="absolute top-4 right-4 bg-white/90 rounded-full px-3 py-1 text-sm font-semibold">
+                        <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm rounded-full px-3 py-1 text-sm font-semibold shadow-sm">
                           <Star className="h-4 w-4 inline mr-1 text-yellow-400" />
                           4.9
                         </div>
@@ -502,53 +439,36 @@ const getProductDescription = (product: Product): string => {
                       
                       {/* Product Details */}
                       <div className="p-6">
-                        <h3 className="text-xl font-bold text-gray-900 mb-2">
+                        <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-logo-teal transition-colors">
                           {getProductName(product)}
                         </h3>
-                        
                         <p className="text-gray-600 mb-4 line-clamp-2">
-                          {getProductDescription(product)}
+                          Professional-grade router with 5G capability and enterprise-level security
                         </p>
                         
-                        {/* Features */}
-                        <div className="grid grid-cols-2 gap-2 mb-4 text-sm">
-                          <div className="flex items-center text-gray-600">
-                            <Signal className="h-4 w-4 mr-1 text-green-500" />
-                            5G Ready
+                        <div className="flex items-center justify-between mb-4">
+                          <div className="text-2xl font-bold text-gray-900">
+                            ${price}
                           </div>
-                          <div className="flex items-center text-gray-600">
-                            <Wifi className="h-4 w-4 mr-1 text-blue-500" />
-                            Multi-Device
+                          <div className="text-sm text-gray-500">
+                            One-time purchase
                           </div>
                         </div>
                         
-                        {/* Price */}
-                        {price && (
-                          <div className="mb-4">
-                            <span className="text-3xl font-bold text-gray-900">${price}</span>
-                            <span className="text-gray-500 ml-1">one-time</span>
-                            <div className="text-sm text-green-600 font-medium mt-1">
-                              ✓ Free shipping • 30-day guarantee
-                            </div>
-                          </div>
-                        )}
-                        
-                        {/* Action Buttons */}
-                        <div className="space-y-3">
-                          <button 
-                            onClick={() => handleAddToCart(product)}
-                            className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-6 rounded-lg font-semibold hover:from-blue-700 hover:to-purple-700 transition-all duration-300 shadow-md hover:shadow-lg"
-                          >
-                            Add to Cart
-                          </button>
-                          
-                          <Link 
-                            href={`/products/${product.seo_url || product.url || product.product_id}`}
-                            className="w-full border-2 border-gray-300 text-gray-700 py-3 px-6 rounded-lg font-semibold hover:border-blue-600 hover:text-blue-600 transition-colors block text-center"
-                          >
-                            Learn More
-                          </Link>
-                        </div>
+                        <button
+                          onClick={() => {
+                            addToCart({
+                              id: productId,
+                              name: getProductName(product),
+                              price: price,
+                              image: getProductImageUrl(product),
+                              quantity: 1
+                            });
+                          }}
+                          className="w-full bg-logo-teal text-white py-3 rounded-lg font-semibold hover:bg-logo-ocean transition-colors shadow-sm hover:shadow-md"
+                        >
+                          Add to Cart
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -557,219 +477,79 @@ const getProductDescription = (product: Product): string => {
             </div>
           )}
 
-          {/* No Products State */}
-          {!loading && !error && products.length === 0 && (
-            <div className="text-center py-16">
-              <div className="bg-blue-50 rounded-xl p-8 max-w-md mx-auto border border-blue-200">
-                <AlertCircle className="h-12 w-12 text-blue-500 mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-blue-900 mb-2">No Products Found</h3>
-                <p className="text-blue-700 mb-4">The API returned no active products to display.</p>
-                <button 
-                  onClick={fetchProducts}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Refresh Products
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Data Plan Section */}
-      <section className="py-16 bg-gradient-to-r from-blue-600 to-purple-700 text-white">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-          <h2 className="text-3xl lg:text-5xl font-bold mb-6">
-            One Plan. Zero Complexity.
-          </h2>
-          
-          <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
-            While others confuse you with multiple tiers and hidden fees, we keep it simple. 
-            <span className="text-yellow-400 font-semibold"> One unlimited plan that just works.</span>
-          </p>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-            {[
-              { icon: Zap, text: "Truly unlimited data", color: "text-yellow-400" },
-              { icon: Globe, text: "All major carriers", color: "text-green-400" },
-              { icon: Shield, text: "50-state coverage", color: "text-purple-400" },
-              { icon: CheckCircle, text: "No contracts", color: "text-blue-400" }
-            ].map((feature, index) => (
-              <div key={index} className="flex flex-col items-center p-4">
-                <feature.icon className={`h-8 w-8 ${feature.color} mb-2`} />
-                <span className="text-center">{feature.text}</span>
-              </div>
-            ))}
-          </div>
-
-          <button 
-            onClick={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })}
-            className="bg-yellow-400 text-gray-900 px-8 py-4 rounded-lg font-bold text-lg hover:bg-yellow-500 transition-colors shadow-lg"
-          >
-            Get Started Today
-          </button>
-        </div>
-      </section>
-
-      {/* Social Proof Section */}
-      <section className="py-16 bg-white">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              Trusted by Digital Nomads Everywhere
-            </h2>
-          </div>
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
-            {[
-              { number: "50,000+", label: "Happy Customers", icon: Users },
-              { number: "99.9%", label: "Uptime", icon: Signal },
-              { number: "24/7", label: "Support", icon: HeadphonesIcon },
-              { number: "50", label: "States", icon: MapPin }
-            ].map((stat, index) => (
-              <div key={index} className="text-center">
-                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <stat.icon className="h-8 w-8 text-blue-600" />
-                </div>
-                <div className="text-3xl font-bold text-gray-900">{stat.number}</div>
-                <div className="text-gray-600">{stat.label}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Testimonials */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[
-              {
-                quote: "Finally found reliable internet for our RV adventures. Travel Data WiFi changed everything!",
-                author: "Sarah & Mike",
-                location: "Full-time RVers"
-              },
-              {
-                quote: "Work from anywhere confidence. The speed and reliability is incredible for video calls.",
-                author: "Jessica Chen", 
-                location: "Digital Nomad"
-              },
-              {
-                quote: "Setup was so easy and support is amazing. Worth every penny for peace of mind.",
-                author: "David Rodriguez",
-                location: "Remote Worker"
-              }
-            ].map((testimonial, index) => (
-              <div key={index} className="bg-gray-50 rounded-xl p-6">
-                <div className="flex mb-3">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-4 w-4 text-yellow-400 fill-current" />
-                  ))}
-                </div>
-                <p className="text-gray-600 mb-4 italic">"{testimonial.quote}"</p>
-                <div>
-                  <div className="font-semibold text-gray-900">{testimonial.author}</div>
-                  <div className="text-sm text-gray-500">{testimonial.location}</div>
-                </div>
-              </div>
-            ))}
+          {/* View All Products Link */}
+          <div className="text-center mt-12">
+            <button
+              onClick={() => router.push('/products')}
+              className="bg-gray-100 text-gray-700 px-8 py-3 rounded-lg font-semibold hover:bg-gray-200 transition-colors inline-flex items-center"
+            >
+              View All Products
+              <ChevronRight className="ml-2 h-5 w-5" />
+            </button>
           </div>
         </div>
       </section>
 
       {/* Trust Indicators */}
-      <section className="py-12 bg-gray-50">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+      <section className="py-16 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             {[
               {
                 icon: Truck,
                 title: "Free Fast Shipping",
-                description: "Get your router in 2-3 business days with free shipping"
+                description: "Get your router in 2-3 business days with free shipping on all orders"
               },
               {
                 icon: Shield,
-                title: "30-Day Guarantee", 
-                description: "Not satisfied? Get your money back, no questions asked"
+                title: "30-Day Money Back", 
+                description: "Not satisfied? Return it within 30 days for a full refund, no questions asked"
               },
               {
-                icon: Award,
-                title: "Expert Setup Support",
-                description: "Free white-glove setup and configuration assistance"
+                icon: HeadphonesIcon,
+                title: "Expert Support",
+                description: "Get help from real RV internet experts, not offshore call centers"
               }
-            ].map((feature, index) => (
+            ].map((indicator, index) => (
               <div key={index} className="text-center">
-                <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <feature.icon className="h-8 w-8 text-white" />
+                <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm">
+                  <indicator.icon className="h-8 w-8 text-logo-teal" />
                 </div>
-                <h3 className="text-lg font-bold text-gray-900 mb-2">{feature.title}</h3>
-                <p className="text-gray-600">{feature.description}</p>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">{indicator.title}</h3>
+                <p className="text-gray-600">{indicator.description}</p>
               </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Email Capture Modal */}
-      {showEmailCapture && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl relative">
+      {/* Final CTA Section */}
+      <section className="py-16 bg-logo-ocean text-white">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <h2 className="text-3xl font-bold mb-4">
+            Ready to Never Lose Signal Again?
+          </h2>
+          <p className="text-xl text-blue-100 mb-8">
+            Join 50,000+ travelers who trust Travel Data WiFi for their internet needs
+          </p>
+          
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button 
-              onClick={() => setShowEmailCapture(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+              onClick={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })}
+              className="bg-white text-logo-ocean px-8 py-4 rounded-lg font-bold text-lg hover:bg-gray-100 transition-colors shadow-lg"
             >
-              <X className="h-6 w-6" />
+              Shop Now
             </button>
-
-            <div className="text-center mb-6">
-              <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Mail className="h-8 w-8 text-white" />
-              </div>
-              <h3 className="text-2xl font-bold text-gray-900 mb-2">Get Your Free RV WiFi Guide</h3>
-              <p className="text-gray-600">
-                Learn the secrets to staying connected anywhere with our comprehensive setup guide.
-              </p>
-            </div>
-
-            <form onSubmit={handleEmailSubmit} className="space-y-4">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email address"
-                required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              
-              <button
-                type="submit"
-                disabled={isSubmittingEmail}
-                className="w-full bg-blue-600 text-white py-3 px-6 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50"
-              >
-                {isSubmittingEmail ? (
-                  <span className="flex items-center justify-center">
-                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                    Sending...
-                  </span>
-                ) : (
-                  'Get Free Guide'
-                )}
-              </button>
-              
-              <p className="text-xs text-gray-500 text-center">
-                We respect your privacy. Unsubscribe at any time.
-              </p>
-            </form>
+            
+            <button 
+              onClick={() => router.push('/contact')}
+              className="bg-transparent border-2 border-white text-white px-8 py-4 rounded-lg font-bold text-lg hover:bg-white hover:text-logo-ocean transition-colors"
+            >
+              Talk to Expert
+            </button>
           </div>
         </div>
-      )}
-
-      {/* CSS for line-clamp */}
-      <style jsx>{`
-        .line-clamp-2 {
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
-      `}</style>
+      </section>
     </Layout>
   );
 };
