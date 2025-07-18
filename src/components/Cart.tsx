@@ -26,15 +26,15 @@ const Cart: React.FC = () => {
   } = useCartStore();
 
   const handleCheckout = () => {
-    if (items.length === 0) {
-      toast.error('Your cart is empty');
-      return;
-    }
-    
-    closeCart();
-    // ✅ FIXED: Use router.push instead of window.location.href
-    router.push('/checkout');
-  };
+  if (items.length === 0) {
+    toast.error('Your cart is empty');
+    return;
+  }
+  
+  closeCart();
+  // ✅ UPDATE: Route to new Stripe checkout
+  router.push('/checkout-enhanced');
+};
 
   const handleContinueShopping = () => {
     closeCart();
