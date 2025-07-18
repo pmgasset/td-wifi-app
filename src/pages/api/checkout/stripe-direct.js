@@ -1,14 +1,14 @@
 // src/pages/api/checkout/stripe-direct.js
 /**
- * Direct Stripe Checkout Integration
+ * Direct Stripe Checkout Integration - Payment First Approach
  * 
- * This endpoint handles the complete checkout flow:
- * 1. Creates/updates customer in Zoho
- * 2. Creates order in Zoho  
- * 3. Creates Stripe Payment Intent
- * 4. Returns client secret for frontend payment
+ * NEW FLOW:
+ * 1. Validate customer data and cart
+ * 2. Create Stripe Payment Intent (no Zoho order yet)
+ * 3. Customer completes payment on frontend
+ * 4. AFTER payment success → Create order in Zoho via webhook/success handler
  * 
- * Customer never leaves the website during payment!
+ * This prevents creating abandoned orders in Zoho for failed payments!
  */
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -55,40 +55,38 @@ export default async function handler(req, res) {
     const orderTotals = calculateOrderTotals(cartItems);
     console.log('Order totals:', orderTotals);
 
-    // Step 1: Handle customer creation/lookup in Zoho (sub-agent)
-    console.log('🔄 Sub-agent: Processing customer...');
-    const customerResult = await processCustomerForStripe({
+    // NEW APPROACH: Only check if customer exists (don't create order yet)
+    console.log('🔄 Sub-agent: Processing customer data...');
+    const customerResult = await processCustomerData({
       customerInfo,
       createAccount,
       customerPassword,
       requestId
     });
 
-    // Step 2: Create order in Zoho (sub-agent)  
-    console.log('🔄 Sub-agent: Creating order...');
-    const orderResult = await createZohoOrderForStripe({
-      customerInfo,
-      shippingAddress,
-      cartItems,
-      orderTotals,
-      customerId: customerResult.customerId,
-      orderNotes,
-      requestId
-    });
-
-    // Step 3: Create Stripe Payment Intent (sub-agent)
+    // Create Stripe Payment Intent with order data in metadata (no Zoho order yet)
     console.log('🔄 Sub-agent: Creating Stripe Payment Intent...');
     const paymentResult = await createStripePaymentIntent({
       amount: orderTotals.total,
       currency: 'usd',
       customerEmail: customerInfo.email,
       customerName: `${customerInfo.firstName} ${customerInfo.lastName}`,
-      orderId: orderResult.orderId,
-      orderNumber: orderResult.orderNumber,
-      requestId
+      orderData: {
+        // Store all order data in Stripe metadata for later Zoho creation
+        customerInfo,
+        shippingAddress,
+        cartItems,
+        orderNotes,
+        createAccount,
+        customerPassword,
+        customerId: customerResult.customerId,
+        accountCreated: customerResult.accountCreated,
+        orderTotals,
+        requestId
+      }
     });
 
-    // Success response with client secret for frontend
+    // Success response with client secret for frontend payment
     const response = {
       success: true,
       requestId,
@@ -101,10 +99,10 @@ export default async function handler(req, res) {
         currency: 'usd'
       },
       
-      // Order details  
+      // Order details (temporary - no Zoho order ID yet)
       order: {
-        orderId: orderResult.orderId,
-        orderNumber: orderResult.orderNumber,
+        orderId: 'pending', // Will be created after payment
+        orderNumber: 'pending', // Will be generated after payment
         total: orderTotals.total,
         subtotal: orderTotals.subtotal,
         tax: orderTotals.tax,
@@ -119,11 +117,15 @@ export default async function handler(req, res) {
         accountCreated: customerResult.accountCreated
       },
       
+      // Instructions for frontend
+      note: 'Payment Intent created. Order will be created in Zoho after successful payment.',
+      
       timestamp: new Date().toISOString()
     };
 
-    console.log('✅ Direct Stripe checkout prepared successfully');
+    console.log('✅ Stripe Payment Intent created successfully');
     console.log('Payment Intent ID:', paymentResult.paymentIntentId);
+    console.log('💡 Order will be created in Zoho AFTER payment confirmation');
     
     return res.status(200).json(response);
 
@@ -196,20 +198,44 @@ function calculateOrderTotals(cartItems) {
 }
 
 /**
- * SUB-AGENT: Process customer for Stripe checkout
+ * SUB-AGENT: Process customer data (check existence, don't create order)
  */
-async function processCustomerForStripe({ 
+async function processCustomerData({ 
   customerInfo, 
   createAccount, 
   customerPassword, 
   requestId 
 }) {
-  console.log('Sub-agent: Processing customer for Stripe...');
+  console.log('Sub-agent: Processing customer data...');
   
   let customerId = null;
   let accountCreated = false;
   
-  if (createAccount && customerPassword) {
+  // Always check if customer exists first
+  try {
+    const token = await getZohoAccessToken();
+    const searchUrl = `https://www.zohoapis.com/inventory/v1/contacts?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}&email=${encodeURIComponent(customerInfo.email)}`;
+    
+    const response = await fetch(searchUrl, {
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    const result = await response.json();
+    
+    if (result.contacts && result.contacts.length > 0) {
+      customerId = result.contacts[0].contact_id;
+      console.log('✅ Existing customer found:', customerId);
+    }
+    
+  } catch (error) {
+    console.warn('⚠️ Customer lookup failed:', error.message);
+  }
+
+  // If creating account and customer doesn't exist, create it
+  if (createAccount && customerPassword && !customerId) {
     try {
       // Create customer account in Zoho
       const customerData = {
@@ -252,34 +278,11 @@ async function processCustomerForStripe({
         accountCreated = true;
         console.log('✅ Customer account created:', customerId);
       } else {
-        console.log('⚠️ Customer creation failed, proceeding as guest');
+        console.log('⚠️ Customer creation failed, will proceed as guest');
       }
       
     } catch (error) {
-      console.warn('⚠️ Customer creation error, proceeding as guest:', error.message);
-    }
-  } else {
-    // Check if customer already exists
-    try {
-      const token = await getZohoAccessToken();
-      const searchUrl = `https://www.zohoapis.com/inventory/v1/contacts?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}&email=${encodeURIComponent(customerInfo.email)}`;
-      
-      const response = await fetch(searchUrl, {
-        headers: {
-          'Authorization': `Zoho-oauthtoken ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      const result = await response.json();
-      
-      if (result.contacts && result.contacts.length > 0) {
-        customerId = result.contacts[0].contact_id;
-        console.log('✅ Existing customer found:', customerId);
-      }
-      
-    } catch (error) {
-      console.warn('⚠️ Customer lookup failed, proceeding as guest:', error.message);
+      console.warn('⚠️ Customer creation error, will proceed as guest:', error.message);
     }
   }
   
@@ -287,121 +290,14 @@ async function processCustomerForStripe({
 }
 
 /**
- * SUB-AGENT: Create Zoho order for Stripe checkout
- */
-async function createZohoOrderForStripe({
-  customerInfo,
-  shippingAddress, 
-  cartItems,
-  orderTotals,
-  customerId,
-  orderNotes,
-  requestId
-}) {
-  console.log('Sub-agent: Creating Zoho order for Stripe...');
-  
-  try {
-    const token = await getZohoAccessToken();
-    
-    // Prepare line items
-    const lineItems = cartItems.map(item => ({
-      item_id: item.product_id,
-      name: item.product_name || item.name,
-      rate: parseFloat(item.product_price || item.price),
-      quantity: parseInt(item.quantity),
-      unit: 'qty'
-    }));
-    
-    // Prepare order data
-    const orderData = {
-      customer_id: customerId || undefined, // Omit if guest
-      date: new Date().toISOString().split('T')[0],
-      shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 3 days from now
-      
-      // Line items
-      line_items: lineItems,
-      
-      // Shipping address
-      shipping_address: {
-        address: shippingAddress.address1,
-        address_2: shippingAddress.address2 || '',
-        city: shippingAddress.city,
-        state: shippingAddress.state,
-        zip: shippingAddress.zipCode,
-        country: shippingAddress.country || 'US',
-        fax: shippingAddress.phone || ''
-      },
-      
-      // Notes
-      notes: orderNotes || '',
-      terms: 'Payment via Stripe',
-      
-      // Custom fields for tracking
-      custom_fields: [
-        {
-          label: 'Payment Method',
-          value: 'Stripe'
-        },
-        {
-          label: 'Request ID', 
-          value: requestId
-        }
-      ]
-    };
-    
-    // If no customer ID, add customer info to the order
-    if (!customerId) {
-      orderData.customer_name = `${customerInfo.firstName} ${customerInfo.lastName}`;
-      orderData.contact_persons = [{
-        name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        email: customerInfo.email,
-        phone: customerInfo.phone || ''
-      }];
-    }
-    
-    console.log('Creating sales order with Zoho...');
-    const response = await fetch(
-      `https://www.zohoapis.com/inventory/v1/salesorders?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`,
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Zoho-oauthtoken ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(orderData)
-      }
-    );
-    
-    const result = await response.json();
-    
-    if (!response.ok || !result.salesorder) {
-      throw new Error(`Zoho order creation failed: ${result.message || 'Unknown error'}`);
-    }
-    
-    const orderId = result.salesorder.salesorder_id;
-    const orderNumber = result.salesorder.salesorder_number;
-    
-    console.log('✅ Zoho order created:', { orderId, orderNumber });
-    
-    return { orderId, orderNumber };
-    
-  } catch (error) {
-    console.error('❌ Zoho order creation failed:', error);
-    throw new Error(`Order creation failed: ${error.message}`);
-  }
-}
-
-/**
- * SUB-AGENT: Create Stripe Payment Intent
+ * SUB-AGENT: Create Stripe Payment Intent with order data in metadata
  */
 async function createStripePaymentIntent({
   amount,
   currency,
   customerEmail,
   customerName,
-  orderId,
-  orderNumber,
-  requestId
+  orderData
 }) {
   console.log('Sub-agent: Creating Stripe Payment Intent...');
   
@@ -409,20 +305,53 @@ async function createStripePaymentIntent({
     // Convert amount to cents
     const amountInCents = Math.round(amount * 100);
     
+    // Store order data in metadata (Stripe limit: 500 chars per key, 50 keys)
+    // We'll store essential data and reconstruct cart items from a summary
+    const metadata = {
+      customer_email: customerEmail,
+      customer_name: customerName,
+      customer_id: orderData.customerId || '',
+      create_account: orderData.createAccount.toString(),
+      account_created: orderData.accountCreated.toString(),
+      
+      // Order totals
+      subtotal: orderData.orderTotals.subtotal.toString(),
+      tax: orderData.orderTotals.tax.toString(),
+      shipping: orderData.orderTotals.shipping.toString(),
+      total: orderData.orderTotals.total.toString(),
+      
+      // Address (truncated if needed to fit Stripe limits)
+      shipping_address1: orderData.shippingAddress.address1.substring(0, 499),
+      shipping_address2: (orderData.shippingAddress.address2 || '').substring(0, 499),
+      shipping_city: orderData.shippingAddress.city,
+      shipping_state: orderData.shippingAddress.state,
+      shipping_zip: orderData.shippingAddress.zipCode,
+      shipping_country: orderData.shippingAddress.country,
+      
+      // Cart items summary (we'll store full data in a more robust way for production)
+      item_count: orderData.cartItems.length.toString(),
+      
+      // Store cart items as JSON (compressed if needed)
+      cart_items: JSON.stringify(orderData.cartItems.map(item => ({
+        id: item.product_id,
+        name: item.product_name.substring(0, 50), // Truncate for metadata limits
+        price: item.product_price,
+        qty: item.quantity
+      }))).substring(0, 499), // Stripe metadata limit
+      
+      // Processing info
+      request_id: orderData.requestId,
+      integration: 'direct_stripe_checkout',
+      order_notes: (orderData.orderNotes || '').substring(0, 499)
+    };
+    
     const paymentIntent = await stripe.paymentIntents.create({
       amount: amountInCents,
       currency: currency,
       receipt_email: customerEmail,
-      description: `Travel Data WiFi Order ${orderNumber}`,
+      description: `Travel Data WiFi Order - ${customerEmail}`,
       
-      metadata: {
-        orderId: orderId.toString(),
-        orderNumber: orderNumber,
-        customerEmail: customerEmail,
-        customerName: customerName,
-        requestId: requestId,
-        integration: 'direct_stripe_checkout'
-      },
+      metadata: metadata,
       
       // Automatic payment methods
       automatic_payment_methods: {
@@ -431,6 +360,7 @@ async function createStripePaymentIntent({
     });
     
     console.log('✅ Stripe Payment Intent created:', paymentIntent.id);
+    console.log('💡 Order data stored in Payment Intent metadata for post-payment processing');
     
     return {
       clientSecret: paymentIntent.client_secret,
