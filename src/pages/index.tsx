@@ -5,10 +5,40 @@ import { Wifi, Zap, Shield, Star, CheckCircle, ArrowRight, Truck, HeadphonesIcon
 import { useCartStore } from '../store/cart';
 import toast from 'react-hot-toast';
 
+// Type definitions for product data
+interface ProductImage {
+  url?: string;
+  image_url?: string;
+  document_id?: string;
+}
+
+interface ProductDocument {
+  document_id: string;
+}
+
+interface Product {
+  product_id?: string;
+  id?: string;
+  name?: string;
+  product_name?: string;
+  price?: string | number;
+  rate?: string | number;
+  status?: string;
+  show_in_storefront?: boolean;
+  is_featured?: boolean;
+  description?: string;
+  short_description?: string;
+  seo_url?: string;
+  url?: string;
+  images?: ProductImage[];
+  image_url?: string;
+  documents?: ProductDocument[];
+}
+
 const StreamlinedHomepage = () => {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
   const { addItem } = useCartStore();
 
   useEffect(() => {
@@ -28,16 +58,16 @@ const StreamlinedHomepage = () => {
       
       if (data.products && Array.isArray(data.products)) {
         // Filter and sort to get the 3 most popular/featured products
-        const activeProducts = data.products.filter(product => 
+        const activeProducts = data.products.filter((product: Product) => 
           product.status === 'active' && 
           product.show_in_storefront !== false
         );
         
         // Sort by popularity indicators (you can adjust this logic based on your API data)
-        const sortedProducts = activeProducts.sort((a, b) => {
+        const sortedProducts = activeProducts.sort((a: Product, b: Product) => {
           // Prioritize featured products, then by price (assuming higher price = premium)
-          const aScore = (a.is_featured ? 1000 : 0) + (parseFloat(a.price) || 0);
-          const bScore = (b.is_featured ? 1000 : 0) + (parseFloat(b.price) || 0);
+          const aScore = (a.is_featured ? 1000 : 0) + (parseFloat(String(a.price || 0)) || 0);
+          const bScore = (b.is_featured ? 1000 : 0) + (parseFloat(String(b.price || 0)) || 0);
           return bScore - aScore;
         });
         
@@ -54,7 +84,7 @@ const StreamlinedHomepage = () => {
     }
   };
 
-  const handleAddToCart = (product) => {
+  const handleAddToCart = (product: Product) => {
     try {
       addItem(product, 1);
       toast.success(`${getProductName(product)} added to cart!`);
@@ -64,19 +94,19 @@ const StreamlinedHomepage = () => {
   };
 
   // Helper functions to extract product data safely
-  const getProductName = (product) => {
+  const getProductName = (product: Product): string => {
     return product.name || product.product_name || 'Unnamed Product';
   };
 
-  const getProductPrice = (product) => {
-    const price = parseFloat(product.price || product.rate || 0);
+  const getProductPrice = (product: Product): number | null => {
+    const price = parseFloat(String(product.price || product.rate || 0));
     return price > 0 ? price : null;
   };
 
-  const getProductImage = (product) => {
+  const getProductImage = (product: Product): string => {
     // Check various possible image sources from your API
     if (product.images && product.images.length > 0) {
-      return product.images[0].url || product.images[0].image_url;
+      return product.images[0].url || product.images[0].image_url || '/api/placeholder/400/300';
     }
     if (product.image_url) {
       return product.image_url;
@@ -87,7 +117,7 @@ const StreamlinedHomepage = () => {
     return '/api/placeholder/400/300'; // Fallback placeholder
   };
 
-  const getProductDescription = (product) => {
+  const getProductDescription = (product: Product): string => {
     return product.description || product.short_description || 'High-quality mobile internet solution';
   };
 
@@ -224,8 +254,9 @@ const StreamlinedHomepage = () => {
                           src={getProductImage(product)}
                           alt={getProductName(product)}
                           className="w-full h-48 object-cover"
-                          onError={(e) => {
-                            e.target.src = '/api/placeholder/400/300';
+                          onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                            const target = e.target as HTMLImageElement;
+                            target.src = '/api/placeholder/400/300';
                           }}
                         />
                       </div>
