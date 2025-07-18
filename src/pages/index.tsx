@@ -39,11 +39,13 @@ interface Product {
   product_price?: number;
   sale_price?: number;
   images?: Array<{ src: string; alt?: string }>;
-  product_images?: Array<{ src: string; alt?: string }>;
+  product_images?: Array<string | { src: string; alt?: string }>;
   image_url?: string;
   description?: string;
   product_description?: string;
   short_description?: string;
+  seo_url?: string;
+  url?: string;
 }
 
 const EnhancedHomepage: React.FC = () => {
@@ -98,9 +100,15 @@ const EnhancedHomepage: React.FC = () => {
   };
 
   const getProductImageUrl = (product: Product): string => {
-    // Use the same logic as the products page
+    // Use the same logic as the products page but handle object/string types
     if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
-      return product.product_images[0];
+      const firstImage = product.product_images[0];
+      // Handle both string URLs and image objects
+      if (typeof firstImage === 'string') {
+        return firstImage;
+      } else if (typeof firstImage === 'object' && firstImage.src) {
+        return firstImage.src;
+      }
     }
     return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
   };
