@@ -1,37 +1,140 @@
+/* ===== src/styles/globals.css ===== */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Custom brand colors */
+/* Logo-derived color palette */
 :root {
-  --travel-blue: #004e89;
-  --travel-orange: #ff6b35;
-  --travel-green: #1a936f;
+  /* Primary logo colors */
+  --logo-teal: #20B2AA;      /* WiFi signals - primary brand */
+  --logo-sky: #87CEEB;       /* Sky in location pin */
+  --logo-forest: #228B22;    /* Forest/landscape */
+  --logo-ocean: #1E3A8A;     /* Deep blue for text */
+  --logo-signal: #10B981;    /* Signal green for success */
+  --logo-cloud: #F8FAFC;     /* Cloud white */
+  --logo-earth: #8B4513;     /* Earth brown */
+  --logo-gray: #6B7280;      /* Warm gray */
+  
+  /* Legacy mappings for backward compatibility */
+  --travel-blue: var(--logo-teal);
+  --travel-orange: var(--logo-signal);
+  --travel-green: var(--logo-forest);
 }
 
-/* Custom component classes */
-@layer components {
-  .btn-primary {
-    @apply bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold px-8 py-3 rounded-lg shadow-lg hover:from-blue-700 hover:to-purple-700 transition-all duration-300;
+/* Base Styles */
+@layer base {
+  html {
+    scroll-behavior: smooth;
   }
   
-  .btn-secondary {
-    @apply bg-gradient-to-r from-orange-500 to-red-500 text-white font-semibold px-8 py-3 rounded-lg shadow-lg hover:from-orange-600 hover:to-red-600 transition-all duration-300;
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    color: var(--logo-ocean);
   }
 }
 
-/* Custom utilities */
+/* Component Styles */
+@layer components {
+  .btn-primary {
+    @apply bg-gradient-to-r from-logo-teal to-logo-ocean text-white font-semibold px-8 py-3 rounded-lg shadow-lg hover:from-logo-sky hover:to-logo-teal transition-all duration-300 transform hover:scale-105;
+  }
+
+  .btn-secondary {
+    @apply bg-gradient-to-r from-logo-signal to-logo-forest text-white font-semibold px-8 py-3 rounded-lg shadow-lg hover:from-logo-forest hover:to-logo-signal transition-all duration-300 transform hover:scale-105;
+  }
+
+  .card {
+    @apply bg-white rounded-2xl shadow-lg hover:shadow-xl transition-shadow duration-300 border border-gray-100;
+  }
+  
+  /* Logo-inspired gradients */
+  .gradient-logo-primary {
+    background: linear-gradient(135deg, var(--logo-teal), var(--logo-ocean));
+  }
+  
+  .gradient-logo-secondary {
+    background: linear-gradient(135deg, var(--logo-signal), var(--logo-forest));
+  }
+  
+  .gradient-logo-sky {
+    background: linear-gradient(135deg, var(--logo-sky), var(--logo-teal));
+  }
+}
+
+/* Custom Utilities */
 @layer utilities {
-  .bg-travel-blue {
-    background-color: var(--travel-blue);
+  /* Logo color utilities */
+  .bg-logo-teal { background-color: var(--logo-teal); }
+  .bg-logo-sky { background-color: var(--logo-sky); }
+  .bg-logo-forest { background-color: var(--logo-forest); }
+  .bg-logo-ocean { background-color: var(--logo-ocean); }
+  .bg-logo-signal { background-color: var(--logo-signal); }
+  .bg-logo-cloud { background-color: var(--logo-cloud); }
+  .bg-logo-earth { background-color: var(--logo-earth); }
+  
+  .text-logo-teal { color: var(--logo-teal); }
+  .text-logo-sky { color: var(--logo-sky); }
+  .text-logo-forest { color: var(--logo-forest); }
+  .text-logo-ocean { color: var(--logo-ocean); }
+  .text-logo-signal { color: var(--logo-signal); }
+  .text-logo-earth { color: var(--logo-earth); }
+  
+  /* Legacy color utilities (now mapped to logo colors) */
+  .bg-travel-blue { background-color: var(--logo-teal); }
+  .bg-travel-orange { background-color: var(--logo-signal); }
+  .bg-travel-green { background-color: var(--logo-forest); }
+  
+  .text-travel-blue { color: var(--logo-teal); }
+  .text-travel-orange { color: var(--logo-signal); }
+  .text-travel-green { color: var(--logo-forest); }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
   }
-  .bg-travel-orange {
-    background-color: var(--travel-orange);
+
+  .animate-marquee {
+    animation: marquee 20s linear infinite;
   }
-  .text-travel-blue {
-    color: var(--travel-blue);
+  
+  /* Logo-inspired border colors */
+  .border-logo-teal { border-color: var(--logo-teal); }
+  .border-logo-signal { border-color: var(--logo-signal); }
+  
+  /* Logo-inspired hover effects */
+  .hover-logo-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 25px rgba(32, 178, 170, 0.15);
   }
-  .text-travel-orange {
-    color: var(--travel-orange);
-  }
+}
+
+/* Custom Animations */
+@keyframes marquee {
+  0% { transform: translateX(100%); }
+  100% { transform: translateX(-100%); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+/* Custom Scrollbar with logo colors */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--logo-cloud);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--logo-teal);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--logo-ocean);
 }

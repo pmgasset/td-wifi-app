@@ -248,7 +248,7 @@ const getProductDescription = (product: Product): string => {
       </div>
 
       {/* Hero Section */}
-      <section className="bg-gradient-to-br from-blue-600 via-blue-700 to-purple-800 text-white py-16 lg:py-24">
+      <section className="bg-gradient-to-br from-logo-ocean via-logo-teal to-logo-sky text-white py-16 lg:py-24">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
@@ -297,14 +297,14 @@ const getProductDescription = (product: Product): string => {
               <div className="flex flex-col sm:flex-row gap-4">
                 <button 
                   onClick={() => document.getElementById('products')?.scrollIntoView({ behavior: 'smooth' })}
-                  className="bg-gradient-to-r from-orange-500 to-red-500 text-white px-8 py-4 rounded-lg font-bold text-lg shadow-lg hover:from-orange-600 hover:to-red-600 transition-all duration-300 transform hover:scale-105"
+                  className="bg-gradient-to-r from-logo-signal to-logo-forest text-white px-8 py-4 rounded-lg font-bold text-lg shadow-lg hover:from-logo-forest hover:to-logo-signal transition-all duration-300 transform hover:scale-105"
                 >
                   Shop Routers →
                 </button>
                 
                 <button 
                   onClick={() => setShowEmailCapture(true)}
-                  className="border-2 border-white text-white hover:bg-white hover:text-blue-600 px-8 py-4 rounded-lg font-bold text-lg transition-all duration-300"
+                  className="border-2 border-white text-white hover:bg-white hover:text-logo-ocean px-8 py-4 rounded-lg font-bold text-lg transition-all duration-300"
                 >
                   Get Free Guide
                 </button>
@@ -314,7 +314,7 @@ const getProductDescription = (product: Product): string => {
             {/* Pricing Card */}
             <div className="relative bg-white/10 backdrop-blur-sm rounded-2xl p-8 border border-white/20">
               {/* Floating Icon */}
-              <div className="absolute -top-4 -right-4 w-12 h-12 bg-gradient-to-r from-green-400 to-blue-400 rounded-full flex items-center justify-center shadow-lg">
+              <div className="absolute -top-4 -right-4 w-12 h-12 bg-gradient-to-r from-logo-signal to-logo-forest rounded-full flex items-center justify-center shadow-lg">
                 <CheckCircle className="h-6 w-6 text-white" />
               </div>
               

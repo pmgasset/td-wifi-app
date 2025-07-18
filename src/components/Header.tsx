@@ -55,7 +55,7 @@ const Header: React.FC = () => {
                     if (fallback) fallback.classList.remove('hidden');
                   }}
                 />
-                <div className={`bg-gradient-to-r from-travel-blue to-blue-600 rounded-xl flex items-center justify-center hidden transition-all duration-300 ${
+                <div className={`bg-gradient-to-r from-logo-teal to-logo-ocean rounded-xl flex items-center justify-center hidden transition-all duration-300 ${
                   isScrolled ? 'w-48 h-12' : 'w-80 h-20'
                 }`}>
                   <div className="flex items-center space-x-3">
@@ -83,7 +83,7 @@ const Header: React.FC = () => {
                   <Link
                     key={item.name}
                     href={item.href}
-                    className="text-gray-700 hover:text-travel-blue font-medium transition-colors duration-200 text-lg"
+                    className="text-logo-ocean hover:text-logo-teal font-medium transition-colors duration-200 text-lg"
                   >
                     {item.name}
                   </Link>
@@ -98,7 +98,7 @@ const Header: React.FC = () => {
                 >
                   <ShoppingCart className="h-6 w-6 text-gray-600" />
                   {cartItemCount > 0 && (
-                    <span className="absolute -top-2 -right-2 bg-travel-orange text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center">
+                    <span className="absolute -top-2 -right-2 bg-logo-signal text-white text-xs font-bold rounded-full h-6 w-6 flex items-center justify-center">
                       {cartItemCount > 99 ? '99+' : cartItemCount}
                     </span>
                   )}
@@ -126,7 +126,7 @@ const Header: React.FC = () => {
                     if (fallback) fallback.classList.remove('hidden');
                   }}
                 />
-                <div className={`bg-gradient-to-r from-travel-blue to-blue-600 rounded-xl flex items-center justify-center hidden transition-all duration-300 ${
+                <div className={`bg-gradient-to-r from-logo-teal to-logo-ocean rounded-xl flex items-center justify-center hidden transition-all duration-300 ${
                   isScrolled ? 'w-32 h-10' : 'w-48 h-16'
                 }`}>
                   <div className="flex items-center space-x-2">
@@ -150,7 +150,7 @@ const Header: React.FC = () => {
                 >
                   <ShoppingCart className="h-5 w-5 text-gray-600" />
                   {cartItemCount > 0 && (
-                    <span className="absolute -top-2 -right-2 bg-travel-orange text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
+                    <span className="absolute -top-2 -right-2 bg-logo-signal text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
                       {cartItemCount > 9 ? '9+' : cartItemCount}
                     </span>
                   )}
@@ -177,7 +177,7 @@ const Header: React.FC = () => {
                     <Link
                       key={item.name}
                       href={item.href}
-                      className="text-gray-700 hover:text-travel-blue font-medium transition-colors duration-200 px-2 py-2 text-lg"
+                      className="text-logo-ocean hover:text-logo-teal font-medium transition-colors duration-200 px-2 py-2 text-lg"
                       onClick={() => setIsMenuOpen(false)}
                     >
                       {item.name}
