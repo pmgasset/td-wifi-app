@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
+import toast from 'react-hot-toast';
 
 interface Product {
   product_id?: string;
@@ -46,7 +47,7 @@ interface Product {
 
 const EnhancedHomepage: React.FC = () => {
   const router = useRouter();
-  const { addToCart } = useCartStore();
+  const { addItem } = useCartStore();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -457,13 +458,13 @@ const EnhancedHomepage: React.FC = () => {
                         
                         <button
                           onClick={() => {
-                            addToCart({
-                              id: productId,
-                              name: getProductName(product),
-                              price: price,
-                              image: getProductImageUrl(product),
-                              quantity: 1
-                            });
+                            addItem({
+                              product_id: productId,
+                              product_name: getProductName(product),
+                              product_price: price,
+                              product_images: [getProductImageUrl(product)]
+                            }, 1);
+                            toast.success(`${getProductName(product)} added to cart!`);
                           }}
                           className="w-full bg-logo-teal text-white py-3 rounded-lg font-semibold hover:bg-logo-ocean transition-colors shadow-sm hover:shadow-md"
                         >

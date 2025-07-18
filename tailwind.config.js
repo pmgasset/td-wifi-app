@@ -143,37 +143,6 @@ module.exports = {
         'gradient-dark': 'linear-gradient(135deg, #1f2937 0%, #111827 100%)',
       },
       
-      typography: {
-        DEFAULT: {
-          css: {
-            color: '#4b5563',
-            maxWidth: 'none',
-            a: {
-              color: '#0891b2',
-              textDecoration: 'none',
-              '&:hover': {
-                color: '#1e40af',
-              },
-            },
-            h1: {
-              color: '#111827',
-              fontWeight: '700',
-            },
-            h2: {
-              color: '#111827',
-              fontWeight: '700',
-            },
-            h3: {
-              color: '#111827',
-              fontWeight: '600',
-            },
-            strong: {
-              color: '#111827',
-            },
-          },
-        },
-      },
-      
       // Screen reader only utilities
       screens: {
         'xs': '475px',
@@ -224,17 +193,6 @@ module.exports = {
   },
   
   plugins: [
-    // Add form plugin for better form styling
-    require('@tailwindcss/forms')({
-      strategy: 'class', // Use class-based strategy
-    }),
-    
-    // Add typography plugin for rich text content
-    require('@tailwindcss/typography'),
-    
-    // Add aspect ratio plugin for responsive media
-    require('@tailwindcss/aspect-ratio'),
-    
     // Custom plugin for additional utilities
     function({ addUtilities, addComponents, theme }) {
       // Add focus-visible utilities for better accessibility
