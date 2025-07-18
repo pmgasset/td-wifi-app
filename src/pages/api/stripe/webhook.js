@@ -385,6 +385,30 @@ async function createZohoOrderAfterPayment(orderData, paymentIntent) {
   
   console.log('✅ Zoho order created after payment:', { orderId, orderNumber });
   
+  // STEP 4: Confirm the sales order (changes status from draft to confirmed)
+  console.log('📋 Confirming sales order...');
+  
+  const confirmResponse = await fetch(
+    `https://www.zohoapis.com/inventory/v1/salesorders/${orderId}/status/confirmed?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+  
+  const confirmResult = await confirmResponse.json();
+  console.log('Sales order confirmation response:', JSON.stringify(confirmResult, null, 2));
+  
+  if (!confirmResponse.ok) {
+    console.warn('⚠️ Sales order confirmation failed:', confirmResult.message);
+    // Don't throw error - order was created successfully, just not confirmed
+  } else {
+    console.log('✅ Sales order confirmed successfully');
+  }
+  
   return { orderId, orderNumber };
 }
 
