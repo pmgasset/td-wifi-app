@@ -16,6 +16,15 @@
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
+// Helper function to get raw body
+async function getRawBody(req) {
+  const chunks = [];
+  for await (const chunk of req) {
+    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 export default async function handler(req, res) {
   // Set CORS headers for webhook
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -37,7 +46,6 @@ export default async function handler(req, res) {
 
   console.log(`\n=== STRIPE WEBHOOK RECEIVED ===`);
   console.log('Method:', req.method);
-  console.log('Headers:', Object.keys(req.headers));
   console.log('Has signature:', !!sig);
   console.log('Has webhook secret:', !!endpointSecret);
 
@@ -55,15 +63,27 @@ export default async function handler(req, res) {
   }
 
   let event;
+  let rawBody;
 
   try {
-    // Get raw body for signature verification
-    const rawBody = JSON.stringify(req.body);
+    // Get the raw body properly
+    rawBody = await getRawBody(req);
+    console.log('Raw body length:', rawBody.length);
     
-    // Verify webhook signature
+    // Verify webhook signature with raw body
     event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
     console.log('✅ Webhook signature verified');
     console.log('Event type:', event.type);
+    
+  } catch (err) {
+    console.error(`❌ Webhook signature verification failed:`, err.message);
+    console.log('Raw body preview:', rawBody ? rawBody.toString().substring(0, 100) : 'No body');
+    console.log('Signature:', sig ? sig.substring(0, 50) + '...' : 'No signature');
+    return res.status(400).json({ 
+      error: 'Webhook signature verification failed',
+      details: err.message
+    });
+  }
     
   } catch (err) {
     console.error(`❌ Webhook signature verification failed:`, err.message);
@@ -396,8 +416,6 @@ async function getZohoAccessToken() {
 // Configure to receive raw body for webhook signature verification
 export const config = {
   api: {
-    bodyParser: {
-      sizeLimit: '1mb',
-    },
+    bodyParser: false, // Disable Next.js body parser to get raw body
   },
 }
