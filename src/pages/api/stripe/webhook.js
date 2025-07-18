@@ -1,7 +1,7 @@
-// src/pages/api/stripe/webhook.js - COMPLETE FIXED VERSION
+// src/pages/api/stripe/webhook.js - COMPLETE FIX with Proper Address Handling
 /**
  * Stripe Webhook Handler - Creates Zoho Order AFTER Successful Payment
- * FIXED: 405 error, contact creation, proper error handling
+ * FIXED: Proper contact creation with addresses, then sales order with address IDs
  */
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -47,8 +47,6 @@ export default async function handler(req, res) {
   console.log(`\n=== STRIPE WEBHOOK RECEIVED ===`);
   console.log('Has signature:', !!sig);
   console.log('Has webhook secret:', !!endpointSecret);
-  console.log('Method:', req.method);
-  console.log('URL:', req.url);
 
   if (!endpointSecret) {
     console.error('❌ STRIPE_WEBHOOK_SECRET not configured');
@@ -94,9 +92,13 @@ export default async function handler(req, res) {
         return res.json({ received: true, status: 'already_processed' });
       }
 
+      // Debug: Log all metadata
+      console.log('🔍 Payment Intent metadata:', JSON.stringify(paymentIntent.metadata, null, 2));
+
       // Extract order data from metadata
       const orderData = extractOrderDataFromMetadata(paymentIntent.metadata);
       console.log('📋 Order data extracted from Payment Intent metadata');
+      console.log('🔍 Extracted order data:', JSON.stringify(orderData, null, 2));
       
       // Create order in Zoho now that payment is confirmed
       const zohoOrder = await createZohoOrderAfterPayment(orderData, paymentIntent);
@@ -156,41 +158,69 @@ export default async function handler(req, res) {
 }
 
 function extractOrderDataFromMetadata(metadata) {
+  console.log('🔍 Extracting order data from metadata keys:', Object.keys(metadata));
+  
   let cartItems = [];
   try {
     if (metadata.cart_items) {
+      console.log('🔍 Found cart_items in metadata:', metadata.cart_items);
       const parsedItems = JSON.parse(metadata.cart_items);
       cartItems = parsedItems.map(item => ({
-        product_id: item.id,
-        product_name: item.name,
-        product_price: item.price,
-        quantity: item.qty
+        product_id: item.id || item.product_id || 'unknown',
+        product_name: item.name || item.product_name || 'Unknown Product',
+        product_price: parseFloat(item.price || item.product_price || 0),
+        quantity: parseInt(item.qty || item.quantity || 1)
       }));
+      console.log('✅ Parsed cart items:', cartItems);
+    } else {
+      console.log('⚠️ No cart_items found in metadata, creating fallback item');
+      // Create fallback item from available data
+      const itemCount = parseInt(metadata.item_count || '1');
+      const subtotal = parseFloat(metadata.subtotal || metadata.total || '0');
+      const price = itemCount > 0 ? subtotal / itemCount : subtotal;
+      
+      cartItems = [{
+        product_id: 'fallback-item',
+        product_name: 'Travel Data WiFi Product',
+        product_price: price,
+        quantity: itemCount
+      }];
+      console.log('✅ Created fallback cart items:', cartItems);
     }
   } catch (parseError) {
-    console.warn('Could not parse cart items from metadata:', parseError);
+    console.error('❌ Could not parse cart items from metadata:', parseError);
+    console.log('🔍 Metadata cart_items value:', metadata.cart_items);
+    
+    // Emergency fallback
     cartItems = [{
-      product_id: 'unknown',
+      product_id: 'emergency-fallback',
       product_name: 'Travel Data WiFi Product',
-      product_price: parseFloat(metadata.subtotal || '0') / parseInt(metadata.item_count || '1'),
-      quantity: parseInt(metadata.item_count || '1')
+      product_price: parseFloat(metadata.total || '5.00'),
+      quantity: 1
     }];
+    console.log('⚠️ Using emergency fallback cart items:', cartItems);
   }
   
-  return {
+  // Extract customer info with better fallback handling
+  const customerName = metadata.customer_name || 'Guest Customer';
+  const nameParts = customerName.split(' ');
+  const firstName = nameParts[0] || 'Guest';
+  const lastName = nameParts.slice(1).join(' ') || 'Customer';
+  
+  const orderData = {
     customerInfo: {
-      firstName: metadata.customer_name?.split(' ')[0] || 'Customer',
-      lastName: metadata.customer_name?.split(' ').slice(1).join(' ') || '',
-      email: metadata.customer_email,
-      phone: metadata.customer_phone || ''
+      firstName: firstName,
+      lastName: lastName,
+      email: metadata.customer_email || metadata.email || '',
+      phone: metadata.customer_phone || metadata.phone || ''
     },
     shippingAddress: {
-      address1: metadata.shipping_address1 || '',
-      address2: metadata.shipping_address2 || '',
-      city: metadata.shipping_city || '',
-      state: metadata.shipping_state || '',
-      zipCode: metadata.shipping_zip || '',
-      country: metadata.shipping_country || 'US'
+      address1: metadata.shipping_address1 || metadata.address1 || '',
+      address2: metadata.shipping_address2 || metadata.address2 || '',
+      city: metadata.shipping_city || metadata.city || '',
+      state: metadata.shipping_state || metadata.state || '',
+      zipCode: metadata.shipping_zip || metadata.zip || metadata.postal_code || '',
+      country: metadata.shipping_country || metadata.country || 'US'
     },
     cartItems: cartItems,
     orderTotals: {
@@ -203,139 +233,116 @@ function extractOrderDataFromMetadata(metadata) {
     orderNotes: metadata.order_notes || '',
     requestId: metadata.request_id || ''
   };
+  
+  console.log('🔍 Final extracted order data:', JSON.stringify(orderData, null, 2));
+  return orderData;
 }
 
 async function createZohoOrderAfterPayment(orderData, paymentIntent) {
   console.log('🔄 Creating Zoho order after payment confirmation...');
   
   const token = await getZohoAccessToken();
-  let customerId = orderData.customerId;
   
-  // ALWAYS CREATE CONTACT FIRST (even if we think we have a customer ID)
-  if (!customerId || customerId === 'null' || customerId === '') {
-    console.log('👤 Creating guest contact for order...');
-    
-    try {
-      const contactData = {
-        contact_name: `${orderData.customerInfo.firstName} ${orderData.customerInfo.lastName}`,
-        contact_type: 'customer',
-        contact_persons: [{
-          first_name: orderData.customerInfo.firstName,
-          last_name: orderData.customerInfo.lastName,
-          email: orderData.customerInfo.email,
-          phone: orderData.customerInfo.phone || '',
-          is_primary_contact: true
-        }]
-      };
-      
-      console.log('Creating contact with data:', JSON.stringify(contactData, null, 2));
-      
-      const contactResponse = await fetch(
-        `https://www.zohoapis.com/inventory/v1/contacts?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Zoho-oauthtoken ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(contactData)
-        }
-      );
-      
-      const contactResult = await contactResponse.json();
-      console.log('Contact creation response:', JSON.stringify(contactResult, null, 2));
-      
-      if (contactResult.contact?.contact_id) {
-        customerId = contactResult.contact.contact_id;
-        console.log('✅ Guest contact created:', customerId);
-      } else {
-        console.warn('⚠️ Guest contact creation failed, response:', contactResult);
-        throw new Error(`Contact creation failed: ${contactResult.message || 'Unknown error'}`);
-      }
-      
-    } catch (contactError) {
-      console.error('❌ Guest contact creation error:', contactError);
-      throw new Error(`Failed to create customer contact: ${contactError.message}`);
-    }
+  // STEP 1: Create contact with addresses in one API call
+  console.log('👤 Creating contact with addresses in Zoho...');
+  
+  // Validate we have required data
+  if (!orderData.customerInfo.email) {
+    throw new Error('Customer email is required but missing from order data');
   }
   
-  // Create customer addresses
-  let billingAddressId = null;
-  let shippingAddressId = null;
-  
-  if (customerId) {
-    console.log('📍 Creating customer addresses in Zoho...');
-    
-    const addressData = {
-      attention: `${orderData.customerInfo.firstName} ${orderData.customerInfo.lastName}`,
-      address: orderData.shippingAddress.address1.substring(0, 99),
-      address_2: orderData.shippingAddress.address2?.substring(0, 99) || '',
-      city: orderData.shippingAddress.city,
-      state: orderData.shippingAddress.state,
-      zip: orderData.shippingAddress.zipCode,
-      country: orderData.shippingAddress.country,
-      phone: orderData.customerInfo.phone || ''
-    };
-    
-    try {
-      const addressResponse = await fetch(
-        `https://www.zohoapis.com/inventory/v1/contacts/${customerId}/address?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Zoho-oauthtoken ${token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            billing_address: addressData,
-            shipping_address: addressData
-          })
-        }
-      );
-      
-      const addressResult = await addressResponse.json();
-      console.log('Address creation response:', JSON.stringify(addressResult, null, 2));
-      
-      if (addressResult.address) {
-        billingAddressId = addressResult.address.billing_address_id;
-        shippingAddressId = addressResult.address.shipping_address_id;
-        console.log('✅ Customer addresses created');
-      }
-    } catch (addressError) {
-      console.warn('⚠️ Address creation failed:', addressError.message);
-    }
+  if (orderData.cartItems.length === 0) {
+    throw new Error('Cart items are required but missing from order data');
   }
   
-  // Prepare line items
-  const lineItems = orderData.cartItems.map(item => ({
+  // Prepare address data (ensure under 100 characters for each field)
+  const addressData = {
+    attention: `${orderData.customerInfo.firstName} ${orderData.customerInfo.lastName}`.substring(0, 99),
+    address: orderData.shippingAddress.address1.substring(0, 99),
+    street2: (orderData.shippingAddress.address2 || '').substring(0, 99),
+    city: orderData.shippingAddress.city.substring(0, 49),
+    state: orderData.shippingAddress.state.substring(0, 49),
+    zip: orderData.shippingAddress.zipCode.substring(0, 19),
+    country: orderData.shippingAddress.country.substring(0, 49),
+    phone: orderData.customerInfo.phone.substring(0, 19)
+  };
+  
+  // Create contact with addresses in one call
+  const contactData = {
+    contact_name: `${orderData.customerInfo.firstName} ${orderData.customerInfo.lastName}`.substring(0, 199),
+    contact_type: 'customer',
+    contact_persons: [{
+      first_name: orderData.customerInfo.firstName.substring(0, 99),
+      last_name: orderData.customerInfo.lastName.substring(0, 99),
+      email: orderData.customerInfo.email,
+      phone: orderData.customerInfo.phone.substring(0, 19),
+      is_primary_contact: true
+    }],
+    // Add billing and shipping addresses directly in contact creation
+    billing_address: addressData,
+    shipping_address: addressData
+  };
+  
+  console.log('Creating contact with data:', JSON.stringify(contactData, null, 2));
+  
+  const contactResponse = await fetch(
+    `https://www.zohoapis.com/inventory/v1/contacts?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(contactData)
+    }
+  );
+  
+  const contactResult = await contactResponse.json();
+  console.log('Contact creation response:', JSON.stringify(contactResult, null, 2));
+  
+  if (!contactResult.contact?.contact_id) {
+    throw new Error(`Contact creation failed: ${contactResult.message || 'Unknown error'}`);
+  }
+  
+  const customerId = contactResult.contact.contact_id;
+  const billingAddressId = contactResult.contact.billing_address?.address_id;
+  const shippingAddressId = contactResult.contact.shipping_address?.address_id;
+  
+  console.log('✅ Contact created successfully:', {
+    customerId,
+    billingAddressId,
+    shippingAddressId
+  });
+  
+  // STEP 2: Prepare line items (validate all required fields)
+  const lineItems = orderData.cartItems.map((item, index) => ({
     item_id: item.product_id,
     name: item.product_name,
     rate: parseFloat(item.product_price),
     quantity: parseInt(item.quantity),
-    unit: 'qty'
+    unit: 'qty',
+    item_order: index + 1
   }));
   
-  // Prepare order data
+  console.log('📦 Prepared line items:', JSON.stringify(lineItems, null, 2));
+  
+  // STEP 3: Create sales order using address IDs
   const salesOrderData = {
     customer_id: customerId,
     date: new Date().toISOString().split('T')[0],
     shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
     line_items: lineItems,
     notes: `Payment completed via Stripe. Payment Intent: ${paymentIntent.id}`,
-    terms: 'Paid via Stripe',
-    custom_fields: [
-      { label: 'Payment Method', value: 'Stripe' },
-      { label: 'Payment Intent ID', value: paymentIntent.id },
-      { label: 'Request ID', value: orderData.requestId }
-    ]
+    terms: 'Paid via Stripe'
   };
-
-  // Add addresses if available
+  
+  // Use address IDs if available, otherwise fallback to address object
   if (billingAddressId && shippingAddressId) {
     salesOrderData.billing_address_id = billingAddressId;
     salesOrderData.shipping_address_id = shippingAddressId;
+    console.log('✅ Using address IDs for sales order');
   } else {
-    // Fallback to address object
+    // Fallback to address object (but this should not happen with proper contact creation)
     salesOrderData.shipping_address = {
       address: orderData.shippingAddress.address1.substring(0, 99),
       city: orderData.shippingAddress.city,
@@ -343,7 +350,15 @@ async function createZohoOrderAfterPayment(orderData, paymentIntent) {
       zip: orderData.shippingAddress.zipCode,
       country: orderData.shippingAddress.country
     };
+    console.log('⚠️ Using address object fallback for sales order');
   }
+  
+  // Add custom fields for tracking
+  salesOrderData.custom_fields = [
+    { label: 'Payment Method', value: 'Stripe' },
+    { label: 'Payment Intent ID', value: paymentIntent.id },
+    { label: 'Request ID', value: orderData.requestId }
+  ];
   
   console.log('📦 Creating sales order in Zoho...');
   console.log('📋 Sales order data:', JSON.stringify(salesOrderData, null, 2));
