@@ -1,11 +1,9 @@
-/ src/pages/api/stripe/create-payment-intent.js
+// src/pages/api/stripe/create-payment-intent.js
 
 /**
  * Create Stripe Payment Intent for public payment page
- * This handles secure payments without requiring Zoho login
+ * This endpoint creates a payment intent for processing payments
  */
-
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -13,52 +11,62 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { amount, currency, invoice_id, customer_email, invoice_number } = req.body;
+    const {
+      amount,
+      currency = 'USD',
+      customer_email,
+      metadata = {}
+    } = req.body;
 
     // Validation
-    if (!amount || !invoice_id || !customer_email) {
-      return res.status(400).json({ 
+    if (!amount || !customer_email) {
+      return res.status(400).json({
         error: 'Missing required fields',
-        required: ['amount', 'invoice_id', 'customer_email']
+        details: 'amount and customer_email are required'
       });
     }
 
-    console.log('🔄 Creating Stripe payment intent...');
-    console.log('Amount:', amount, 'cents');
-    console.log('Invoice:', invoice_number);
-    console.log('Customer:', customer_email);
+    // Check if Stripe is configured
+    if (!process.env.STRIPE_SECRET_KEY) {
+      return res.status(500).json({
+        error: 'Stripe not configured',
+        details: 'STRIPE_SECRET_KEY environment variable is missing'
+      });
+    }
+
+    const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
     // Create payment intent
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount), // Amount in cents
-      currency: currency || 'usd',
-      customer_email: customer_email,
-      metadata: {
-        invoice_id: invoice_id,
-        invoice_number: invoice_number || '',
-        customer_email: customer_email,
-        source: 'public_payment_page'
-      },
-      description: `Payment for invoice ${invoice_number || invoice_id}`,
-      receipt_email: customer_email,
+      amount: Math.round(parseFloat(amount) * 100), // Convert to cents
+      currency: currency.toLowerCase(),
       automatic_payment_methods: {
         enabled: true,
       },
+      receipt_email: customer_email,
+      metadata: {
+        ...metadata,
+        integration_type: 'travel_data_wifi'
+      }
     });
 
     console.log('✅ Payment intent created:', paymentIntent.id);
 
-    res.status(200).json({
+    return res.status(200).json({
+      success: true,
       client_secret: paymentIntent.client_secret,
-      payment_intent_id: paymentIntent.id
+      payment_intent_id: paymentIntent.id,
+      amount: amount,
+      currency: currency
     });
 
   } catch (error) {
-    console.error('❌ Stripe payment intent creation failed:', error);
+    console.error('❌ Error creating payment intent:', error);
     
-    res.status(500).json({
+    return res.status(500).json({
       error: 'Failed to create payment intent',
-      details: error.message
+      details: error.message,
+      timestamp: new Date().toISOString()
     });
   }
 }
