@@ -1,6 +1,7 @@
 // src/pages/index.tsx
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import { 
   Users, 
   Star, 
@@ -87,7 +88,7 @@ const EnhancedHomepage: React.FC = () => {
     fetchProducts();
   }, []);
 
-  // Helper functions
+  // Helper functions - matching the products page implementation
   const getProductPrice = (product: Product): number => {
     return product.sale_price || product.product_price || product.price || 99;
   };
@@ -97,9 +98,15 @@ const EnhancedHomepage: React.FC = () => {
   };
 
   const getProductImageUrl = (product: Product): string => {
-    const images = product.images || product.product_images || [];
-    const imageUrl = images[0]?.src || product.image_url;
-    return imageUrl || "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
+    // Use the same logic as the products page
+    if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
+      return product.product_images[0];
+    }
+    return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
+  };
+
+  const getProductSlug = (product: Product): string => {
+    return product.seo_url || product.url || product.product_id || product.id || 'product';
   };
 
   const testimonials = [
@@ -424,25 +431,34 @@ const EnhancedHomepage: React.FC = () => {
                     )}
                     
                     <div className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 border border-gray-100 hover:border-logo-teal group">
-                      {/* Product Image */}
-                      <div className="aspect-w-16 aspect-h-12 bg-gradient-to-br from-gray-100 to-gray-200 relative overflow-hidden">
-                        <img 
-                          src={getProductImageUrl(product)}
-                          alt={getProductName(product)}
-                          className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
-                        />
-                        
-                        <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm rounded-full px-3 py-1 text-sm font-semibold shadow-sm">
-                          <Star className="h-4 w-4 inline mr-1 text-yellow-400" />
-                          4.9
+                      {/* Clickable Product Image */}
+                      <Link href={`/products/${getProductSlug(product)}`}>
+                        <div className="aspect-w-16 aspect-h-12 bg-gradient-to-br from-gray-100 to-gray-200 relative overflow-hidden cursor-pointer">
+                          <img 
+                            src={getProductImageUrl(product)}
+                            alt={getProductName(product)}
+                            className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+                            onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                              console.log('Image failed to load for product:', getProductName(product));
+                              const target = e.target as HTMLImageElement;
+                              target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
+                            }}
+                          />
+                          
+                          <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-sm rounded-full px-3 py-1 text-sm font-semibold shadow-sm">
+                            <Star className="h-4 w-4 inline mr-1 text-yellow-400" />
+                            4.9
+                          </div>
                         </div>
-                      </div>
+                      </Link>
                       
                       {/* Product Details */}
                       <div className="p-6">
-                        <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-logo-teal transition-colors">
-                          {getProductName(product)}
-                        </h3>
+                        <Link href={`/products/${getProductSlug(product)}`}>
+                          <h3 className="text-xl font-bold text-gray-900 mb-2 group-hover:text-logo-teal transition-colors cursor-pointer">
+                            {getProductName(product)}
+                          </h3>
+                        </Link>
                         <p className="text-gray-600 mb-4 line-clamp-2">
                           Professional-grade router with 5G capability and enterprise-level security
                         </p>
