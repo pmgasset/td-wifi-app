@@ -183,17 +183,23 @@ const EnhancedHomepage = () => {
     return price > 0 ? price : null;
   };
 
-  const getProductImage = (product: Product): string => {
+  const getProductImage = (product: Product): string | null => {
+    // Check for actual product images from your API
     if (product.images && product.images.length > 0) {
-      return product.images[0].url || product.images[0].image_url || '/api/placeholder/400/300';
+      const imageUrl = product.images[0].url || product.images[0].image_url;
+      if (imageUrl) return imageUrl;
     }
+    
     if (product.image_url) {
       return product.image_url;
     }
+    
     if (product.documents && product.documents.length > 0) {
       return `/product-images/${product.documents[0].document_id}`;
     }
-    return '/api/placeholder/400/300';
+    
+    // Return null if no image available - we'll handle this in the component
+    return null;
   };
 
   const getProductDescription = (product: Product): string => {
@@ -368,16 +374,26 @@ const EnhancedHomepage = () => {
                     
                     <div className="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300 border border-gray-100">
                       {/* Product Image */}
-                      <div className="aspect-w-16 aspect-h-12 bg-gray-100">
-                        <img 
-                          src={getProductImage(product)}
-                          alt={getProductName(product)}
-                          className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
-                          onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-                            const target = e.target as HTMLImageElement;
-                            target.src = '/api/placeholder/400/300';
-                          }}
-                        />
+                      <div className="aspect-w-16 aspect-h-12 bg-gradient-to-br from-blue-100 to-purple-100">
+                        {getProductImage(product) ? (
+                          <img 
+                            src={getProductImage(product)!}
+                            alt={getProductName(product)}
+                            className="w-full h-48 object-cover hover:scale-105 transition-transform duration-300"
+                            onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+                              const target = e.target as HTMLImageElement;
+                              // Hide the image if it fails to load
+                              target.style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-full h-48 flex items-center justify-center bg-gradient-to-br from-blue-100 to-purple-100">
+                            <div className="text-center text-gray-500">
+                              <Wifi className="h-12 w-12 mx-auto mb-2 text-blue-400" />
+                              <span className="text-sm">Product Image</span>
+                            </div>
+                          </div>
+                        )}
                         
                         <div className="absolute top-4 right-4 bg-white/90 rounded-full px-3 py-1 text-sm font-semibold">
                           <Star className="h-4 w-4 inline mr-1 text-yellow-400" />
