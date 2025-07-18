@@ -8,7 +8,7 @@
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -875,7 +875,7 @@ async function getRawBody(req) {
 }
 
 // Configure Next.js to provide raw body for webhook signature verification
-export const config = {
+module.exports.config = {
   api: {
     bodyParser: false,
   },
