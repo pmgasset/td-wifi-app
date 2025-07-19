@@ -199,52 +199,116 @@ function filterProductsByDisplayInApp(products) {
 }
 
 /**
- * Merge inventory products with commerce images by SKU matching
- * This is the critical function for matching products between the two APIs
+ * Merge inventory products with commerce images using multiple matching strategies
+ * Based on debug findings: Product IDs actually DO match, but Commerce API has no images
  */
 function mergeInventoryWithCommerceImagesBySKU(inventoryProducts, commerceProducts) {
-  console.log(`Merging ${inventoryProducts.length} inventory products with ${commerceProducts.length} commerce products by SKU`);
+  console.log(`Merging ${inventoryProducts.length} inventory products with ${commerceProducts.length} commerce products`);
   
-  // Create a SKU lookup map for commerce products
-  const commerceBySKU = new Map();
+  // Debug: Check what fields commerce products actually have
+  if (commerceProducts.length > 0) {
+    console.log('Commerce product sample:', {
+      product_id: commerceProducts[0].product_id,
+      product_name: commerceProducts[0].product_name,
+      has_images: !!(commerceProducts[0].product_images?.length),
+      image_count: commerceProducts[0].product_images?.length || 0,
+      all_fields: Object.keys(commerceProducts[0])
+    });
+  }
+  
+  // Create lookup maps for different matching strategies
+  const commerceByProductId = new Map();
+  const commerceByName = new Map();
+  let totalCommerceImagesFound = 0;
+  
   commerceProducts.forEach(commerceProduct => {
-    if (commerceProduct.sku && commerceProduct.sku.trim() !== '') {
-      commerceBySKU.set(commerceProduct.sku.trim().toLowerCase(), commerceProduct);
+    // Strategy 1: Match by product ID (appears to be the same between APIs)
+    if (commerceProduct.product_id) {
+      commerceByProductId.set(commerceProduct.product_id, commerceProduct);
+    }
+    
+    // Strategy 2: Match by name (backup)
+    if (commerceProduct.product_name && commerceProduct.product_name.trim() !== '') {
+      const nameKey = commerceProduct.product_name.trim().toLowerCase();
+      commerceByName.set(nameKey, commerceProduct);
+    }
+    
+    // Count images
+    if (commerceProduct.product_images && commerceProduct.product_images.length > 0) {
+      totalCommerceImagesFound += commerceProduct.product_images.length;
     }
   });
   
-  console.log(`Created commerce SKU map with ${commerceBySKU.size} entries`);
+  console.log(`Created lookup maps:`);
+  console.log(`  Product ID map: ${commerceByProductId.size} entries`);
+  console.log(`  Name map: ${commerceByName.size} entries`);
+  console.log(`  Total commerce images found: ${totalCommerceImagesFound}`);
+  
+  let productIdMatches = 0;
+  let nameMatches = 0;
+  let noMatches = 0;
+  let totalImagesAdded = 0;
   
   return inventoryProducts.map(inventoryProduct => {
     let matchingCommerceProduct = null;
+    let matchStrategy = 'none';
     
-    // Try to find matching commerce product by SKU
-    if (inventoryProduct.sku && inventoryProduct.sku.trim() !== '') {
-      const skuKey = inventoryProduct.sku.trim().toLowerCase();
-      matchingCommerceProduct = commerceBySKU.get(skuKey);
-      
+    // Strategy 1: Match by product ID (most reliable since they appear to be the same)
+    if (inventoryProduct.item_id) {
+      matchingCommerceProduct = commerceByProductId.get(inventoryProduct.item_id);
       if (matchingCommerceProduct) {
-        console.log(`✓ SKU match found: ${inventoryProduct.sku} -> Commerce product ${matchingCommerceProduct.product_id}`);
-      } else {
-        console.log(`⚠️ No SKU match for: ${inventoryProduct.sku} (${inventoryProduct.name})`);
+        matchStrategy = 'product_id';
+        productIdMatches++;
+        console.log(`✓ Product ID match: ${inventoryProduct.item_id} -> ${matchingCommerceProduct.product_name}`);
       }
-    } else {
-      console.log(`⚠️ Inventory product ${inventoryProduct.item_id} has no SKU`);
+    }
+    
+    // Strategy 2: Try name matching if product ID didn't work
+    if (!matchingCommerceProduct && inventoryProduct.name && inventoryProduct.name.trim() !== '') {
+      const nameKey = inventoryProduct.name.trim().toLowerCase();
+      matchingCommerceProduct = commerceByName.get(nameKey);
+      if (matchingCommerceProduct) {
+        matchStrategy = 'name';
+        nameMatches++;
+        console.log(`✓ Name match: "${inventoryProduct.name}" -> ${matchingCommerceProduct.product_id}`);
+      }
+    }
+    
+    if (!matchingCommerceProduct) {
+      noMatches++;
+      console.log(`⚠️ No match found for: ID="${inventoryProduct.item_id}" Name="${inventoryProduct.name}"`);
+    }
+    
+    // Check for images
+    const commerceImages = matchingCommerceProduct?.product_images || [];
+    if (commerceImages.length > 0) {
+      totalImagesAdded += commerceImages.length;
+      console.log(`✓ Found ${commerceImages.length} images for ${inventoryProduct.name}`);
+    } else if (matchingCommerceProduct) {
+      console.log(`⚠️ Matched product has no images: ${inventoryProduct.name}`);
     }
     
     // Merge the products
     const mergedProduct = {
       ...inventoryProduct,
       // Add images from commerce product if found
-      commerce_images: matchingCommerceProduct?.product_images || [],
+      commerce_images: commerceImages,
       // Keep track of matching info
       has_commerce_match: !!matchingCommerceProduct,
       commerce_product_id: matchingCommerceProduct?.product_id || null,
-      matching_sku: inventoryProduct.sku
+      commerce_product_name: matchingCommerceProduct?.product_name || null,
+      match_strategy: matchStrategy,
+      matching_sku: inventoryProduct.sku || 'no_sku'
     };
     
     return mergedProduct;
   });
+  
+  console.log(`\n=== MATCHING SUMMARY ===`);
+  console.log(`Product ID matches: ${productIdMatches}`);
+  console.log(`Name matches: ${nameMatches}`);
+  console.log(`No matches: ${noMatches}`);
+  console.log(`Total images added: ${totalImagesAdded}`);
 }
 
 /**
@@ -252,10 +316,31 @@ function mergeInventoryWithCommerceImagesBySKU(inventoryProducts, commerceProduc
  */
 function transformProducts(products) {
   return products.map(product => {
-    // Use commerce images if available, otherwise empty array
-    const productImages = product.commerce_images && product.commerce_images.length > 0 
-      ? product.commerce_images 
-      : [];
+    // Extract images using Zoho Commerce CDN pattern
+    let productImages = [];
+    
+    if (product.has_commerce_match && product.commerce_product_id) {
+      // Use the matched commerce product to construct CDN URLs
+      const commerceProduct = {
+        product_id: product.commerce_product_id,
+        product_name: product.commerce_product_name,
+        documents: product.documents || [], // This might be in the commerce match
+        document_name: product.document_name // Single document field
+      };
+      productImages = extractCommerceImages(commerceProduct);
+    }
+    
+    // If no commerce images, try using inventory product data
+    if (productImages.length === 0) {
+      // Try to construct CDN URLs using inventory product ID
+      const inventoryAsCommerce = {
+        product_id: product.item_id,
+        product_name: product.name,
+        documents: product.documents || [],
+        document_name: product.image_name // Use inventory image_name as document_name
+      };
+      productImages = extractCommerceImages(inventoryAsCommerce);
+    }
     
     return {
       // Use Inventory API field names as primary
@@ -264,7 +349,7 @@ function transformProducts(products) {
       product_price: product.rate || 0,
       product_description: product.description || '',
       
-      // Use commerce images
+      // Use constructed CDN images
       product_images: productImages,
       
       // Stock/inventory information from Inventory API
@@ -306,7 +391,8 @@ function transformProducts(products) {
       has_commerce_images: productImages.length > 0,
       has_commerce_match: product.has_commerce_match,
       commerce_product_id: product.commerce_product_id,
-      matching_sku: product.matching_sku
+      matching_sku: product.matching_sku,
+      image_source: 'zoho_commerce_cdn'
     };
   });
 }
