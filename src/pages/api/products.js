@@ -350,30 +350,15 @@ function mergeInventoryWithCommerceImagesBySKU(inventoryProducts, commerceProduc
  */
 function transformProducts(products) {
   return products.map(product => {
-    // Extract images using Zoho Commerce CDN pattern
+    // Use the actual commerce_images from the merge process
+    // The logs show images are being found, so use them directly
     let productImages = [];
     
-    if (product.has_commerce_match && product.commerce_product_id) {
-      // Use the matched commerce product to construct CDN URLs
-      const commerceProduct = {
-        product_id: product.commerce_product_id,
-        product_name: product.commerce_product_name,
-        documents: product.documents || [], // This might be in the commerce match
-        document_name: product.document_name // Single document field
-      };
-      productImages = extractCommerceImages(commerceProduct);
-    }
-    
-    // If no commerce images, try using inventory product data
-    if (productImages.length === 0) {
-      // Try to construct CDN URLs using inventory product ID
-      const inventoryAsCommerce = {
-        product_id: product.item_id,
-        product_name: product.name,
-        documents: product.documents || [],
-        document_name: product.image_name // Use inventory image_name as document_name
-      };
-      productImages = extractCommerceImages(inventoryAsCommerce);
+    if (product.commerce_images && Array.isArray(product.commerce_images) && product.commerce_images.length > 0) {
+      productImages = product.commerce_images;
+      console.log(`✓ Using ${product.commerce_images.length} commerce images for ${product.name}`);
+    } else {
+      console.log(`⚠️ No commerce images found for ${product.name}`);
     }
     
     return {
@@ -383,7 +368,7 @@ function transformProducts(products) {
       product_price: product.rate || 0,
       product_description: product.description || '',
       
-      // Use constructed CDN images
+      // Use the commerce images directly
       product_images: productImages,
       
       // Stock/inventory information from Inventory API
@@ -426,7 +411,9 @@ function transformProducts(products) {
       has_commerce_match: product.has_commerce_match,
       commerce_product_id: product.commerce_product_id,
       matching_sku: product.matching_sku,
-      image_source: 'zoho_commerce_cdn'
+      image_source: 'commerce_api_direct',
+      debug_commerce_images_count: product.commerce_images?.length || 0,
+      debug_commerce_images_sample: product.commerce_images?.slice(0, 2) || []
     };
   });
 }
