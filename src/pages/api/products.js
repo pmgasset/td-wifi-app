@@ -1,6 +1,27 @@
-// src/pages/api/products.js - Fixed version with larger images and proper sizing
+// src/pages/api/products.js - Fixed with rate limiting and caching
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
 import { zohoAPI } from '../../lib/zoho-api';
+
+// In-memory cache for products API responses
+let productsCache = {
+  data: null,
+  timestamp: 0,
+  inventoryData: null,
+  commerceData: null
+};
+
+// Cache duration: 5 minutes for development, 15 minutes for production
+const CACHE_DURATION = process.env.NODE_ENV === 'development' ? 5 * 60 * 1000 : 15 * 60 * 1000;
+
+// Rate limiting: Track API calls
+let apiCallTracker = {
+  lastCall: 0,
+  callCount: 0,
+  windowStart: 0
+};
+
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute window
+const MAX_CALLS_PER_WINDOW = 10; // Max 10 calls per minute
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -8,19 +29,95 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('🚀 Starting products API with high-quality image system...');
+    console.log('🚀 Starting products API with rate limiting and caching...');
     
+    // Check rate limiting
+    const now = Date.now();
+    if (now - apiCallTracker.windowStart > RATE_LIMIT_WINDOW) {
+      // Reset window
+      apiCallTracker.windowStart = now;
+      apiCallTracker.callCount = 0;
+    }
+    
+    apiCallTracker.callCount++;
+    apiCallTracker.lastCall = now;
+    
+    if (apiCallTracker.callCount > MAX_CALLS_PER_WINDOW) {
+      console.log('⚠️ Rate limit exceeded, using cache if available');
+      if (productsCache.data && now - productsCache.timestamp < CACHE_DURATION * 2) {
+        console.log('✅ Returning extended cached data due to rate limit');
+        return res.status(200).json({
+          ...productsCache.data,
+          meta: {
+            ...productsCache.data.meta,
+            cached: true,
+            cache_extended_due_to_rate_limit: true,
+            cache_age_minutes: Math.round((now - productsCache.timestamp) / (60 * 1000))
+          }
+        });
+      } else {
+        return res.status(429).json({
+          error: 'Rate limit exceeded',
+          message: 'Too many API calls. Please wait before retrying.',
+          retry_after: Math.ceil((RATE_LIMIT_WINDOW - (now - apiCallTracker.windowStart)) / 1000),
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    // Check cache first
+    if (productsCache.data && now - productsCache.timestamp < CACHE_DURATION) {
+      console.log(`✅ Returning cached products data (${Math.round((now - productsCache.timestamp) / 1000)}s old)`);
+      return res.status(200).json({
+        ...productsCache.data,
+        meta: {
+          ...productsCache.data.meta,
+          cached: true,
+          cache_age_seconds: Math.round((now - productsCache.timestamp) / 1000)
+        }
+      });
+    }
+
     const startTime = Date.now();
 
     // Step 1: Get products from Inventory API (has custom fields)
     console.log('📦 Fetching products from Zoho Inventory API...');
-    const inventoryProducts = await fetchInventoryProducts();
-    console.log(`✅ Retrieved ${inventoryProducts.length} total inventory products`);
+    let inventoryProducts;
+    try {
+      inventoryProducts = await fetchInventoryProductsWithRetry();
+      console.log(`✅ Retrieved ${inventoryProducts.length} total inventory products`);
+    } catch (error) {
+      console.error('❌ Inventory API failed:', error.message);
+      // Use cached inventory data if available
+      if (productsCache.inventoryData) {
+        console.log('⚠️ Using cached inventory data due to API failure');
+        inventoryProducts = productsCache.inventoryData;
+      } else {
+        throw new Error(`Inventory API failed: ${error.message}`);
+      }
+    }
 
-    // Step 2: Get products from Commerce API (has images)
+    // Step 2: Get products from Commerce API (has images) with retry
     console.log('🖼️ Fetching products from Zoho Commerce API for images...');
-    const commerceProducts = await zohoAPI.getProducts();
-    console.log(`✅ Retrieved ${commerceProducts.length} commerce products`);
+    let commerceProducts;
+    try {
+      commerceProducts = await fetchCommerceProductsWithRetry();
+      console.log(`✅ Retrieved ${commerceProducts.length} commerce products`);
+    } catch (error) {
+      console.error('❌ Commerce API failed:', error.message);
+      // Use cached commerce data if available, or continue without images
+      if (productsCache.commerceData) {
+        console.log('⚠️ Using cached commerce data due to API failure');
+        commerceProducts = productsCache.commerceData;
+      } else {
+        console.log('⚠️ Continuing without commerce images due to API failure');
+        commerceProducts = [];
+      }
+    }
+
+    // Cache the raw API responses
+    productsCache.inventoryData = inventoryProducts;
+    productsCache.commerceData = commerceProducts;
 
     // Step 3: Filter inventory products by cf_display_in_app custom field
     console.log('🔍 Filtering products by cf_display_in_app field...');
@@ -44,6 +141,32 @@ export default async function handler(req, res) {
     console.log(`✅ Products API completed in ${processingTime}ms`);
     console.log(`Final result: ${activeProducts.length} active products with display_in_app=true`);
     
+    const responseData = {
+      products: activeProducts,
+      meta: {
+        total_inventory_products: inventoryProducts.length,
+        display_in_app_products: filteredProducts.length,
+        active_display_products: activeProducts.length,
+        commerce_products_fetched: commerceProducts.length,
+        products_with_images: activeProducts.filter(p => p.product_images?.length > 0).length,
+        timestamp: new Date().toISOString(),
+        api_approach: 'inventory_commerce_hybrid',
+        custom_field_filter: 'cf_display_in_app = true',
+        matching_strategy: 'SKU',
+        image_mode: 'high_quality_1200px',
+        processing_time_ms: processingTime,
+        cached: false,
+        rate_limit_status: {
+          calls_this_window: apiCallTracker.callCount,
+          window_resets_in_seconds: Math.ceil((RATE_LIMIT_WINDOW - (now - apiCallTracker.windowStart)) / 1000)
+        }
+      }
+    };
+
+    // Cache the final response
+    productsCache.data = responseData;
+    productsCache.timestamp = now;
+    
     // Add debug info for the first few products
     if (activeProducts.length > 0) {
       console.log('Sample product structure:', {
@@ -59,21 +182,7 @@ export default async function handler(req, res) {
       });
     }
     
-    res.status(200).json({ 
-      products: activeProducts,
-      meta: {
-        total_inventory_products: inventoryProducts.length,
-        display_in_app_products: filteredProducts.length,
-        active_display_products: activeProducts.length,
-        commerce_products_fetched: commerceProducts.length,
-        products_with_images: activeProducts.filter(p => p.product_images?.length > 0).length,
-        timestamp: new Date().toISOString(),
-        api_approach: 'inventory_commerce_hybrid',
-        custom_field_filter: 'cf_display_in_app = true',
-        matching_strategy: 'SKU',
-        image_mode: 'high_quality_1200px'
-      }
-    });
+    res.status(200).json(responseData);
   } catch (error) {
     console.error('Products API Error:', {
       message: error.message,
@@ -81,25 +190,84 @@ export default async function handler(req, res) {
       name: error.name
     });
     
+    // If we have cached data and this is a rate limit error, return cached data
+    if (error.message.includes('rate limit') || error.message.includes('too many requests')) {
+      if (productsCache.data) {
+        console.log('⚠️ Rate limited, returning cached data');
+        return res.status(200).json({
+          ...productsCache.data,
+          meta: {
+            ...productsCache.data.meta,
+            cached: true,
+            cache_fallback_reason: 'rate_limited',
+            cache_age_minutes: Math.round((Date.now() - productsCache.timestamp) / (60 * 1000))
+          }
+        });
+      }
+    }
+    
     res.status(500).json({ 
       error: 'Failed to fetch products',
       details: error.message,
       timestamp: new Date().toISOString(),
       errorType: error.name,
+      isRateLimited: error.message.includes('rate limit') || error.message.includes('too many requests'),
       stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
 
 /**
- * Fetch products from Zoho Inventory API
+ * Fetch inventory products with retry logic
  */
-async function fetchInventoryProducts() {
-  if (zohoInventoryAPI) {
-    return await zohoInventoryAPI.getInventoryProducts();
+async function fetchInventoryProductsWithRetry(maxRetries = 2) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (zohoInventoryAPI) {
+        return await zohoInventoryAPI.getInventoryProducts();
+      } else {
+        throw new Error('Zoho Inventory API not available');
+      }
+    } catch (error) {
+      console.log(`❌ Inventory API attempt ${attempt} failed:`, error.message);
+      
+      if (attempt === maxRetries || error.message.includes('rate limit')) {
+        throw error;
+      }
+      
+      // Wait before retry (exponential backoff)
+      const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s...
+      console.log(`⏳ Waiting ${delay}ms before retry...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
-  
-  throw new Error('Zoho Inventory API not available');
+}
+
+/**
+ * Fetch commerce products with retry logic and rate limit handling
+ */
+async function fetchCommerceProductsWithRetry(maxRetries = 2) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      if (zohoAPI) {
+        return await zohoAPI.getProducts();
+      } else {
+        throw new Error('Zoho Commerce API not available');
+      }
+    } catch (error) {
+      console.log(`❌ Commerce API attempt ${attempt} failed:`, error.message);
+      
+      if (attempt === maxRetries || error.message.includes('rate limit') || error.message.includes('too many requests')) {
+        throw error;
+      }
+      
+      // Wait before retry with longer delays for rate limits
+      const isRateLimit = error.message.includes('rate limit') || error.message.includes('too many requests');
+      const delay = isRateLimit ? 30000 + (attempt * 10000) : Math.pow(2, attempt) * 1000;
+      console.log(`⏳ Waiting ${delay}ms before retry (rate limit: ${isRateLimit})...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
 }
 
 /**
@@ -206,8 +374,7 @@ function mergeInventoryWithCommerceImagesBySKU(inventoryProducts, commerceProduc
 }
 
 /**
- * 🎯 FIXED: Extract high-quality images with proper CDN sizing
- * Uses 1200x1200 for high quality while maintaining CDN compatibility
+ * Extract high-quality images with proper CDN sizing
  */
 function extractCommerceImages(product) {
   const images = [];
@@ -217,7 +384,7 @@ function extractCommerceImages(product) {
     console.log(`Found ${product.documents.length} documents`);
     product.documents.forEach(doc => {
       if (doc.document_name && isImageFile(doc.document_name)) {
-        // 🎯 HIGH-QUALITY: Use 1200x1200 for better quality while keeping CDN structure
+        // Use 1200x1200 for high quality while keeping CDN structure
         const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}/1200x1200?storefront_domain=www.traveldatawifi.com`;
         images.push(imageUrl);
         console.log(`✅ Constructed HIGH-QUALITY CDN image: ${imageUrl}`);
@@ -231,7 +398,6 @@ function extractCommerceImages(product) {
       if (variant.documents && Array.isArray(variant.documents)) {
         variant.documents.forEach(doc => {
           if (doc.document_name && isImageFile(doc.document_name)) {
-            // 🎯 HIGH-QUALITY: 1200x1200 for variant images too
             const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}/1200x1200?storefront_domain=www.traveldatawifi.com`;
             images.push(imageUrl);
             console.log(`✅ Constructed HIGH-QUALITY variant CDN image: ${imageUrl}`);
@@ -276,7 +442,7 @@ function transformProducts(products) {
     let productImages = [];
     
     if (product.commerce_images && Array.isArray(product.commerce_images) && product.commerce_images.length > 0) {
-      productImages = product.commerce_images; // Already processed to 1200x1200
+      productImages = product.commerce_images;
       console.log(`✅ Using ${productImages.length} HIGH-QUALITY images for ${product.name}`);
     } else {
       console.log(`⚠️ No commerce images found for ${product.name}`);
