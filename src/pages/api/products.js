@@ -104,6 +104,112 @@ function filterProductsByDisplayInApp(products) {
   });
 }
 
+// ===== src/pages/api/products.js ===== (RESTORED WORKING VERSION)
+import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
+import { zohoAPI } from '../../lib/zoho-api';
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    console.log('🚀 Starting products API with working image system...');
+    
+    const startTime = Date.now();
+
+    // Step 1: Get products from Inventory API (has custom fields)
+    console.log('📦 Fetching products from Zoho Inventory API...');
+    const inventoryProducts = await zohoInventoryAPI.getInventoryProducts();
+    console.log(`✅ Retrieved ${inventoryProducts.length} total inventory products`);
+
+    // Step 2: Get products from Commerce API (has images)
+    console.log('🖼️ Fetching products from Zoho Commerce API for images...');
+    const commerceProducts = await zohoAPI.getProducts();
+    console.log(`✅ Retrieved ${commerceProducts.length} commerce products`);
+
+    // Step 3: Filter inventory products by cf_display_in_app custom field
+    console.log('🔍 Filtering products by cf_display_in_app field...');
+    const filteredProducts = filterProductsByDisplayInApp(inventoryProducts);
+    console.log(`✅ Found ${filteredProducts.length} products with display_in_app=true`);
+
+    // Step 4: Merge inventory products with commerce images
+    console.log('🔄 Merging inventory products with commerce images...');
+    const mergedProducts = mergeInventoryWithCommerceImages(filteredProducts, commerceProducts);
+
+    // Step 5: Transform to expected frontend format
+    console.log('🎨 Transforming products to frontend format...');
+    const transformedProducts = transformProducts(mergedProducts);
+
+    // Step 6: Filter out inactive products
+    const activeProducts = transformedProducts.filter(product => 
+      product.status === 'active' || product.status === 'Active' || !product.status
+    );
+
+    const processingTime = Date.now() - startTime;
+    console.log(`✅ Products API completed in ${processingTime}ms`);
+
+    // Provide detailed statistics
+    const imageStats = generateImageStatistics(activeProducts);
+
+    res.status(200).json({ 
+      products: activeProducts,
+      meta: {
+        total_inventory_products: inventoryProducts.length,
+        display_in_app_products: filteredProducts.length,
+        active_display_products: activeProducts.length,
+        commerce_products_fetched: commerceProducts.length,
+        processing_time_ms: processingTime,
+        timestamp: new Date().toISOString(),
+        api_version: '1.0_working_restore',
+        ...imageStats
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Products API Error:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
+    res.status(500).json({ 
+      error: 'Failed to fetch products',
+      details: error.message,
+      timestamp: new Date().toISOString(),
+      errorType: error.name,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+  }
+}
+
+/**
+ * Filter products based on cf_display_in_app custom field
+ */
+function filterProductsByDisplayInApp(products) {
+  console.log(`🔍 Filtering ${products.length} products for display_in_app=true`);
+  
+  return products.filter(product => {
+    // Handle both formatted and unformatted custom field values
+    const displayInAppString = product.cf_display_in_app;
+    const displayInAppBoolean = product.cf_display_in_app_unformatted;
+    
+    const isDisplayInApp = 
+      displayInAppBoolean === true ||
+      displayInAppString === 'true' ||
+      displayInAppString === 'True' ||
+      displayInAppString === 'TRUE' ||
+      displayInAppString === '1' ||
+      displayInAppString === 1;
+    
+    if (isDisplayInApp) {
+      console.log(`✅ Including ${product.item_id} (${product.name}) - cf_display_in_app: ${displayInAppString || displayInAppBoolean}`);
+    }
+    
+    return isDisplayInApp;
+  });
+}
+
 /**
  * Merge inventory products with commerce images using ID matching
  */
@@ -118,9 +224,10 @@ function mergeInventoryWithCommerceImages(inventoryProducts, commerceProducts) {
     if (commerceProduct.product_id) {
       commerceByProductId.set(commerceProduct.product_id, commerceProduct);
       
-      // Count images
-      if (commerceProduct.product_images && commerceProduct.product_images.length > 0) {
-        totalCommerceImagesFound += commerceProduct.product_images.length;
+      // Count images by checking both product_images and documents
+      const extractedImages = extractCommerceImages(commerceProduct);
+      if (extractedImages.length > 0) {
+        totalCommerceImagesFound += extractedImages.length;
       }
     }
   });
@@ -141,11 +248,15 @@ function mergeInventoryWithCommerceImages(inventoryProducts, commerceProducts) {
       productIdMatches++;
       matchStrategy = 'product_id';
       
-      // Get images and transform them to remove size restrictions
-      if (matchingCommerceProduct.product_images && Array.isArray(matchingCommerceProduct.product_images)) {
-        commerce_images = transformCommerceImages(matchingCommerceProduct.product_images);
+      // Extract images using the working pattern from your project knowledge
+      commerce_images = extractCommerceImages(matchingCommerceProduct);
+      if (commerce_images.length > 0) {
+        // Remove size restrictions to prevent cropping
+        commerce_images = transformCommerceImages(commerce_images);
         totalImagesAdded += commerce_images.length;
         console.log(`✅ Matched ${inventoryProduct.item_id}: ${commerce_images.length} images`);
+      } else {
+        console.log(`⚠️ No images extracted for ${inventoryProduct.item_id}`);
       }
     }
     
@@ -165,6 +276,86 @@ function mergeInventoryWithCommerceImages(inventoryProducts, commerceProducts) {
   console.log(`Total images added: ${totalImagesAdded}`);
   
   return mergedProducts;
+}
+
+/**
+ * Extract images using Zoho Commerce CDN pattern
+ * Based on your working project knowledge: images are served from us.zohocommercecdn.com
+ */
+function extractCommerceImages(product) {
+  const images = [];
+  
+  console.log(`🔍 Extracting images for product ${product.product_id} (${product.product_name || product.name})`);
+  
+  // Check for documents array which may contain image filenames
+  if (product.documents && Array.isArray(product.documents)) {
+    console.log(`Found ${product.documents.length} documents`);
+    product.documents.forEach(doc => {
+      if (doc.file_name && isImageFile(doc.file_name)) {
+        // Construct Zoho Commerce CDN URL using the pattern from your working code
+        const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`;
+        images.push(imageUrl);
+        console.log(`✓ Constructed CDN image: ${imageUrl}`);
+      } else if (doc.document_name && isImageFile(doc.document_name)) {
+        // Alternative pattern
+        const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}/400x400?storefront_domain=www.traveldatawifi.com`;
+        images.push(imageUrl);
+        console.log(`✓ Constructed CDN image from document_name: ${imageUrl}`);
+      }
+    });
+  }
+  
+  // Check for direct product_images array (if it exists)
+  if (product.product_images && Array.isArray(product.product_images)) {
+    product.product_images.forEach(imageUrl => {
+      if (imageUrl && typeof imageUrl === 'string') {
+        images.push(imageUrl);
+        console.log(`✓ Found direct product image: ${imageUrl}`);
+      }
+    });
+  }
+  
+  // Check for variants with documents
+  if (product.variants && Array.isArray(product.variants)) {
+    product.variants.forEach(variant => {
+      if (variant.documents && Array.isArray(variant.documents)) {
+        variant.documents.forEach(doc => {
+          if (doc.file_name && isImageFile(doc.file_name)) {
+            const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`;
+            images.push(imageUrl);
+            console.log(`✓ Constructed variant CDN image: ${imageUrl}`);
+          }
+        });
+      }
+    });
+  }
+  
+  // If no images found, log available fields for debugging
+  if (images.length === 0 && product.product_id) {
+    console.log(`⚠️ No image files found for product ${product.product_id} (${product.product_name || product.name})`);
+    
+    const availableFields = Object.keys(product).filter(key => 
+      key.toLowerCase().includes('image') || 
+      key.toLowerCase().includes('document') || 
+      key.toLowerCase().includes('file')
+    );
+    console.log(`Available image/document fields: ${availableFields.join(', ')}`);
+    console.log(`Sample product structure:`, JSON.stringify(product, null, 2));
+  }
+  
+  return [...new Set(images)]; // Remove duplicates
+}
+
+/**
+ * Check if filename is an image file
+ */
+function isImageFile(filename) {
+  if (!filename || typeof filename !== 'string') return false;
+  
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+  const lowerFilename = filename.toLowerCase();
+  
+  return imageExtensions.some(ext => lowerFilename.endsWith(ext));
 }
 
 /**
