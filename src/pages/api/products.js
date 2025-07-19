@@ -437,11 +437,11 @@ function extractCommerceImages(product) {
     if (product.documents && product.documents.length > 0) {
       console.log(`Sample document fields:`, Object.keys(product.documents[0]));
       console.log(`First document:`, product.documents[0]);
-    }
+        }
   }
   
   return [...new Set(images)]; // Remove duplicates
-
+}
 /**
  * Transform merged products to expected frontend format
  */
