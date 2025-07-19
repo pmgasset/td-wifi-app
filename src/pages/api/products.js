@@ -1,20 +1,21 @@
-// src/pages/api/products.js - Updated with cf_display_in_app filtering
+// src/pages/api/products.js - Inventory for custom fields + Commerce for images (matched by SKU)
 
-// Import the appropriate Zoho API client
-// We need to use Inventory API for custom fields, so let's check both
-let zohoAPI;
+// Import both API clients
+let zohoAPI, zohoInventoryAPI;
 try {
-  // Try importing the Inventory API client first
-  const inventoryModule = await import('../../lib/zoho-api-inventory');
-  zohoAPI = inventoryModule.zohoInventoryAPI || inventoryModule.zohoAPI;
+  // Import Commerce API (for images)
+  const commerceModule = await import('../../lib/zoho-api');
+  zohoAPI = commerceModule.zohoAPI;
 } catch {
-  try {
-    // Fallback to the existing API client
-    const existingModule = await import('../../lib/zoho-api');
-    zohoAPI = existingModule.zohoAPI;
-  } catch (importError) {
-    console.error('Failed to import Zoho API:', importError);
-  }
+  console.log('Commerce API not available');
+}
+
+try {
+  // Import Inventory API (for custom fields)  
+  const inventoryModule = await import('../../lib/zoho-api-inventory');
+  zohoInventoryAPI = inventoryModule.zohoInventoryAPI;
+} catch {
+  console.log('Inventory API not available - using fallback');
 }
 
 export default async function handler(req, res) {
@@ -28,38 +29,40 @@ export default async function handler(req, res) {
     });
   }
 
-  // Validate that we have an API client
-  if (!zohoAPI) {
-    console.error('Zoho API client not available');
-    return res.status(500).json({
-      error: 'API configuration error',
-      message: 'Zoho API client could not be initialized',
-      availableMethods: 'Unable to determine',
-      timestamp: new Date().toISOString()
-    });
-  }
-
   try {
-    console.log('Fetching products from Zoho Inventory with custom field filtering...');
+    console.log('Fetching products using Inventory (custom fields) + Commerce (images) approach...');
     
-    // Step 1: Get all products from Inventory API (includes custom fields)
+    // Step 1: Get products from Inventory API (for custom fields)
     const inventoryProducts = await fetchInventoryProducts();
-    console.log(`Fetched ${inventoryProducts.length} products from Inventory`);
+    console.log(`Fetched ${inventoryProducts.length} products from Inventory API`);
     
-    // Step 2: Filter products based on cf_display_in_app custom field
+    // Step 2: Filter based on cf_display_in_app
     const filteredProducts = filterProductsByDisplayInApp(inventoryProducts);
     console.log(`Filtered to ${filteredProducts.length} products with display_in_app=true`);
     
-    // Step 3: Transform to expected format for frontend
-    const transformedProducts = transformProducts(filteredProducts);
-    console.log(`Transformed ${transformedProducts.length} products for API response`);
+    // Step 3: Get products from Commerce API (for images)
+    let commerceProducts = [];
+    if (zohoAPI) {
+      try {
+        console.log('Fetching images from Commerce API...');
+        commerceProducts = await zohoAPI.getProducts();
+        console.log(`Fetched ${commerceProducts.length} products from Commerce API`);
+      } catch (commerceError) {
+        console.warn('Failed to fetch from Commerce API:', commerceError.message);
+        // Continue without images rather than failing
+      }
+    }
     
-    // Step 4: Additional filtering for active/storefront products
+    // Step 4: Merge inventory products with commerce images by SKU
+    const enrichedProducts = mergeInventoryWithCommerceImagesBySKU(filteredProducts, commerceProducts);
+    
+    // Step 5: Transform to expected format
+    const transformedProducts = transformProducts(enrichedProducts);
+    
+    // Step 6: Filter for active products only
     const activeProducts = transformedProducts.filter(product => {
       const status = product.status || product.product_status;
-      const isActive = status === 'active';
-      // Only include active products in the public API
-      return isActive;
+      return status === 'active';
     });
     
     console.log(`Final result: ${activeProducts.length} active products with display_in_app=true`);
@@ -68,10 +71,12 @@ export default async function handler(req, res) {
     if (activeProducts.length > 0) {
       console.log('Sample product structure:', {
         id: activeProducts[0].product_id,
-        name: activeProducts[0].product_name || activeProducts[0].name,
-        price: activeProducts[0].product_price || activeProducts[0].rate,
-        hasCustomFields: !!(activeProducts[0].custom_fields?.length),
-        displayInApp: activeProducts[0].cf_display_in_app,
+        name: activeProducts[0].product_name,
+        sku: activeProducts[0].sku,
+        price: activeProducts[0].product_price,
+        hasImages: (activeProducts[0].product_images?.length || 0) > 0,
+        imageCount: activeProducts[0].product_images?.length || 0,
+        cf_display_in_app: activeProducts[0].cf_display_in_app,
         status: activeProducts[0].status
       });
     }
@@ -82,9 +87,12 @@ export default async function handler(req, res) {
         total_inventory_products: inventoryProducts.length,
         display_in_app_products: filteredProducts.length,
         active_display_products: activeProducts.length,
+        commerce_products_fetched: commerceProducts.length,
+        products_with_images: activeProducts.filter(p => p.product_images?.length > 0).length,
         timestamp: new Date().toISOString(),
-        api_client: zohoAPI.constructor.name || 'Zoho Inventory API',
-        custom_field_filter: 'cf_display_in_app = true'
+        api_approach: 'inventory_commerce_hybrid',
+        custom_field_filter: 'cf_display_in_app = true',
+        matching_strategy: 'SKU'
       }
     });
   } catch (error) {
@@ -95,134 +103,194 @@ export default async function handler(req, res) {
     });
     
     res.status(500).json({ 
-      error: 'Failed to fetch products from Zoho Inventory',
+      error: 'Failed to fetch products',
       details: error.message,
       timestamp: new Date().toISOString(),
       errorType: error.name,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
-      suggestion: 'Ensure ZOHO_INVENTORY_ORGANIZATION_ID and custom field cf_display_in_app are configured'
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
 
 /**
  * Fetch products from Zoho Inventory API
- * This API includes custom fields unlike Commerce API
  */
 async function fetchInventoryProducts() {
-  try {
-    // Try different approaches based on available API methods
-    let products = [];
-    
-    if (zohoAPI.getInventoryProducts) {
-      // Use inventory-specific method if available
-      products = await zohoAPI.getInventoryProducts();
-    } else if (zohoAPI.getProducts) {
-      // Use general products method
-      products = await zohoAPI.getProducts();
-    } else {
-      // Fallback to direct API request
-      const response = await makeInventoryAPIRequest('/items');
-      products = response.items || [];
-    }
-    
-    console.log(`Retrieved ${products.length} products from inventory`);
-    return products;
-  } catch (error) {
-    console.error('Failed to fetch inventory products:', error);
-    
-    // Provide helpful error messages
-    if (error.message.includes('organization_id')) {
-      throw new Error('ZOHO_INVENTORY_ORGANIZATION_ID environment variable not configured. Please set this in your environment variables.');
-    } else if (error.message.includes('401') || error.message.includes('authentication')) {
-      throw new Error('Zoho Inventory API authentication failed. Please check your OAuth credentials.');
-    } else {
-      throw error;
-    }
+  if (zohoInventoryAPI) {
+    return await zohoInventoryAPI.getInventoryProducts();
   }
+  
+  // Fallback to direct API call if inventory client not available
+  return await makeDirectInventoryCall();
+}
+
+/**
+ * Direct API call to Inventory (fallback)
+ */
+async function makeDirectInventoryCall() {
+  const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
+  if (!organizationId) {
+    throw new Error('ZOHO_INVENTORY_ORGANIZATION_ID environment variable is required');
+  }
+  
+  // Get access token
+  const tokenResponse = await fetch('https://accounts.zoho.com/oauth/v2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      refresh_token: process.env.ZOHO_REFRESH_TOKEN,
+      client_id: process.env.ZOHO_CLIENT_ID,
+      client_secret: process.env.ZOHO_CLIENT_SECRET,
+      grant_type: 'refresh_token',
+    }),
+  });
+
+  if (!tokenResponse.ok) {
+    throw new Error(`Token refresh failed: ${tokenResponse.status}`);
+  }
+
+  const tokenData = await tokenResponse.json();
+  
+  // Call Inventory API
+  const url = `https://www.zohoapis.com/inventory/v1/items?organization_id=${organizationId}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Zoho-oauthtoken ${tokenData.access_token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Inventory API failed: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  return data.items || [];
 }
 
 /**
  * Filter products based on cf_display_in_app custom field
- * FIXED: Custom fields are direct properties, not in a custom_fields array
+ * Custom fields are direct properties in Inventory API response
  */
 function filterProductsByDisplayInApp(products) {
-  console.log(`Starting filter with ${products.length} products`);
+  console.log(`Filtering ${products.length} products for display_in_app=true`);
   
   return products.filter(product => {
-    // Check for the custom field directly on the product object
-    // Based on debug data, the field appears as both:
-    // - cf_display_in_app (string "true"/"false") 
-    // - cf_display_in_app_unformatted (boolean true/false)
-    
     const displayInAppString = product.cf_display_in_app;
     const displayInAppBoolean = product.cf_display_in_app_unformatted;
     
-    console.log(`Product ${product.item_id} (${product.name}):`);
-    console.log(`  cf_display_in_app: ${displayInAppString} (${typeof displayInAppString})`);
-    console.log(`  cf_display_in_app_unformatted: ${displayInAppBoolean} (${typeof displayInAppBoolean})`);
-    
-    // Check if either field indicates the product should be displayed
     const isDisplayInApp = 
-      displayInAppBoolean === true ||                    // Boolean true
-      displayInAppString === 'true' ||                  // String "true"
-      displayInAppString === 'True' ||                  // String "True"
-      displayInAppString === 'TRUE' ||                  // String "TRUE"
-      displayInAppString === '1' ||                     // String "1"
-      displayInAppString === 1;                         // Number 1
+      displayInAppBoolean === true ||
+      displayInAppString === 'true' ||
+      displayInAppString === 'True' ||
+      displayInAppString === 'TRUE' ||
+      displayInAppString === '1' ||
+      displayInAppString === 1;
     
-    if (!isDisplayInApp) {
-      console.log(`  → EXCLUDING (display_in_app is falsy)`);
-      return false;
+    if (isDisplayInApp) {
+      console.log(`✓ Including ${product.item_id} (${product.name}) - SKU: ${product.sku}`);
     }
     
-    console.log(`  → INCLUDING (display_in_app is true)`);
-    return true;
+    return isDisplayInApp;
   });
 }
 
 /**
- * Transform Inventory API products to expected frontend format
- * FIXED: Handle custom fields as direct properties
+ * Merge inventory products with commerce images by SKU matching
+ * This is the critical function for matching products between the two APIs
+ */
+function mergeInventoryWithCommerceImagesBySKU(inventoryProducts, commerceProducts) {
+  console.log(`Merging ${inventoryProducts.length} inventory products with ${commerceProducts.length} commerce products by SKU`);
+  
+  // Create a SKU lookup map for commerce products
+  const commerceBySKU = new Map();
+  commerceProducts.forEach(commerceProduct => {
+    if (commerceProduct.sku && commerceProduct.sku.trim() !== '') {
+      commerceBySKU.set(commerceProduct.sku.trim().toLowerCase(), commerceProduct);
+    }
+  });
+  
+  console.log(`Created commerce SKU map with ${commerceBySKU.size} entries`);
+  
+  return inventoryProducts.map(inventoryProduct => {
+    let matchingCommerceProduct = null;
+    
+    // Try to find matching commerce product by SKU
+    if (inventoryProduct.sku && inventoryProduct.sku.trim() !== '') {
+      const skuKey = inventoryProduct.sku.trim().toLowerCase();
+      matchingCommerceProduct = commerceBySKU.get(skuKey);
+      
+      if (matchingCommerceProduct) {
+        console.log(`✓ SKU match found: ${inventoryProduct.sku} -> Commerce product ${matchingCommerceProduct.product_id}`);
+      } else {
+        console.log(`⚠️ No SKU match for: ${inventoryProduct.sku} (${inventoryProduct.name})`);
+      }
+    } else {
+      console.log(`⚠️ Inventory product ${inventoryProduct.item_id} has no SKU`);
+    }
+    
+    // Merge the products
+    const mergedProduct = {
+      ...inventoryProduct,
+      // Add images from commerce product if found
+      commerce_images: matchingCommerceProduct?.product_images || [],
+      // Keep track of matching info
+      has_commerce_match: !!matchingCommerceProduct,
+      commerce_product_id: matchingCommerceProduct?.product_id || null,
+      matching_sku: inventoryProduct.sku
+    };
+    
+    return mergedProduct;
+  });
+}
+
+/**
+ * Transform merged products to expected frontend format
  */
 function transformProducts(products) {
   return products.map(product => {
+    // Use commerce images if available, otherwise empty array
+    const productImages = product.commerce_images && product.commerce_images.length > 0 
+      ? product.commerce_images 
+      : [];
+    
     return {
-      // Use Inventory API field names
-      product_id: product.item_id || product.product_id,
-      product_name: product.name || product.product_name,
-      product_price: product.rate || product.min_rate || product.product_price || 0,
+      // Use Inventory API field names as primary
+      product_id: product.item_id,
+      product_name: product.name,
+      product_price: product.rate || 0,
       product_description: product.description || '',
       
-      // Image handling for Inventory API
-      product_images: extractInventoryImages(product),
+      // Use commerce images
+      product_images: productImages,
       
-      // Stock/inventory information
-      inventory_count: parseStock(product.stock_on_hand || product.available_stock || product.overall_stock),
+      // Stock/inventory information from Inventory API
+      inventory_count: parseStock(product.stock_on_hand || product.available_stock),
       
       // Category information
       product_category: product.category_name || product.group_name || '',
       category_id: product.category_id || product.group_id,
       
       // Product status and visibility
-      status: product.status || 'active',
+      status: product.status,
       
       // SEO and URL
-      seo_url: product.sku || product.item_id || product.product_id,
+      seo_url: product.sku || product.item_id,
       
-      // Custom fields - now direct properties
-      cf_display_in_app: product.cf_display_in_app_unformatted || product.cf_display_in_app || false,
+      // Custom fields (the whole reason we're using Inventory API)
+      cf_display_in_app: product.cf_display_in_app_unformatted || product.cf_display_in_app,
       
-      // Additional Inventory-specific fields
+      // Additional fields
       sku: product.sku,
       item_type: product.item_type,
       product_type: product.product_type,
-      tax_name: product.tax_name,
-      tax_percentage: product.tax_percentage,
+      show_in_storefront: product.show_in_storefront,
       
       // Pricing details
-      min_rate: product.rate || product.min_rate,
-      max_rate: product.rate || product.max_rate,
+      rate: product.rate,
       purchase_rate: product.purchase_rate,
       
       // Stock details
@@ -234,49 +302,13 @@ function transformProducts(products) {
       created_time: product.created_time,
       last_modified_time: product.last_modified_time,
       
-      // Storefront visibility
-      show_in_storefront: product.show_in_storefront
+      // Debug info (helpful for troubleshooting)
+      has_commerce_images: productImages.length > 0,
+      has_commerce_match: product.has_commerce_match,
+      commerce_product_id: product.commerce_product_id,
+      matching_sku: product.matching_sku
     };
   });
-}
-
-/**
- * Extract images from Inventory API product
- * Uses proxy endpoint to handle authentication
- */
-function extractInventoryImages(product) {
-  const images = [];
-  
-  // Method 1: Use image_document_id or image_name to create proxy URL
-  if ((product.image_document_id && product.image_document_id !== '') || 
-      (product.image_name && product.image_name !== '')) {
-    
-    // Use our proxy endpoint which handles authentication
-    const proxyImageUrl = `/api/images/${product.item_id}`;
-    images.push(proxyImageUrl);
-    console.log(`✓ Added proxy image for ${product.item_id}: ${proxyImageUrl}`);
-  }
-  
-  // Method 2: Check for any direct image URLs that don't need authentication
-  const directImageFields = ['image_url', 'document_url', 'file_url', 'attachment_url', 'public_image_url'];
-  directImageFields.forEach(field => {
-    if (product[field] && product[field] !== '' && product[field].startsWith('http')) {
-      images.push(product[field]);
-      console.log(`✓ Added direct image from ${field} for ${product.item_id}: ${product[field]}`);
-    }
-  });
-  
-  // Debug logging
-  if (images.length === 0) {
-    console.log(`⚠️ No images found for ${product.item_id} (${product.name})`);
-    console.log(`  image_name: "${product.image_name}"`);
-    console.log(`  image_document_id: "${product.image_document_id}"`);
-    console.log(`  image_type: "${product.image_type}"`);
-  } else {
-    console.log(`✓ Found ${images.length} image(s) for ${product.item_id}`);
-  }
-  
-  return images;
 }
 
 /**
@@ -289,46 +321,4 @@ function parseStock(stockValue) {
   
   const parsed = typeof stockValue === 'string' ? parseFloat(stockValue) : Number(stockValue);
   return isNaN(parsed) ? 0 : parsed;
-}
-
-/**
- * Make direct API request to Zoho Inventory
- * Fallback method if zohoAPI doesn't have the right methods
- */
-async function makeInventoryAPIRequest(endpoint) {
-  const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
-  if (!organizationId) {
-    throw new Error('ZOHO_INVENTORY_ORGANIZATION_ID environment variable is required');
-  }
-  
-  // Get access token (this method varies by implementation)
-  let accessToken;
-  if (zohoAPI.getAccessToken) {
-    accessToken = await zohoAPI.getAccessToken();
-  } else {
-    throw new Error('Unable to get access token - zohoAPI.getAccessToken method not available');
-  }
-  
-  const url = `https://www.zohoapis.com/inventory/v1${endpoint}?organization_id=${organizationId}`;
-  
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Zoho-oauthtoken ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  });
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Inventory API error: ${response.status} - ${errorText}`);
-  }
-  
-  const data = await response.json();
-  
-  if (data.code && data.code !== 0) {
-    throw new Error(`Inventory API error: ${data.message} (Code: ${data.code})`);
-  }
-  
-  return data;
 }
