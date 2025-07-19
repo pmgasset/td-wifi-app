@@ -1,4 +1,85 @@
-// src/pages/api/products.js - Inventory for custom fields + Commerce for images (matched by SKU)
+/**
+ * Direct API call to Inventory (fallback) with token caching
+ */
+async function makeDirectInventoryCall() {
+  const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
+  if (!organizationId) {
+    throw new Error('ZOHO_INVENTORY_ORGANIZATION_ID environment variable is required');
+  }
+  
+  // Use the same token caching logic as the Inventory API client
+  const token = await getCachedToken();
+  
+  // Call Inventory API
+  const url = `https://www.zohoapis.com/inventory/v1/items?organization_id=${organizationId}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Zoho-oauthtoken ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Inventory API failed: ${response.status} - ${errorText}`);
+  }
+  
+  const data = await response.json();
+  return data.items || [];
+}
+
+// Global token cache for direct API calls
+let directApiTokenCache = {
+  accessToken: null,
+  expiryTime: 0
+};
+
+/**
+ * Get cached token for direct API calls
+ */
+async function getCachedToken() {
+  const now = Date.now();
+  
+  // Check if we have a valid cached token
+  if (directApiTokenCache.accessToken && now < directApiTokenCache.expiryTime) {
+    console.log('✓ Using cached token for direct API call');
+    return directApiTokenCache.accessToken;
+  }
+
+  console.log('🔄 Refreshing token for direct API call...');
+
+  const tokenResponse = await fetch('https://accounts.zoho.com/oauth/v2/token', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams({
+      refresh_token: process.env.ZOHO_REFRESH_TOKEN,
+      client_id: process.env.ZOHO_CLIENT_ID,
+      client_secret: process.env.ZOHO_CLIENT_SECRET,
+      grant_type: 'refresh_token',
+    }),
+  });
+
+  if (!tokenResponse.ok) {
+    const errorText = await tokenResponse.text();
+    throw new Error(`Token refresh failed: ${tokenResponse.status} ${errorText}`);
+  }
+
+  const tokenData = await tokenResponse.json();
+  
+  if (!tokenData.access_token) {
+    throw new Error(`No access token in response: ${JSON.stringify(tokenData)}`);
+  }
+
+  // Cache the token for 50 minutes
+  directApiTokenCache.accessToken = tokenData.access_token;
+  directApiTokenCache.expiryTime = now + (50 * 60 * 1000);
+
+  console.log('✓ Token cached for direct API calls');
+  return tokenData.access_token;
+}// src/pages/api/products.js - Inventory for custom fields + Commerce for images (matched by SKU)
 
 // Import both API clients
 let zohoAPI, zohoInventoryAPI;

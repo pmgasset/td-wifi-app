@@ -1,4 +1,4 @@
-// src/lib/zoho-api-inventory.ts - Zoho Inventory API client with custom fields support
+// src/lib/zoho-api-inventory.ts - Zoho Inventory API client with token caching
 
 interface ZohoInventoryItem {
   item_id: string;
@@ -60,6 +60,15 @@ interface ZohoInventoryResponse<T> {
   item?: T;
 }
 
+// Global token cache to share across all instances
+let globalTokenCache: {
+  accessToken: string | null;
+  expiryTime: number;
+} = {
+  accessToken: null,
+  expiryTime: 0
+};
+
 class ZohoInventoryAPI {
   private baseURL: string;
   private organizationId: string;
@@ -74,9 +83,18 @@ class ZohoInventoryAPI {
   }
 
   /**
-   * Get access token using refresh token
+   * Get access token using refresh token with caching
    */
   async getAccessToken(): Promise<string> {
+    // Check if we have a valid cached token
+    const now = Date.now();
+    if (globalTokenCache.accessToken && now < globalTokenCache.expiryTime) {
+      console.log('✓ Using cached Zoho access token');
+      return globalTokenCache.accessToken;
+    }
+
+    console.log('🔄 Refreshing Zoho access token...');
+
     const refreshToken = process.env.ZOHO_REFRESH_TOKEN;
     const clientId = process.env.ZOHO_CLIENT_ID;
     const clientSecret = process.env.ZOHO_CLIENT_SECRET;
@@ -110,6 +128,11 @@ class ZohoInventoryAPI {
         throw new Error(`No access token in response: ${JSON.stringify(tokenData)}`);
       }
 
+      // Cache the token for 50 minutes (expires in 1 hour, so we refresh with buffer)
+      globalTokenCache.accessToken = tokenData.access_token;
+      globalTokenCache.expiryTime = now + (50 * 60 * 1000); // 50 minutes from now
+
+      console.log('✓ New Zoho access token cached successfully');
       return tokenData.access_token;
     } catch (error) {
       console.error('Failed to get Zoho access token:', error);
@@ -143,6 +166,10 @@ class ZohoInventoryAPI {
     const responseText = await response.text();
 
     if (!response.ok) {
+      // Check if it's a rate limit error
+      if (response.status === 429) {
+        throw new Error(`Rate limit exceeded. Please wait before making more requests.`);
+      }
       throw new Error(`Inventory API error: ${response.status} - ${responseText}`);
     }
 
@@ -385,6 +412,15 @@ class ZohoInventoryAPI {
     }
     
     return images;
+  }
+
+  /**
+   * Clear the cached token (useful for testing or error recovery)
+   */
+  static clearTokenCache(): void {
+    globalTokenCache.accessToken = null;
+    globalTokenCache.expiryTime = 0;
+    console.log('✓ Zoho token cache cleared');
   }
 }
 
