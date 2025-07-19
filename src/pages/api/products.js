@@ -144,65 +144,49 @@ async function fetchInventoryProducts() {
 
 /**
  * Filter products based on cf_display_in_app custom field
+ * FIXED: Custom fields are direct properties, not in a custom_fields array
  */
 function filterProductsByDisplayInApp(products) {
+  console.log(`Starting filter with ${products.length} products`);
+  
   return products.filter(product => {
-    // Check if product has custom fields
-    if (!product.custom_fields || !Array.isArray(product.custom_fields)) {
-      console.log(`Product ${product.item_id || product.product_id} has no custom fields - excluding`);
-      return false;
-    }
+    // Check for the custom field directly on the product object
+    // Based on debug data, the field appears as both:
+    // - cf_display_in_app (string "true"/"false") 
+    // - cf_display_in_app_unformatted (boolean true/false)
     
-    // Find the cf_display_in_app custom field
-    const displayInAppField = product.custom_fields.find(field => {
-      // The field might be referenced by different names
-      const fieldLabel = field.label?.toLowerCase();
-      const fieldName = field.field_name?.toLowerCase();
-      
-      return fieldLabel === 'display_in_app' || 
-             fieldLabel === 'cf_display_in_app' ||
-             fieldName === 'display_in_app' ||
-             fieldName === 'cf_display_in_app' ||
-             field.customfield_id === process.env.ZOHO_DISPLAY_IN_APP_FIELD_ID;
-    });
+    const displayInAppString = product.cf_display_in_app;
+    const displayInAppBoolean = product.cf_display_in_app_unformatted;
     
-    if (!displayInAppField) {
-      console.log(`Product ${product.item_id || product.product_id} does not have cf_display_in_app field - excluding`);
-      return false;
-    }
+    console.log(`Product ${product.item_id} (${product.name}):`);
+    console.log(`  cf_display_in_app: ${displayInAppString} (${typeof displayInAppString})`);
+    console.log(`  cf_display_in_app_unformatted: ${displayInAppBoolean} (${typeof displayInAppBoolean})`);
     
-    // Check if the value is true (handle different data types)
-    const fieldValue = displayInAppField.value;
-    const isDisplayInApp = fieldValue === true || 
-                          fieldValue === 'true' || 
-                          fieldValue === '1' || 
-                          fieldValue === 1;
+    // Check if either field indicates the product should be displayed
+    const isDisplayInApp = 
+      displayInAppBoolean === true ||                    // Boolean true
+      displayInAppString === 'true' ||                  // String "true"
+      displayInAppString === 'True' ||                  // String "True"
+      displayInAppString === 'TRUE' ||                  // String "TRUE"
+      displayInAppString === '1' ||                     // String "1"
+      displayInAppString === 1;                         // Number 1
     
     if (!isDisplayInApp) {
-      console.log(`Product ${product.item_id || product.product_id} has cf_display_in_app=${fieldValue} - excluding`);
+      console.log(`  → EXCLUDING (display_in_app is falsy)`);
       return false;
     }
     
-    console.log(`Product ${product.item_id || product.product_id} has cf_display_in_app=true - including`);
+    console.log(`  → INCLUDING (display_in_app is true)`);
     return true;
   });
 }
 
 /**
  * Transform Inventory API products to expected frontend format
+ * FIXED: Handle custom fields as direct properties
  */
 function transformProducts(products) {
   return products.map(product => {
-    // Extract display_in_app value for easy access
-    const displayInAppField = product.custom_fields?.find(field => {
-      const fieldLabel = field.label?.toLowerCase();
-      const fieldName = field.field_name?.toLowerCase();
-      return fieldLabel === 'display_in_app' || 
-             fieldLabel === 'cf_display_in_app' ||
-             fieldName === 'display_in_app' ||
-             fieldName === 'cf_display_in_app';
-    });
-    
     return {
       // Use Inventory API field names
       product_id: product.item_id || product.product_id,
@@ -226,9 +210,8 @@ function transformProducts(products) {
       // SEO and URL
       seo_url: product.sku || product.item_id || product.product_id,
       
-      // Custom fields - make cf_display_in_app easily accessible
-      cf_display_in_app: displayInAppField?.value || false,
-      custom_fields: product.custom_fields || [],
+      // Custom fields - now direct properties
+      cf_display_in_app: product.cf_display_in_app_unformatted || product.cf_display_in_app || false,
       
       // Additional Inventory-specific fields
       sku: product.sku,
@@ -249,7 +232,10 @@ function transformProducts(products) {
       
       // Timestamps
       created_time: product.created_time,
-      last_modified_time: product.last_modified_time
+      last_modified_time: product.last_modified_time,
+      
+      // Storefront visibility
+      show_in_storefront: product.show_in_storefront
     };
   });
 }
