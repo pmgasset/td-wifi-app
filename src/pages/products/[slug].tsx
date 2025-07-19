@@ -547,7 +547,7 @@ const ProductPage: React.FC = () => {
     "name": product.product_name || product.name,
     "description": parsedDescription.text || `Buy ${product.product_name || product.name} from Travel Data WiFi`,
     "image": product.product_images && product.product_images.length > 0 
-      ? product.product_images.map(img => typeof img === 'string' ? img : img.src).filter(Boolean)
+      ? product.product_images.map((img: string | { src: string }) => typeof img === 'string' ? img : img.src).filter(Boolean)
       : [getProductImage(product)],
     "offers": {
       "@type": "Offer",
