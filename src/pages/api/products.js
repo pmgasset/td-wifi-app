@@ -1,4 +1,6 @@
-// src/pages/api/products.js - Updated to provide full-size images
+// src/pages/api/products.js - COMPLETE REPLACEMENT FILE
+// This removes size restrictions and fixes image display issues
+
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
 import { zohoAPI } from '../../lib/zoho-api';
 
@@ -14,7 +16,7 @@ export default async function handler(req, res) {
 
     // Step 1: Get products from Inventory API (has custom fields)
     console.log('📦 Fetching products from Zoho Inventory API...');
-    const inventoryProducts = await zohoInventoryAPI.getInventoryProducts();
+    const inventoryProducts = await fetchInventoryProducts();
     console.log(`✅ Retrieved ${inventoryProducts.length} total inventory products`);
 
     // Step 2: Get products from Commerce API (has images)
@@ -29,7 +31,7 @@ export default async function handler(req, res) {
 
     // Step 4: Merge inventory products with commerce images
     console.log('🔄 Merging inventory products with commerce images...');
-    const mergedProducts = mergeInventoryWithCommerceImages(filteredProducts, commerceProducts);
+    const mergedProducts = mergeInventoryWithCommerceImagesBySKU(filteredProducts, commerceProducts);
 
     // Step 5: Transform to expected frontend format
     console.log('🎨 Transforming products to frontend format...');
@@ -99,13 +101,11 @@ async function fetchInventoryProducts() {
     return await zohoInventoryAPI.getInventoryProducts();
   }
   
-  // Fallback to direct API call if inventory client not available
-  return await makeDirectInventoryCall();
+  throw new Error('Zoho Inventory API not available');
 }
 
 /**
  * Filter products based on cf_display_in_app custom field
- * Custom fields are direct properties in Inventory API response
  */
 function filterProductsByDisplayInApp(products) {
   console.log(`🔍 Filtering ${products.length} products for display_in_app=true`);
@@ -132,9 +132,8 @@ function filterProductsByDisplayInApp(products) {
 
 /**
  * Merge inventory products with commerce images using multiple matching strategies
- * Based on debug findings: Product IDs actually DO match, but Commerce API has no images
  */
-function mergeInventoryWithCommerceImages(inventoryProducts, commerceProducts) {
+function mergeInventoryWithCommerceImagesBySKU(inventoryProducts, commerceProducts) {
   console.log(`🔗 Merging ${inventoryProducts.length} inventory products with ${commerceProducts.length} commerce products`);
   
   // Create lookup maps for different matching strategies
@@ -143,7 +142,7 @@ function mergeInventoryWithCommerceImages(inventoryProducts, commerceProducts) {
   let totalCommerceImagesFound = 0;
   
   commerceProducts.forEach(commerceProduct => {
-    // Strategy 1: Match by product ID (appears to be the same between APIs)
+    // Strategy 1: Match by product ID
     if (commerceProduct.product_id) {
       commerceByProductId.set(commerceProduct.product_id, commerceProduct);
     }
@@ -209,9 +208,8 @@ function mergeInventoryWithCommerceImages(inventoryProducts, commerceProducts) {
 }
 
 /**
- * Extract images using Zoho Commerce CDN pattern (FULL-SIZE VERSION)
- * Based on live site analysis: images are served from us.zohocommercecdn.com
- * IMPORTANT: This version removes size restrictions for high-quality images
+ * 🎯 CRITICAL FIX: Extract full-size images without any size restrictions
+ * This function now removes ALL size parameters from image URLs
  */
 function extractCommerceImages(product) {
   const images = [];
@@ -221,24 +219,24 @@ function extractCommerceImages(product) {
     console.log(`Found ${product.documents.length} documents`);
     product.documents.forEach(doc => {
       if (doc.document_name && isImageFile(doc.document_name)) {
-        // 🎯 FULL-SIZE IMAGE: Remove size restrictions entirely
+        // 🎯 FULL-SIZE: Remove the /400x400 completely for maximum quality
         const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}?storefront_domain=www.traveldatawifi.com`;
         images.push(imageUrl);
-        console.log(`✓ Constructed full-size CDN image: ${imageUrl}`);
+        console.log(`✅ Constructed FULL-SIZE CDN image: ${imageUrl}`);
       }
     });
   }
   
-  // Check for variants with documents (as shown in your test data)
+  // Check for variants with documents
   if (product.variants && Array.isArray(product.variants)) {
     product.variants.forEach(variant => {
       if (variant.documents && Array.isArray(variant.documents)) {
         variant.documents.forEach(doc => {
           if (doc.document_name && isImageFile(doc.document_name)) {
-            // 🎯 FULL-SIZE VARIANT IMAGE: No size restrictions
+            // 🎯 FULL-SIZE: No size restrictions on variant images either
             const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}?storefront_domain=www.traveldatawifi.com`;
             images.push(imageUrl);
-            console.log(`✓ Constructed full-size variant CDN image: ${imageUrl}`);
+            console.log(`✅ Constructed FULL-SIZE variant CDN image: ${imageUrl}`);
           }
         });
       }
@@ -249,24 +247,13 @@ function extractCommerceImages(product) {
   if (product.document_name && isImageFile(product.document_name)) {
     const imageUrl = `https://us.zohocommercecdn.com/product-images/${product.document_name}/${product.product_id}?storefront_domain=www.traveldatawifi.com`;
     images.push(imageUrl);
-    console.log(`✓ Constructed full-size single CDN image: ${imageUrl}`);
+    console.log(`✅ Constructed FULL-SIZE single CDN image: ${imageUrl}`);
   }
   
-  // Try alternative image fields that might exist
-  const imageFields = ['image_name', 'image_file', 'image_filename'];
-  imageFields.forEach(field => {
-    if (product[field] && isImageFile(product[field])) {
-      const imageUrl = `https://us.zohocommercecdn.com/product-images/${product[field]}/${product.product_id}?storefront_domain=www.traveldatawifi.com`;
-      images.push(imageUrl);
-      console.log(`✓ Constructed full-size CDN image from ${field}: ${imageUrl}`);
-    }
-  });
-  
-  // If no images found but we have a product_id, try some common patterns
+  // If no images found, provide debugging info
   if (images.length === 0 && product.product_id) {
     console.log(`⚠️ No image files found for product ${product.product_id} (${product.product_name || product.name})`);
     
-    // Log what fields are available for debugging
     const availableFields = Object.keys(product).filter(key => 
       key.toLowerCase().includes('image') || 
       key.toLowerCase().includes('document') || 
@@ -274,7 +261,6 @@ function extractCommerceImages(product) {
     );
     console.log(`Available image/document fields: ${availableFields.join(', ')}`);
     
-    // Log the actual documents structure
     if (product.documents) {
       console.log(`Documents structure:`, JSON.stringify(product.documents.slice(0, 1), null, 2));
     }
@@ -284,38 +270,16 @@ function extractCommerceImages(product) {
 }
 
 /**
- * Transform commerce images to full-size versions (removes size restrictions)
- */
-function transformCommerceImages(images) {
-  if (!images || !Array.isArray(images)) return [];
-  
-  return images.map(imageUrl => {
-    if (typeof imageUrl !== 'string') return imageUrl;
-    
-    // Remove any size restrictions from Zoho CDN URLs
-    if (imageUrl.includes('zohocommercecdn.com')) {
-      // Remove size parameters like /400x400, /300x300, etc.
-      let fullSizeUrl = imageUrl.replace(/\/\d+x\d+(?=\?|$)/, '');
-      console.log(`✓ Converted to full-size: ${imageUrl} -> ${fullSizeUrl}`);
-      return fullSizeUrl;
-    } else {
-      // Return as-is if not a sized Zoho CDN URL
-      return imageUrl;
-    }
-  });
-}
-
-/**
  * Transform merged products to expected frontend format
  */
 function transformProducts(products) {
   return products.map(product => {
-    // Transform images to full-size versions
+    // Get full-size images without any transformation
     let productImages = [];
     
     if (product.commerce_images && Array.isArray(product.commerce_images) && product.commerce_images.length > 0) {
-      productImages = transformCommerceImages(product.commerce_images);
-      console.log(`✓ Using ${productImages.length} full-size images for ${product.name}`);
+      productImages = product.commerce_images; // Use as-is, they're already full-size
+      console.log(`✅ Using ${productImages.length} FULL-SIZE images for ${product.name}`);
     } else {
       console.log(`⚠️ No commerce images found for ${product.name}`);
     }
@@ -343,7 +307,7 @@ function transformProducts(products) {
       // SEO and URL
       seo_url: product.sku || product.item_id,
       
-      // Custom fields (the whole reason we're using Inventory API)
+      // Custom fields
       cf_display_in_app: product.cf_display_in_app_unformatted || product.cf_display_in_app,
       
       // Additional fields
@@ -365,12 +329,12 @@ function transformProducts(products) {
       created_time: product.created_time,
       last_modified_time: product.last_modified_time,
       
-      // Debug info (helpful for troubleshooting)
+      // Debug info
       has_commerce_images: productImages.length > 0,
       has_commerce_match: product.has_commerce_match,
       commerce_product_id: product.commerce_product_id,
       matching_sku: product.matching_sku,
-      image_source: 'commerce_api_full_size_no_restrictions'
+      image_source: 'full_size_no_restrictions'
     };
   });
 }
