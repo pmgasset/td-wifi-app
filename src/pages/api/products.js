@@ -408,3 +408,67 @@ function parseStock(stockValue) {
   const parsed = typeof stockValue === 'string' ? parseFloat(stockValue) : Number(stockValue);
   return isNaN(parsed) ? 0 : parsed;
 }
+
+/**
+ * Extract images using Zoho Commerce CDN pattern
+ * Based on live site analysis: images are served from us.zohocommercecdn.com
+ */
+function extractCommerceImages(product) {
+  const images = [];
+  
+  // Check for documents array which may contain image filenames
+  if (product.documents && Array.isArray(product.documents)) {
+    product.documents.forEach(doc => {
+      if (doc.document_name && isImageFile(doc.document_name)) {
+        // Construct Zoho Commerce CDN URL
+        const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}/400x400?storefront_domain=www.traveldatawifi.com`;
+        images.push(imageUrl);
+        console.log(`✓ Constructed CDN image: ${imageUrl}`);
+      }
+    });
+  }
+  
+  // Check for document_name field (single image)
+  if (product.document_name && isImageFile(product.document_name)) {
+    const imageUrl = `https://us.zohocommercecdn.com/product-images/${product.document_name}/${product.product_id}/400x400?storefront_domain=www.traveldatawifi.com`;
+    images.push(imageUrl);
+    console.log(`✓ Constructed single CDN image: ${imageUrl}`);
+  }
+  
+  // Try alternative image fields that might exist
+  const imageFields = ['image_name', 'image_file', 'image_filename'];
+  imageFields.forEach(field => {
+    if (product[field] && isImageFile(product[field])) {
+      const imageUrl = `https://us.zohocommercecdn.com/product-images/${product[field]}/${product.product_id}/400x400?storefront_domain=www.traveldatawifi.com`;
+      images.push(imageUrl);
+      console.log(`✓ Constructed CDN image from ${field}: ${imageUrl}`);
+    }
+  });
+  
+  // If no images found but we have a product_id, try some common patterns
+  if (images.length === 0 && product.product_id) {
+    console.log(`⚠️ No image files found for product ${product.product_id} (${product.product_name || product.name})`);
+    
+    // Log what fields are available for debugging
+    const availableFields = Object.keys(product).filter(key => 
+      key.toLowerCase().includes('image') || 
+      key.toLowerCase().includes('document') || 
+      key.toLowerCase().includes('file')
+    );
+    console.log(`Available image/document fields: ${availableFields.join(', ')}`);
+  }
+  
+  return [...new Set(images)]; // Remove duplicates
+}
+
+/**
+ * Check if filename is an image file
+ */
+function isImageFile(filename) {
+  if (!filename || typeof filename !== 'string') return false;
+  
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+  const lowerFilename = filename.toLowerCase();
+  
+  return imageExtensions.some(ext => lowerFilename.endsWith(ext));
+}
