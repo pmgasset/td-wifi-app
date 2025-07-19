@@ -386,16 +386,18 @@ function extractCommerceImages(product) {
   if (product.documents && Array.isArray(product.documents)) {
     console.log(`Found ${product.documents.length} documents`);
     product.documents.forEach(doc => {
-      if (doc.document_name && isImageFile(doc.document_name)) {
-        // 🎯 FIXED: Use the commerce document's OWN document_id, not the product_id
+      // 🎯 CRITICAL FIX: Use "file_name" not "document_name"
+      if (doc.file_name && isImageFile(doc.file_name)) {
         const documentId = doc.document_id || doc.id;
         if (documentId) {
-          const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${documentId}/1200x1200?storefront_domain=www.traveldatawifi.com`;
+          const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${documentId}/1200x1200?storefront_domain=www.traveldatawifi.com`;
           images.push(imageUrl);
-          console.log(`✅ Constructed FIXED CDN image: ${imageUrl}`);
+          console.log(`✅ Constructed WORKING CDN image: ${imageUrl}`);
         } else {
-          console.log(`⚠️ Document ${doc.document_name} missing document_id:`, doc);
+          console.log(`⚠️ Document ${doc.file_name} missing document_id:`, doc);
         }
+      } else {
+        console.log(`⚠️ Skipping non-image file: ${doc.file_name || doc.document_name || 'unknown'}`);
       }
     });
   }
@@ -405,15 +407,15 @@ function extractCommerceImages(product) {
     product.variants.forEach(variant => {
       if (variant.documents && Array.isArray(variant.documents)) {
         variant.documents.forEach(doc => {
-          if (doc.document_name && isImageFile(doc.document_name)) {
-            // 🎯 FIXED: Use the variant document's OWN document_id
+          // 🎯 CRITICAL FIX: Use "file_name" not "document_name"
+          if (doc.file_name && isImageFile(doc.file_name)) {
             const documentId = doc.document_id || doc.id;
             if (documentId) {
-              const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${documentId}/1200x1200?storefront_domain=www.traveldatawifi.com`;
+              const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${documentId}/1200x1200?storefront_domain=www.traveldatawifi.com`;
               images.push(imageUrl);
-              console.log(`✅ Constructed FIXED variant CDN image: ${imageUrl}`);
+              console.log(`✅ Constructed WORKING variant CDN image: ${imageUrl}`);
             } else {
-              console.log(`⚠️ Variant document ${doc.document_name} missing document_id:`, doc);
+              console.log(`⚠️ Variant document ${doc.file_name} missing document_id:`, doc);
             }
           }
         });
@@ -433,12 +435,12 @@ function extractCommerceImages(product) {
     console.log(`Available image/document fields: ${availableFields.join(', ')}`);
     
     if (product.documents && product.documents.length > 0) {
-      console.log(`Documents structure:`, JSON.stringify(product.documents, null, 2));
+      console.log(`Sample document fields:`, Object.keys(product.documents[0]));
+      console.log(`First document:`, product.documents[0]);
     }
   }
   
   return [...new Set(images)]; // Remove duplicates
-}
 
 /**
  * Transform merged products to expected frontend format
