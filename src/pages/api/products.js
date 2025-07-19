@@ -1,6 +1,6 @@
 // ===== src/pages/api/products.js ===== (Updated version)
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
-import { zohoImageClient } from '../../lib/zoho-image-client';
+import { zohoEnhancedImageClient } from '../../lib/zoho-enhanced-image-client';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -112,7 +112,57 @@ async function addImagesToProducts(products) {
   for (const product of products) {
     try {
       // Use the enhanced image client to get images with fallbacks
-      const images = await zohoImageClient.getProductImages(product.item_id, {
+      const images = zohoEnhancedImageClient ? 
+        await zohoEnhancedImageClient.getProductImages(product.item_id, {
+          sizes: ['original', 'large', 'medium'],
+          fallbackToPlaceholder: false,
+          maxRetries: 2
+        }) : [];
+
+      // Filter to only working images
+      const workingImages = images
+        .filter(img => img.isWorking !== false)
+        .map(img => img.url);
+
+      const enhancedProduct = {
+        ...product,
+        enhanced_images: images, // Full image data with metadata
+        product_images: workingImages, // Just the URLs for compatibility
+        image_count: workingImages.length,
+        image_sources: images.map(img => img.source),
+        has_images: workingImages.length > 0
+      };
+
+      productsWithImages.push(enhancedProduct);
+      successCount++;
+
+      if (workingImages.length > 0) {
+        console.log(`✅ ${product.item_id}: Found ${workingImages.length} images from sources: ${[...new Set(images.map(img => img.source))].join(', ')}`);
+      } else {
+        console.log(`⚠️ ${product.item_id}: No working images found`);
+      }
+
+    } catch (error) {
+      console.error(`❌ Failed to get images for product ${product.item_id}:`, error.message);
+      
+      // Add product without images rather than failing completely
+      productsWithImages.push({
+        ...product,
+        enhanced_images: [],
+        product_images: [],
+        image_count: 0,
+        image_sources: [],
+        has_images: false,
+        image_error: error.message
+      });
+      
+      errorCount++;
+    }
+  }
+
+  console.log(`📊 Image processing results: ${successCount} success, ${errorCount} errors`);
+  return productsWithImages;
+}Images(product.item_id, {
         sizes: ['original', 'large', 'medium'],
         fallbackToPlaceholder: false,
         maxRetries: 2
