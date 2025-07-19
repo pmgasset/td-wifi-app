@@ -185,16 +185,22 @@ const ProductsPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {processedProducts.map((product: any) => (
               <div key={product.product_id} className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow duration-300">
-                {/* ✅ FIXED SIZE PRODUCT IMAGE - Fits entire image without cropping */}
+                {/* ✅ FIXED: Product image container with proper aspect ratio */}
                 <Link href={`/products/${getProductSlug(product)}`}>
-                  <div className="h-48 bg-gray-100 rounded-t-lg overflow-hidden cursor-pointer group flex items-center justify-center">
+                  <div className="h-48 bg-gray-50 rounded-t-lg overflow-hidden cursor-pointer group flex items-center justify-center p-4">
                     <img
                       src={getProductImage(product)}
                       alt={product.product_name || product.name}
                       className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                      style={{
+                        maxWidth: '100%',
+                        maxHeight: '100%',
+                        width: 'auto',
+                        height: 'auto'
+                      }}
                       onError={(e) => {
                         const target = e.target as HTMLImageElement;
-                        target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iMTUwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBVbmF2YWlsYWJsZTwvdGV4dD4KPC9zdmc+Cg==";
+                        target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ3JhZCIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNmOGZhZmM7c3RvcC1vcGFjaXR5OjEiIC8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3R5bGU9InN0b3AtY29sb3I6I2UyZThmMDtzdG9wLW9wYWNpdHk6MSIgLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSI0MDAiIGhlaWdodD0iMzAwIiBmaWxsPSJ1cmwoI2dyYWQpIi8+CiAgPHJlY3QgeD0iMTcwIiB5PSIxMjAiIHdpZHRoPSI2MCIgaGVpZ2h0PSI0MCIgcng9IjQiIGZpbGw9IiNjYmQ1ZTEiLz4KICA8Y2lyY2xlIGN4PSIxODUiIGN5PSIxMzUiIHI9IjgiIGZpbGw9IiM5NGEzYjgiLz4KICA8cG9seWdvbiBwb2ludHM9IjE4NSwxNTUgMjE1LDE1NSAyMDAsMTM1IiBmaWxsPSIjOTRhM2I4Ii8+CiAgPHRleHQgeD0iMjAwIiB5PSIxOTAiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzY0NzQ4YiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+SW1hZ2UgVW5hdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
                       }}
                     />
                     

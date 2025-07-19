@@ -1,6 +1,4 @@
-// src/pages/api/products.js - COMPLETE REPLACEMENT FILE
-// This removes size restrictions and fixes image display issues
-
+// src/pages/api/products.js - Fixed version with larger images and proper sizing
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
 import { zohoAPI } from '../../lib/zoho-api';
 
@@ -10,7 +8,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('🚀 Starting products API with full-size image system...');
+    console.log('🚀 Starting products API with high-quality image system...');
     
     const startTime = Date.now();
 
@@ -73,7 +71,7 @@ export default async function handler(req, res) {
         api_approach: 'inventory_commerce_hybrid',
         custom_field_filter: 'cf_display_in_app = true',
         matching_strategy: 'SKU',
-        image_mode: 'full_size_no_restrictions'
+        image_mode: 'high_quality_1200px'
       }
     });
   } catch (error) {
@@ -208,8 +206,8 @@ function mergeInventoryWithCommerceImagesBySKU(inventoryProducts, commerceProduc
 }
 
 /**
- * 🎯 CRITICAL FIX: Extract full-size images without any size restrictions
- * This function now removes ALL size parameters from image URLs
+ * 🎯 FIXED: Extract high-quality images with proper CDN sizing
+ * Uses 1200x1200 for high quality while maintaining CDN compatibility
  */
 function extractCommerceImages(product) {
   const images = [];
@@ -219,10 +217,10 @@ function extractCommerceImages(product) {
     console.log(`Found ${product.documents.length} documents`);
     product.documents.forEach(doc => {
       if (doc.document_name && isImageFile(doc.document_name)) {
-        // 🎯 FULL-SIZE: Remove the /400x400 completely for maximum quality
-        const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}?storefront_domain=www.traveldatawifi.com`;
+        // 🎯 HIGH-QUALITY: Use 1200x1200 for better quality while keeping CDN structure
+        const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}/1200x1200?storefront_domain=www.traveldatawifi.com`;
         images.push(imageUrl);
-        console.log(`✅ Constructed FULL-SIZE CDN image: ${imageUrl}`);
+        console.log(`✅ Constructed HIGH-QUALITY CDN image: ${imageUrl}`);
       }
     });
   }
@@ -233,10 +231,10 @@ function extractCommerceImages(product) {
       if (variant.documents && Array.isArray(variant.documents)) {
         variant.documents.forEach(doc => {
           if (doc.document_name && isImageFile(doc.document_name)) {
-            // 🎯 FULL-SIZE: No size restrictions on variant images either
-            const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}?storefront_domain=www.traveldatawifi.com`;
+            // 🎯 HIGH-QUALITY: 1200x1200 for variant images too
+            const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}/1200x1200?storefront_domain=www.traveldatawifi.com`;
             images.push(imageUrl);
-            console.log(`✅ Constructed FULL-SIZE variant CDN image: ${imageUrl}`);
+            console.log(`✅ Constructed HIGH-QUALITY variant CDN image: ${imageUrl}`);
           }
         });
       }
@@ -245,9 +243,9 @@ function extractCommerceImages(product) {
   
   // Check for document_name field (single image)
   if (product.document_name && isImageFile(product.document_name)) {
-    const imageUrl = `https://us.zohocommercecdn.com/product-images/${product.document_name}/${product.product_id}?storefront_domain=www.traveldatawifi.com`;
+    const imageUrl = `https://us.zohocommercecdn.com/product-images/${product.document_name}/${product.product_id}/1200x1200?storefront_domain=www.traveldatawifi.com`;
     images.push(imageUrl);
-    console.log(`✅ Constructed FULL-SIZE single CDN image: ${imageUrl}`);
+    console.log(`✅ Constructed HIGH-QUALITY single CDN image: ${imageUrl}`);
   }
   
   // If no images found, provide debugging info
@@ -274,12 +272,12 @@ function extractCommerceImages(product) {
  */
 function transformProducts(products) {
   return products.map(product => {
-    // Get full-size images without any transformation
+    // Get high-quality images
     let productImages = [];
     
     if (product.commerce_images && Array.isArray(product.commerce_images) && product.commerce_images.length > 0) {
-      productImages = product.commerce_images; // Use as-is, they're already full-size
-      console.log(`✅ Using ${productImages.length} FULL-SIZE images for ${product.name}`);
+      productImages = product.commerce_images; // Already processed to 1200x1200
+      console.log(`✅ Using ${productImages.length} HIGH-QUALITY images for ${product.name}`);
     } else {
       console.log(`⚠️ No commerce images found for ${product.name}`);
     }
@@ -291,7 +289,7 @@ function transformProducts(products) {
       product_price: product.rate || 0,
       product_description: product.description || '',
       
-      // Use the full-size images
+      // Use the high-quality images
       product_images: productImages,
       
       // Stock/inventory information from Inventory API
@@ -334,7 +332,7 @@ function transformProducts(products) {
       has_commerce_match: product.has_commerce_match,
       commerce_product_id: product.commerce_product_id,
       matching_sku: product.matching_sku,
-      image_source: 'full_size_no_restrictions'
+      image_source: 'high_quality_1200px'
     };
   });
 }
