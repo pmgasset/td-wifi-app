@@ -206,53 +206,6 @@ async function fetchInventoryProducts() {
 }
 
 /**
- * Direct API call to Inventory (fallback)
- */
-async function makeDirectInventoryCall() {
-  const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
-  if (!organizationId) {
-    throw new Error('ZOHO_INVENTORY_ORGANIZATION_ID environment variable is required');
-  }
-  
-  // Get access token
-  const tokenResponse = await fetch('https://accounts.zoho.com/oauth/v2/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: new URLSearchParams({
-      refresh_token: process.env.ZOHO_REFRESH_TOKEN,
-      client_id: process.env.ZOHO_CLIENT_ID,
-      client_secret: process.env.ZOHO_CLIENT_SECRET,
-      grant_type: 'refresh_token',
-    }),
-  });
-
-  if (!tokenResponse.ok) {
-    throw new Error(`Token refresh failed: ${tokenResponse.status}`);
-  }
-
-  const tokenData = await tokenResponse.json();
-  
-  // Call Inventory API
-  const url = `https://www.zohoapis.com/inventory/v1/items?organization_id=${organizationId}`;
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: {
-      'Authorization': `Zoho-oauthtoken ${tokenData.access_token}`,
-      'Content-Type': 'application/json',
-    },
-  });
-  
-  if (!response.ok) {
-    throw new Error(`Inventory API failed: ${response.status}`);
-  }
-  
-  const data = await response.json();
-  return data.items || [];
-}
-
-/**
  * Filter products based on cf_display_in_app custom field
  * Custom fields are direct properties in Inventory API response
  */
