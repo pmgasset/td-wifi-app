@@ -174,47 +174,32 @@ function mergeInventoryWithCommerceImages(inventoryProducts, commerceProducts) {
 
 /**
  * Extract images using Zoho Commerce CDN pattern
- * Based on your working project knowledge: images are served from us.zohocommercecdn.com
+ * Based on your test endpoints: images are in documents array, NOT product_images
  */
 function extractCommerceImages(product) {
   const images = [];
   
   console.log(`🔍 Extracting images for product ${product.product_id} (${product.product_name || product.name})`);
   
-  // Check for documents array which may contain image filenames
+  // The key insight from your test endpoints: Images are in documents array!
   if (product.documents && Array.isArray(product.documents)) {
     console.log(`Found ${product.documents.length} documents`);
     product.documents.forEach(doc => {
-      if (doc.file_name && isImageFile(doc.file_name)) {
-        // Construct Zoho Commerce CDN URL using the pattern from your working code
+      if (doc.file_name && isImageFile(doc.file_name) && doc.document_id) {
+        // This is the EXACT pattern that works based on your test endpoints
         const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`;
         images.push(imageUrl);
         console.log(`✓ Constructed CDN image: ${imageUrl}`);
-      } else if (doc.document_name && isImageFile(doc.document_name)) {
-        // Alternative pattern
-        const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}/400x400?storefront_domain=www.traveldatawifi.com`;
-        images.push(imageUrl);
-        console.log(`✓ Constructed CDN image from document_name: ${imageUrl}`);
       }
     });
   }
   
-  // Check for direct product_images array (if it exists)
-  if (product.product_images && Array.isArray(product.product_images)) {
-    product.product_images.forEach(imageUrl => {
-      if (imageUrl && typeof imageUrl === 'string') {
-        images.push(imageUrl);
-        console.log(`✓ Found direct product image: ${imageUrl}`);
-      }
-    });
-  }
-  
-  // Check for variants with documents
+  // Check for variants with documents (as shown in your test data)
   if (product.variants && Array.isArray(product.variants)) {
     product.variants.forEach(variant => {
       if (variant.documents && Array.isArray(variant.documents)) {
         variant.documents.forEach(doc => {
-          if (doc.file_name && isImageFile(doc.file_name)) {
+          if (doc.file_name && isImageFile(doc.file_name) && doc.document_id) {
             const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`;
             images.push(imageUrl);
             console.log(`✓ Constructed variant CDN image: ${imageUrl}`);
@@ -234,7 +219,11 @@ function extractCommerceImages(product) {
       key.toLowerCase().includes('file')
     );
     console.log(`Available image/document fields: ${availableFields.join(', ')}`);
-    console.log(`Sample product structure:`, JSON.stringify(product, null, 2));
+    
+    // Log the actual documents structure
+    if (product.documents) {
+      console.log(`Documents structure:`, JSON.stringify(product.documents.slice(0, 1), null, 2));
+    }
   }
   
   return [...new Set(images)]; // Remove duplicates
