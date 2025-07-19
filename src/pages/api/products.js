@@ -346,17 +346,46 @@ function mergeInventoryWithCommerceImagesBySKU(inventoryProducts, commerceProduc
 }
 
 /**
+ * Transform Commerce API images to provide full-size images
+ * Removes size restrictions to prevent cropping
+ */
+function transformCommerceImages(commerceImages) {
+  if (!commerceImages || !Array.isArray(commerceImages)) {
+    return [];
+  }
+
+  return commerceImages.map(imageUrl => {
+    if (typeof imageUrl !== 'string') return imageUrl;
+    
+    // Check if it's a Zoho Commerce CDN URL that has size parameters
+    if (imageUrl.includes('zohocommercecdn.com') && imageUrl.includes('/400x400')) {
+      // Remove the size parameter to get full-size image
+      const fullSizeUrl = imageUrl.replace('/400x400', '');
+      console.log(`✓ Converted to full-size: ${imageUrl} -> ${fullSizeUrl}`);
+      return fullSizeUrl;
+    } else if (imageUrl.includes('zohocommercecdn.com') && /\/\d+x\d+/.test(imageUrl)) {
+      // Remove any size parameter (e.g., /300x300, /600x600, etc.)
+      const fullSizeUrl = imageUrl.replace(/\/\d+x\d+/, '');
+      console.log(`✓ Converted to full-size: ${imageUrl} -> ${fullSizeUrl}`);
+      return fullSizeUrl;
+    } else {
+      // Return as-is if not a sized Zoho CDN URL
+      return imageUrl;
+    }
+  });
+}
+
+/**
  * Transform merged products to expected frontend format
  */
 function transformProducts(products) {
   return products.map(product => {
-    // Use the actual commerce_images from the merge process
-    // The logs show images are being found, so use them directly
+    // Transform images to remove size restrictions
     let productImages = [];
     
     if (product.commerce_images && Array.isArray(product.commerce_images) && product.commerce_images.length > 0) {
-      productImages = product.commerce_images;
-      console.log(`✓ Using ${product.commerce_images.length} commerce images for ${product.name}`);
+      productImages = transformCommerceImages(product.commerce_images);
+      console.log(`✓ Using ${productImages.length} full-size images for ${product.name}`);
     } else {
       console.log(`⚠️ No commerce images found for ${product.name}`);
     }
@@ -368,7 +397,7 @@ function transformProducts(products) {
       product_price: product.rate || 0,
       product_description: product.description || '',
       
-      // Use the commerce images directly
+      // Use the full-size images
       product_images: productImages,
       
       // Stock/inventory information from Inventory API
@@ -411,9 +440,7 @@ function transformProducts(products) {
       has_commerce_match: product.has_commerce_match,
       commerce_product_id: product.commerce_product_id,
       matching_sku: product.matching_sku,
-      image_source: 'commerce_api_direct',
-      debug_commerce_images_count: product.commerce_images?.length || 0,
-      debug_commerce_images_sample: product.commerce_images?.slice(0, 2) || []
+      image_source: 'commerce_api_full_size'
     };
   });
 }
