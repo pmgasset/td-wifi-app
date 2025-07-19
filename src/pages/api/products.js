@@ -1,4 +1,6 @@
-// src/pages/api/products.js - Fixed with rate limiting and caching
+// src/pages/api/products.js - FIXED IMAGE URL CONSTRUCTION
+// The issue was using inventory product IDs instead of commerce document IDs
+
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
 import { zohoAPI } from '../../lib/zoho-api';
 
@@ -29,7 +31,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('🚀 Starting products API with rate limiting and caching...');
+    console.log('🚀 Starting products API with FIXED image URL construction...');
     
     // Check rate limiting
     const now = Date.now();
@@ -88,7 +90,6 @@ export default async function handler(req, res) {
       console.log(`✅ Retrieved ${inventoryProducts.length} total inventory products`);
     } catch (error) {
       console.error('❌ Inventory API failed:', error.message);
-      // Use cached inventory data if available
       if (productsCache.inventoryData) {
         console.log('⚠️ Using cached inventory data due to API failure');
         inventoryProducts = productsCache.inventoryData;
@@ -105,7 +106,6 @@ export default async function handler(req, res) {
       console.log(`✅ Retrieved ${commerceProducts.length} commerce products`);
     } catch (error) {
       console.error('❌ Commerce API failed:', error.message);
-      // Use cached commerce data if available, or continue without images
       if (productsCache.commerceData) {
         console.log('⚠️ Using cached commerce data due to API failure');
         commerceProducts = productsCache.commerceData;
@@ -153,7 +153,7 @@ export default async function handler(req, res) {
         api_approach: 'inventory_commerce_hybrid',
         custom_field_filter: 'cf_display_in_app = true',
         matching_strategy: 'SKU',
-        image_mode: 'high_quality_1200px',
+        image_mode: 'fixed_document_ids',
         processing_time_ms: processingTime,
         cached: false,
         rate_limit_status: {
@@ -374,20 +374,28 @@ function mergeInventoryWithCommerceImagesBySKU(inventoryProducts, commerceProduc
 }
 
 /**
- * Extract high-quality images with proper CDN sizing
+ * 🎯 CRITICAL FIX: Extract images using the CORRECT document IDs
+ * The problem was using inventory product IDs instead of commerce document IDs
  */
 function extractCommerceImages(product) {
   const images = [];
   
-  // Check for documents array which may contain image filenames
+  console.log(`🔍 Extracting images for commerce product ${product.product_id} (${product.product_name})`);
+  
+  // Check for documents array which contains the ACTUAL document IDs for CDN
   if (product.documents && Array.isArray(product.documents)) {
     console.log(`Found ${product.documents.length} documents`);
     product.documents.forEach(doc => {
       if (doc.document_name && isImageFile(doc.document_name)) {
-        // Use 1200x1200 for high quality while keeping CDN structure
-        const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}/1200x1200?storefront_domain=www.traveldatawifi.com`;
-        images.push(imageUrl);
-        console.log(`✅ Constructed HIGH-QUALITY CDN image: ${imageUrl}`);
+        // 🎯 FIXED: Use the commerce document's OWN document_id, not the product_id
+        const documentId = doc.document_id || doc.id;
+        if (documentId) {
+          const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${documentId}/1200x1200?storefront_domain=www.traveldatawifi.com`;
+          images.push(imageUrl);
+          console.log(`✅ Constructed FIXED CDN image: ${imageUrl}`);
+        } else {
+          console.log(`⚠️ Document ${doc.document_name} missing document_id:`, doc);
+        }
       }
     });
   }
@@ -398,23 +406,22 @@ function extractCommerceImages(product) {
       if (variant.documents && Array.isArray(variant.documents)) {
         variant.documents.forEach(doc => {
           if (doc.document_name && isImageFile(doc.document_name)) {
-            const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${product.product_id}/1200x1200?storefront_domain=www.traveldatawifi.com`;
-            images.push(imageUrl);
-            console.log(`✅ Constructed HIGH-QUALITY variant CDN image: ${imageUrl}`);
+            // 🎯 FIXED: Use the variant document's OWN document_id
+            const documentId = doc.document_id || doc.id;
+            if (documentId) {
+              const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.document_name}/${documentId}/1200x1200?storefront_domain=www.traveldatawifi.com`;
+              images.push(imageUrl);
+              console.log(`✅ Constructed FIXED variant CDN image: ${imageUrl}`);
+            } else {
+              console.log(`⚠️ Variant document ${doc.document_name} missing document_id:`, doc);
+            }
           }
         });
       }
     });
   }
   
-  // Check for document_name field (single image)
-  if (product.document_name && isImageFile(product.document_name)) {
-    const imageUrl = `https://us.zohocommercecdn.com/product-images/${product.document_name}/${product.product_id}/1200x1200?storefront_domain=www.traveldatawifi.com`;
-    images.push(imageUrl);
-    console.log(`✅ Constructed HIGH-QUALITY single CDN image: ${imageUrl}`);
-  }
-  
-  // If no images found, provide debugging info
+  // If no images found, provide detailed debugging info
   if (images.length === 0 && product.product_id) {
     console.log(`⚠️ No image files found for product ${product.product_id} (${product.product_name || product.name})`);
     
@@ -425,8 +432,8 @@ function extractCommerceImages(product) {
     );
     console.log(`Available image/document fields: ${availableFields.join(', ')}`);
     
-    if (product.documents) {
-      console.log(`Documents structure:`, JSON.stringify(product.documents.slice(0, 1), null, 2));
+    if (product.documents && product.documents.length > 0) {
+      console.log(`Documents structure:`, JSON.stringify(product.documents, null, 2));
     }
   }
   
@@ -443,7 +450,7 @@ function transformProducts(products) {
     
     if (product.commerce_images && Array.isArray(product.commerce_images) && product.commerce_images.length > 0) {
       productImages = product.commerce_images;
-      console.log(`✅ Using ${productImages.length} HIGH-QUALITY images for ${product.name}`);
+      console.log(`✅ Using ${productImages.length} FIXED images for ${product.name}`);
     } else {
       console.log(`⚠️ No commerce images found for ${product.name}`);
     }
@@ -455,7 +462,7 @@ function transformProducts(products) {
       product_price: product.rate || 0,
       product_description: product.description || '',
       
-      // Use the high-quality images
+      // Use the fixed images
       product_images: productImages,
       
       // Stock/inventory information from Inventory API
@@ -498,7 +505,7 @@ function transformProducts(products) {
       has_commerce_match: product.has_commerce_match,
       commerce_product_id: product.commerce_product_id,
       matching_sku: product.matching_sku,
-      image_source: 'high_quality_1200px'
+      image_source: 'fixed_document_ids'
     };
   });
 }
