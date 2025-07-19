@@ -1,4 +1,4 @@
-// ===== src/lib/html-utils.ts ===== (Create this new file)
+// src/lib/html-utils.ts - Updated with full-size image support
 
 /**
  * Utility functions for processing HTML content from Zoho Commerce
@@ -120,24 +120,41 @@ export const formatPrice = (price: number | string): string => {
 };
 
 /**
- * Extracts the primary image URL from a product
+ * Extracts the primary image URL from a product (FULL-SIZE VERSION)
+ * ✅ Updated to prioritize full-size images without size restrictions
  */
 export const getProductImageUrl = (product: any): string => {
   // Check for product_images array first
   if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
-    return product.product_images[0];
+    let imageUrl = product.product_images[0];
+    
+    // 🎯 Remove size restrictions from Zoho CDN URLs for full-size images
+    if (imageUrl.includes('zohocommercecdn.com') && imageUrl.includes('/')) {
+      // Remove size parameters like /400x400, /300x300, etc.
+      imageUrl = imageUrl.replace(/\/\d+x\d+(?=\?|$)/, '');
+      console.log(`✓ Using full-size image: ${imageUrl}`);
+    }
+    
+    return imageUrl;
   }
   
   // Check for documents with images
   if (product.documents && product.documents.length > 0) {
     const imageDoc = product.documents.find((doc: any) => doc.is_default_image || doc.image_url);
     if (imageDoc?.image_url) {
-      return imageDoc.image_url;
+      let imageUrl = imageDoc.image_url;
+      
+      // Remove size restrictions if it's a Zoho CDN URL
+      if (imageUrl.includes('zohocommercecdn.com')) {
+        imageUrl = imageUrl.replace(/\/\d+x\d+(?=\?|$)/, '');
+      }
+      
+      return imageUrl;
     }
   }
   
-  // Return placeholder SVG
-  return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
+  // Return high-quality placeholder SVG
+  return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZ3JhZCIgeDE9IjAlIiB5MT0iMCUiIHgyPSIxMDAlIiB5Mj0iMTAwJSI+CiAgICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0eWxlPSJzdG9wLWNvbG9yOiNmOGZhZmM7c3RvcC1vcGFjaXR5OjEiIC8+CiAgICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3R5bGU9InN0b3AtY29sb3I6I2UyZThmMDtzdG9wLW9wYWNpdHk6MSIgLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSI0MDAiIGhlaWdodD0iMzAwIiBmaWxsPSJ1cmwoI2dyYWQpIi8+CiAgPHJlY3QgeD0iMTcwIiB5PSIxMjAiIHdpZHRoPSI2MCIgaGVpZ2h0PSI0MCIgcng9IjQiIGZpbGw9IiNjYmQ1ZTEiLz4KICA8Y2lyY2xlIGN4PSIxODUiIGN5PSIxMzUiIHI9IjgiIGZpbGw9IiM5NGEzYjgiLz4KICA8cG9seWdvbiBwb2ludHM9IjE4NSwxNTUgMjE1LDE1NSAyMDAsMTM1IiBmaWxsPSIjOTRhM2I4Ii8+CiAgPHRleHQgeD0iMjAwIiB5PSIxOTAiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzY0NzQ4YiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+Tm8gSW1hZ2UgQXZhaWxhYmxlPC90ZXh0Pgo8L3N2Zz4K";
 };
 
 /**
