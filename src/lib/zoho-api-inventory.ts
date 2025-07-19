@@ -335,24 +335,27 @@ class ZohoInventoryAPI {
     try {
       const inventoryItems = await this.getInventoryProducts();
       
-      return inventoryItems.map(item => ({
-        // Map to expected product format
-        product_id: item.item_id,
-        product_name: item.name,
-        product_price: item.rate || item.min_rate || 0,
-        product_description: item.description || '',
-        product_images: this.extractImageUrls(item),
-        inventory_count: this.parseStock(item.stock_on_hand),
-        product_category: item.category_name || item.group_name || '',
-        status: item.status,
-        seo_url: item.sku || item.item_id,
+      return inventoryItems.map(item => {
+        // First include original inventory data
+        const baseProduct = { ...item };
         
-        // Include original inventory data
-        ...item,
-        
-        // Custom field convenience
-        cf_display_in_app: this.getCustomFieldValue(item, 'display_in_app'),
-      }));
+        // Then override with expected product format fields
+        return {
+          ...baseProduct,
+          // Map to expected product format
+          product_id: item.item_id,
+          product_name: item.name,
+          product_price: item.rate || item.min_rate || 0,
+          product_description: item.description || '',
+          product_images: this.extractImageUrls(item),
+          inventory_count: this.parseStock(item.stock_on_hand),
+          product_category: item.category_name || item.group_name || '',
+          seo_url: item.sku || item.item_id,
+          
+          // Custom field convenience
+          cf_display_in_app: this.getCustomFieldValue(item, 'display_in_app'),
+        };
+      });
     } catch (error) {
       console.error('Failed to get products (compatibility method):', error);
       throw error;
