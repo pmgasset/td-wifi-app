@@ -1,6 +1,6 @@
-// ===== src/pages/api/products.js ===== (Updated version)
+// ===== src/pages/api/products.js ===== (RESTORED WORKING VERSION)
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
-import { productImageManager } from '../../lib/product-image-manager';
+import { zohoAPI } from '../../lib/zoho-api';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    console.log('🚀 Starting enhanced products API with improved image handling...');
+    console.log('🚀 Starting products API with working image system...');
     
     const startTime = Date.now();
 
@@ -17,21 +17,25 @@ export default async function handler(req, res) {
     const inventoryProducts = await zohoInventoryAPI.getInventoryProducts();
     console.log(`✅ Retrieved ${inventoryProducts.length} total inventory products`);
 
-    // Step 2: Filter by cf_display_in_app custom field
+    // Step 2: Get products from Commerce API (has images)
+    console.log('🖼️ Fetching products from Zoho Commerce API for images...');
+    const commerceProducts = await zohoAPI.getProducts();
+    console.log(`✅ Retrieved ${commerceProducts.length} commerce products`);
+
+    // Step 3: Filter inventory products by cf_display_in_app custom field
     console.log('🔍 Filtering products by cf_display_in_app field...');
     const filteredProducts = filterProductsByDisplayInApp(inventoryProducts);
     console.log(`✅ Found ${filteredProducts.length} products with display_in_app=true`);
 
-    // Step 3: Get images for each product using the product image manager
-    console.log('🖼️ Fetching images using Product Image Manager...');
-    const productsWithImages = await addImagesToProducts(filteredProducts);
-    console.log(`✅ Added images to ${productsWithImages.length} products`);
+    // Step 4: Merge inventory products with commerce images
+    console.log('🔄 Merging inventory products with commerce images...');
+    const mergedProducts = mergeInventoryWithCommerceImages(filteredProducts, commerceProducts);
 
-    // Step 4: Transform to expected frontend format
-    console.log('🔄 Transforming products to frontend format...');
-    const transformedProducts = transformProducts(productsWithImages);
+    // Step 5: Transform to expected frontend format
+    console.log('🎨 Transforming products to frontend format...');
+    const transformedProducts = transformProducts(mergedProducts);
 
-    // Step 5: Filter out inactive products
+    // Step 6: Filter out inactive products
     const activeProducts = transformedProducts.filter(product => 
       product.status === 'active' || product.status === 'Active' || !product.status
     );
@@ -48,22 +52,23 @@ export default async function handler(req, res) {
         total_inventory_products: inventoryProducts.length,
         display_in_app_products: filteredProducts.length,
         active_display_products: activeProducts.length,
+        commerce_products_fetched: commerceProducts.length,
         processing_time_ms: processingTime,
         timestamp: new Date().toISOString(),
-        api_version: '2.0_enhanced_images',
+        api_version: '1.0_working_restore',
         ...imageStats
       }
     });
 
   } catch (error) {
-    console.error('❌ Enhanced Products API Error:', {
+    console.error('❌ Products API Error:', {
       message: error.message,
       stack: error.stack,
       name: error.name
     });
     
     res.status(500).json({ 
-      error: 'Failed to fetch products with enhanced images',
+      error: 'Failed to fetch products',
       details: error.message,
       timestamp: new Date().toISOString(),
       errorType: error.name,
@@ -100,189 +105,124 @@ function filterProductsByDisplayInApp(products) {
 }
 
 /**
- * Add images to products using the Product Image Manager
+ * Merge inventory products with commerce images using ID matching
  */
-async function addImagesToProducts(products) {
-  console.log(`🖼️ Processing images for ${products.length} products...`);
+function mergeInventoryWithCommerceImages(inventoryProducts, commerceProducts) {
+  console.log(`🔗 Merging ${inventoryProducts.length} inventory products with ${commerceProducts.length} commerce products`);
   
-  const productsWithImages = [];
-  let successCount = 0;
-  let errorCount = 0;
-
-  for (const product of products) {
-    try {
-      // Use the Product Image Manager to get images with fallbacks
-      const images = productImageManager ? 
-        await productImageManager.fetchProductImages(product.item_id, {
-          sizes: ['original', 'large', 'medium'],
-          fallbackToPlaceholder: false,
-          maxRetries: 2
-        }) : [];
-
-      // Filter to only working images
-      const workingImages = images
-        .filter(img => img.isWorking !== false)
-        .map(img => img.url);
-
-      const enhancedProduct = {
-        ...product,
-        enhanced_images: images, // Full image data with metadata
-        product_images: workingImages, // Just the URLs for compatibility
-        image_count: workingImages.length,
-        image_sources: images.map(img => img.source),
-        has_images: workingImages.length > 0
-      };
-
-      productsWithImages.push(enhancedProduct);
-      successCount++;
-
-      if (workingImages.length > 0) {
-        console.log(`✅ ${product.item_id}: Found ${workingImages.length} images from sources: ${[...new Set(images.map(img => img.source))].join(', ')}`);
-      } else {
-        console.log(`⚠️ ${product.item_id}: No working images found`);
+  // Create lookup map for commerce products by product_id
+  const commerceByProductId = new Map();
+  let totalCommerceImagesFound = 0;
+  
+  commerceProducts.forEach(commerceProduct => {
+    if (commerceProduct.product_id) {
+      commerceByProductId.set(commerceProduct.product_id, commerceProduct);
+      
+      // Count images
+      if (commerceProduct.product_images && commerceProduct.product_images.length > 0) {
+        totalCommerceImagesFound += commerceProduct.product_images.length;
       }
-
-    } catch (error) {
-      console.error(`❌ Failed to get images for product ${product.item_id}:`, error.message);
-      
-      // Add product without images rather than failing completely
-      productsWithImages.push({
-        ...product,
-        enhanced_images: [],
-        product_images: [],
-        image_count: 0,
-        image_sources: [],
-        has_images: false,
-        image_error: error.message
-      });
-      
-      errorCount++;
     }
-  }
-
-  console.log(`📊 Image processing results: ${successCount} success, ${errorCount} errors`);
-  return productsWithImages;
-}EnhancedImageClient ? 
-        await zohoEnhancedImageClient.getProductImages(product.item_id, {
-          sizes: ['original', 'large', 'medium'],
-          fallbackToPlaceholder: false,
-          maxRetries: 2
-        }) : [];
-
-      // Filter to only working images
-      const workingImages = images
-        .filter(img => img.isWorking !== false)
-        .map(img => img.url);
-
-      const enhancedProduct = {
-        ...product,
-        enhanced_images: images, // Full image data with metadata
-        product_images: workingImages, // Just the URLs for compatibility
-        image_count: workingImages.length,
-        image_sources: images.map(img => img.source),
-        has_images: workingImages.length > 0
-      };
-
-      productsWithImages.push(enhancedProduct);
-      successCount++;
-
-      if (workingImages.length > 0) {
-        console.log(`✅ ${product.item_id}: Found ${workingImages.length} images from sources: ${[...new Set(images.map(img => img.source))].join(', ')}`);
-      } else {
-        console.log(`⚠️ ${product.item_id}: No working images found`);
+  });
+  
+  console.log(`📊 Commerce products mapped: ${commerceByProductId.size}, Total images: ${totalCommerceImagesFound}`);
+  
+  // Merge products
+  let productIdMatches = 0;
+  let totalImagesAdded = 0;
+  
+  const mergedProducts = inventoryProducts.map(inventoryProduct => {
+    const matchingCommerceProduct = commerceByProductId.get(inventoryProduct.item_id);
+    
+    let commerce_images = [];
+    let matchStrategy = 'no_match';
+    
+    if (matchingCommerceProduct) {
+      productIdMatches++;
+      matchStrategy = 'product_id';
+      
+      // Get images and transform them to remove size restrictions
+      if (matchingCommerceProduct.product_images && Array.isArray(matchingCommerceProduct.product_images)) {
+        commerce_images = transformCommerceImages(matchingCommerceProduct.product_images);
+        totalImagesAdded += commerce_images.length;
+        console.log(`✅ Matched ${inventoryProduct.item_id}: ${commerce_images.length} images`);
       }
-
-    } catch (error) {
-      console.error(`❌ Failed to get images for product ${product.item_id}:`, error.message);
-      
-      // Add product without images rather than failing completely
-      productsWithImages.push({
-        ...product,
-        enhanced_images: [],
-        product_images: [],
-        image_count: 0,
-        image_sources: [],
-        has_images: false,
-        image_error: error.message
-      });
-      
-      errorCount++;
     }
-  }
-
-  console.log(`📊 Image processing results: ${successCount} success, ${errorCount} errors`);
-  return productsWithImages;
-}Images(product.item_id, {
-        sizes: ['original', 'large', 'medium'],
-        fallbackToPlaceholder: false,
-        maxRetries: 2
-      });
-
-      // Filter to only working images
-      const workingImages = images
-        .filter(img => img.isWorking !== false)
-        .map(img => img.url);
-
-      const enhancedProduct = {
-        ...product,
-        enhanced_images: images, // Full image data with metadata
-        product_images: workingImages, // Just the URLs for compatibility
-        image_count: workingImages.length,
-        image_sources: images.map(img => img.source),
-        has_images: workingImages.length > 0
-      };
-
-      productsWithImages.push(enhancedProduct);
-      successCount++;
-
-      if (workingImages.length > 0) {
-        console.log(`✅ ${product.item_id}: Found ${workingImages.length} images from sources: ${[...new Set(images.map(img => img.source))].join(', ')}`);
-      } else {
-        console.log(`⚠️ ${product.item_id}: No working images found`);
-      }
-
-    } catch (error) {
-      console.error(`❌ Failed to get images for product ${product.item_id}:`, error.message);
-      
-      // Add product without images rather than failing completely
-      productsWithImages.push({
-        ...product,
-        enhanced_images: [],
-        product_images: [],
-        image_count: 0,
-        image_sources: [],
-        has_images: false,
-        image_error: error.message
-      });
-      
-      errorCount++;
-    }
-  }
-
-  console.log(`📊 Image processing results: ${successCount} success, ${errorCount} errors`);
-  return productsWithImages;
+    
+    const mergedProduct = {
+      ...inventoryProduct,
+      commerce_images,
+      has_commerce_match: !!matchingCommerceProduct,
+      commerce_product_id: matchingCommerceProduct?.product_id || null,
+      match_strategy: matchStrategy
+    };
+    
+    return mergedProduct;
+  });
+  
+  console.log(`\n=== MATCHING SUMMARY ===`);
+  console.log(`Product ID matches: ${productIdMatches}`);
+  console.log(`Total images added: ${totalImagesAdded}`);
+  
+  return mergedProducts;
 }
 
 /**
- * Transform products to expected frontend format
+ * Transform Commerce API images to provide full-size images
+ * Removes size restrictions to prevent cropping - THIS FIXES YOUR CROPPING ISSUE
+ */
+function transformCommerceImages(commerceImages) {
+  if (!commerceImages || !Array.isArray(commerceImages)) {
+    return [];
+  }
+
+  return commerceImages.map(imageUrl => {
+    if (typeof imageUrl !== 'string') return imageUrl;
+    
+    // Check if it's a Zoho Commerce CDN URL that has size parameters
+    if (imageUrl.includes('zohocommercecdn.com') && imageUrl.includes('/400x400')) {
+      // Remove the size parameter to get full-size image
+      const fullSizeUrl = imageUrl.replace('/400x400', '');
+      console.log(`🎨 Converted to full-size: ${imageUrl} -> ${fullSizeUrl}`);
+      return fullSizeUrl;
+    } else if (imageUrl.includes('zohocommercecdn.com') && /\/\d+x\d+/.test(imageUrl)) {
+      // Remove any size parameter (e.g., /300x300, /600x600, etc.)
+      const fullSizeUrl = imageUrl.replace(/\/\d+x\d+/, '');
+      console.log(`🎨 Converted to full-size: ${imageUrl} -> ${fullSizeUrl}`);
+      return fullSizeUrl;
+    } else {
+      // Return as-is if not a sized Zoho CDN URL
+      return imageUrl;
+    }
+  });
+}
+
+/**
+ * Transform merged products to expected frontend format
  */
 function transformProducts(products) {
   return products.map(product => {
+    // Transform images to remove size restrictions
+    let productImages = [];
+    
+    if (product.commerce_images && Array.isArray(product.commerce_images) && product.commerce_images.length > 0) {
+      productImages = product.commerce_images; // Already transformed in merge step
+      console.log(`✅ Using ${productImages.length} full-size images for ${product.name}`);
+    } else {
+      console.log(`⚠️ No commerce images found for ${product.name}`);
+    }
+    
     return {
-      // Primary product fields
+      // Use Inventory API field names as primary
       product_id: product.item_id,
       product_name: product.name,
       product_price: product.rate || 0,
       product_description: product.description || '',
       
-      // Enhanced image data
-      product_images: product.product_images || [],
-      enhanced_images: product.enhanced_images || [],
-      image_count: product.image_count || 0,
-      image_sources: product.image_sources || [],
-      has_images: product.has_images || false,
+      // Use the full-size images
+      product_images: productImages,
       
-      // Stock/inventory information
+      // Stock/inventory information from Inventory API
       inventory_count: parseStock(product.stock_on_hand || product.available_stock),
       
       // Category information
@@ -295,12 +235,14 @@ function transformProducts(products) {
       // SEO and URL
       seo_url: product.sku || product.item_id,
       
-      // Custom fields
+      // Custom fields (the whole reason we're using Inventory API)
       cf_display_in_app: product.cf_display_in_app_unformatted || product.cf_display_in_app,
       
       // Additional fields
       sku: product.sku,
       item_type: product.item_type,
+      product_type: product.product_type,
+      show_in_storefront: product.show_in_storefront,
       
       // Pricing details
       rate: product.rate,
@@ -315,8 +257,11 @@ function transformProducts(products) {
       created_time: product.created_time,
       last_modified_time: product.last_modified_time,
       
-      // Error handling
-      image_error: product.image_error
+      // Debug info (helpful for troubleshooting)
+      has_commerce_images: productImages.length > 0,
+      has_commerce_match: product.has_commerce_match,
+      commerce_product_id: product.commerce_product_id,
+      image_source: 'commerce_api_full_size'
     };
   });
 }
@@ -338,26 +283,16 @@ function parseStock(stockValue) {
  * Generate image statistics for the response
  */
 function generateImageStatistics(products) {
-  const productsWithImages = products.filter(p => p.has_images);
-  const totalImages = products.reduce((sum, p) => sum + (p.image_count || 0), 0);
-  
-  // Count images by source
-  const imageSourceCounts = {};
-  products.forEach(product => {
-    if (product.image_sources && Array.isArray(product.image_sources)) {
-      product.image_sources.forEach(source => {
-        imageSourceCounts[source] = (imageSourceCounts[source] || 0) + 1;
-      });
-    }
-  });
+  const productsWithImages = products.filter(p => p.has_commerce_images && p.product_images.length > 0);
+  const totalImages = products.reduce((sum, p) => sum + (p.product_images?.length || 0), 0);
 
   return {
     products_with_images: productsWithImages.length,
     products_without_images: products.length - productsWithImages.length,
     total_images_found: totalImages,
     average_images_per_product: products.length > 0 ? (totalImages / products.length).toFixed(2) : 0,
-    image_source_breakdown: imageSourceCounts,
     image_success_rate: products.length > 0 ? 
-      ((productsWithImages.length / products.length) * 100).toFixed(1) + '%' : '0%'
+      ((productsWithImages.length / products.length) * 100).toFixed(1) + '%' : '0%',
+    image_source: 'zoho_commerce_cdn'
   };
 }
