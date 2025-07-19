@@ -1,4 +1,4 @@
-// ===== src/lib/zoho-image-client.ts =====
+// ===== src/lib/zoho-image-client.ts ===== (TypeScript-safe version)
 // Enhanced image client with multiple fallback strategies
 
 interface ZohoImageOptions {
@@ -12,6 +12,23 @@ interface ImageResult {
   size?: string;
   source: 'storefront' | 'editpage' | 'cdn_construction' | 'inventory' | 'placeholder';
   isWorking?: boolean;
+}
+
+interface ZohoInventoryProduct {
+  item_id: string;
+  documents?: Array<{
+    document_id: string;
+    document_name?: string;
+    file_name?: string;
+    file_url?: string;
+    download_url?: string;
+  }>;
+  image_id?: string;
+}
+
+interface ZohoTokenResponse {
+  access_token: string;
+  expires_in?: number;
 }
 
 export class ZohoImageClient {
@@ -60,7 +77,8 @@ export class ZohoImageClient {
           console.log(`✅ Found ${images.length} images using ${images[0]?.source} strategy`);
         }
       } catch (error) {
-        console.warn(`⚠️ Image strategy failed:`, error.message);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.warn(`⚠️ Image strategy failed:`, errorMessage);
         continue;
       }
     }
@@ -102,7 +120,7 @@ export class ZohoImageClient {
       throw new Error(`Storefront API failed: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { payload?: { product?: any } };
     const product = data.payload?.product;
     
     if (!product) {
@@ -114,10 +132,10 @@ export class ZohoImageClient {
     // Extract from images array
     if (product.images && Array.isArray(product.images)) {
       product.images.forEach((img: any) => {
-        const url = this.ensureFullUrl(img.url || img.image_url);
-        if (url) {
+        const imageUrl = this.ensureFullUrl(img.url || img.image_url);
+        if (imageUrl) {
           images.push({
-            url: this.removeImageSizeRestrictions(url),
+            url: this.removeImageSizeRestrictions(imageUrl),
             source: 'storefront'
           });
         }
@@ -128,10 +146,10 @@ export class ZohoImageClient {
     if (product.documents && Array.isArray(product.documents)) {
       product.documents.forEach((doc: any) => {
         if (this.isImageDocument(doc)) {
-          const url = this.ensureFullUrl(doc.image_url || doc.url);
-          if (url) {
+          const imageUrl = this.ensureFullUrl(doc.image_url || doc.url);
+          if (imageUrl) {
             images.push({
-              url: this.removeImageSizeRestrictions(url),
+              url: this.removeImageSizeRestrictions(imageUrl),
               source: 'storefront'
             });
           }
@@ -144,10 +162,10 @@ export class ZohoImageClient {
       product.variants.forEach((variant: any) => {
         if (variant.images && Array.isArray(variant.images)) {
           variant.images.forEach((img: any) => {
-            const url = this.ensureFullUrl(img.url || img.image_url);
-            if (url) {
+            const imageUrl = this.ensureFullUrl(img.url || img.image_url);
+            if (imageUrl) {
               images.push({
-                url: this.removeImageSizeRestrictions(url),
+                url: this.removeImageSizeRestrictions(imageUrl),
                 source: 'storefront'
               });
             }
@@ -183,7 +201,7 @@ export class ZohoImageClient {
       throw new Error(`Editpage API failed: ${response.status}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { product?: any };
     const product = data.product;
     
     if (!product) {
@@ -202,15 +220,13 @@ export class ZohoImageClient {
             doc.url,
             `https://commerce.zoho.com/product-images/${doc.document_id}`,
             `https://commerce.zoho.com/store/api/v1/documents/${doc.document_id}/image`
-          ].filter(Boolean);
+          ].filter((url): url is string => Boolean(url) && typeof url === 'string');
 
           urlOptions.forEach(url => {
-            if (url) {
-              images.push({
-                url: this.removeImageSizeRestrictions(url),
-                source: 'editpage'
-              });
-            }
+            images.push({
+              url: this.removeImageSizeRestrictions(url),
+              source: 'editpage'
+            });
           });
         }
       });
@@ -291,9 +307,9 @@ export class ZohoImageClient {
 
     // Extract from documents
     if (product.documents && Array.isArray(product.documents)) {
-      product.documents.forEach((doc: any) => {
+      product.documents.forEach((doc) => {
         if (this.isImageDocument(doc)) {
-          const urls = [doc.file_url, doc.download_url].filter(Boolean);
+          const urls = [doc.file_url, doc.download_url].filter((url): url is string => Boolean(url));
           urls.forEach(url => {
             images.push({
               url,
@@ -310,7 +326,7 @@ export class ZohoImageClient {
   /**
    * Get product from Inventory API
    */
-  private async getInventoryProduct(productId: string): Promise<any> {
+  private async getInventoryProduct(productId: string): Promise<ZohoInventoryProduct | null> {
     const token = await this.getAccessToken();
     if (!token) return null;
 
@@ -327,9 +343,11 @@ export class ZohoImageClient {
 
       if (!response.ok) return null;
       
-      const data = await response.json();
+      const data = await response.json() as { item: ZohoInventoryProduct };
       return data.item;
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Failed to get inventory product:', errorMessage);
       return null;
     }
   }
@@ -411,10 +429,16 @@ export class ZohoImageClient {
     
     for (const image of imagesToValidate) {
       try {
+        // Create AbortController for timeout functionality
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
         const response = await fetch(image.url, { 
           method: 'HEAD',
-          timeout: 5000 // 5 second timeout
+          signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         
         image.isWorking = response.ok;
         validatedImages.push(image);
@@ -427,7 +451,8 @@ export class ZohoImageClient {
       } catch (error) {
         image.isWorking = false;
         validatedImages.push(image);
-        console.log(`❌ Image validation error: ${image.url} - ${error.message}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.log(`❌ Image validation error: ${image.url} - ${errorMessage}`);
       }
     }
 
@@ -463,14 +488,15 @@ export class ZohoImageClient {
         return null;
       }
 
-      const data = await response.json();
+      const data = (await response.json()) as ZohoTokenResponse;
       this.accessToken = data.access_token;
       // Set expiry to 5 minutes before actual expiry for safety
       this.tokenExpiry = Date.now() + ((data.expires_in || 3600) - 300) * 1000;
       
       return this.accessToken;
     } catch (error) {
-      console.error('Token refresh error:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Token refresh error:', errorMessage);
       return null;
     }
   }
@@ -494,11 +520,26 @@ export class ZohoImageClient {
   }
 }
 
-// Create singleton instance
-export const zohoImageClient = new ZohoImageClient(
-  process.env.ZOHO_CLIENT_ID!,
-  process.env.ZOHO_CLIENT_SECRET!,
-  process.env.ZOHO_REFRESH_TOKEN!,
-  process.env.ZOHO_STORE_ID!,
-  process.env.ZOHO_STORE_DOMAIN || 'traveldatawifi.com'
-);
+// Create singleton instance with proper environment variable handling
+const createZohoImageClient = (): ZohoImageClient | null => {
+  const clientId = process.env.ZOHO_CLIENT_ID;
+  const clientSecret = process.env.ZOHO_CLIENT_SECRET;
+  const refreshToken = process.env.ZOHO_REFRESH_TOKEN;
+  const storeId = process.env.ZOHO_STORE_ID;
+
+  if (!clientId || !clientSecret || !refreshToken || !storeId) {
+    console.error('Missing required Zoho environment variables for image client');
+    return null;
+  }
+
+  return new ZohoImageClient(
+    clientId,
+    clientSecret,
+    refreshToken,
+    storeId,
+    process.env.ZOHO_STORE_DOMAIN || 'traveldatawifi.zohostore.com'
+  );
+};
+
+export const zohoImageClient = createZohoImageClient();
+export { ZohoImageClient };
