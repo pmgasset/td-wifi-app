@@ -242,28 +242,40 @@ function transformProducts(products) {
 
 /**
  * Extract images from Inventory API product
- * Inventory API has different image structure than Commerce API
+ * Uses proxy endpoint to handle authentication
  */
 function extractInventoryImages(product) {
   const images = [];
   
-  // Check for image_name and image_id (common in Inventory API)
-  if (product.image_name && product.image_id) {
-    // Construct image URL - this might need adjustment based on your Zoho setup
-    const imageUrl = `https://www.zohoapis.com/inventory/v1/items/${product.item_id}/image`;
-    images.push(imageUrl);
+  // Method 1: Use image_document_id or image_name to create proxy URL
+  if ((product.image_document_id && product.image_document_id !== '') || 
+      (product.image_name && product.image_name !== '')) {
+    
+    // Use our proxy endpoint which handles authentication
+    const proxyImageUrl = `/api/images/${product.item_id}`;
+    images.push(proxyImageUrl);
+    console.log(`✓ Added proxy image for ${product.item_id}: ${proxyImageUrl}`);
   }
   
-  // Check for documents array (can contain images)
-  if (product.documents && Array.isArray(product.documents)) {
-    product.documents.forEach(doc => {
-      if (doc.file_type && ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(doc.file_type.toLowerCase())) {
-        images.push(doc.file_url || doc.download_url);
-      }
-    });
+  // Method 2: Check for any direct image URLs that don't need authentication
+  const directImageFields = ['image_url', 'document_url', 'file_url', 'attachment_url', 'public_image_url'];
+  directImageFields.forEach(field => {
+    if (product[field] && product[field] !== '' && product[field].startsWith('http')) {
+      images.push(product[field]);
+      console.log(`✓ Added direct image from ${field} for ${product.item_id}: ${product[field]}`);
+    }
+  });
+  
+  // Debug logging
+  if (images.length === 0) {
+    console.log(`⚠️ No images found for ${product.item_id} (${product.name})`);
+    console.log(`  image_name: "${product.image_name}"`);
+    console.log(`  image_document_id: "${product.image_document_id}"`);
+    console.log(`  image_type: "${product.image_type}"`);
+  } else {
+    console.log(`✓ Found ${images.length} image(s) for ${product.item_id}`);
   }
   
-  // Fallback: if no images found, return empty array
   return images;
 }
 
