@@ -1,6 +1,6 @@
 // ===== src/pages/api/products.js ===== (Updated version)
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
-import { zohoEnhancedImageClient } from '../../lib/zoho-enhanced-image-client';
+import { productImageManager } from '../../lib/product-image-manager';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -22,8 +22,8 @@ export default async function handler(req, res) {
     const filteredProducts = filterProductsByDisplayInApp(inventoryProducts);
     console.log(`✅ Found ${filteredProducts.length} products with display_in_app=true`);
 
-    // Step 3: Get images for each product using enhanced image client
-    console.log('🖼️ Fetching images using enhanced image client...');
+    // Step 3: Get images for each product using the product image manager
+    console.log('🖼️ Fetching images using Product Image Manager...');
     const productsWithImages = await addImagesToProducts(filteredProducts);
     console.log(`✅ Added images to ${productsWithImages.length} products`);
 
@@ -100,7 +100,7 @@ function filterProductsByDisplayInApp(products) {
 }
 
 /**
- * Add images to products using the enhanced image client
+ * Add images to products using the Product Image Manager
  */
 async function addImagesToProducts(products) {
   console.log(`🖼️ Processing images for ${products.length} products...`);
@@ -111,8 +111,58 @@ async function addImagesToProducts(products) {
 
   for (const product of products) {
     try {
-      // Use the enhanced image client to get images with fallbacks
-      const images = zohoEnhancedImageClient ? 
+      // Use the Product Image Manager to get images with fallbacks
+      const images = productImageManager ? 
+        await productImageManager.fetchProductImages(product.item_id, {
+          sizes: ['original', 'large', 'medium'],
+          fallbackToPlaceholder: false,
+          maxRetries: 2
+        }) : [];
+
+      // Filter to only working images
+      const workingImages = images
+        .filter(img => img.isWorking !== false)
+        .map(img => img.url);
+
+      const enhancedProduct = {
+        ...product,
+        enhanced_images: images, // Full image data with metadata
+        product_images: workingImages, // Just the URLs for compatibility
+        image_count: workingImages.length,
+        image_sources: images.map(img => img.source),
+        has_images: workingImages.length > 0
+      };
+
+      productsWithImages.push(enhancedProduct);
+      successCount++;
+
+      if (workingImages.length > 0) {
+        console.log(`✅ ${product.item_id}: Found ${workingImages.length} images from sources: ${[...new Set(images.map(img => img.source))].join(', ')}`);
+      } else {
+        console.log(`⚠️ ${product.item_id}: No working images found`);
+      }
+
+    } catch (error) {
+      console.error(`❌ Failed to get images for product ${product.item_id}:`, error.message);
+      
+      // Add product without images rather than failing completely
+      productsWithImages.push({
+        ...product,
+        enhanced_images: [],
+        product_images: [],
+        image_count: 0,
+        image_sources: [],
+        has_images: false,
+        image_error: error.message
+      });
+      
+      errorCount++;
+    }
+  }
+
+  console.log(`📊 Image processing results: ${successCount} success, ${errorCount} errors`);
+  return productsWithImages;
+}EnhancedImageClient ? 
         await zohoEnhancedImageClient.getProductImages(product.item_id, {
           sizes: ['original', 'large', 'medium'],
           fallbackToPlaceholder: false,
