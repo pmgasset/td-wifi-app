@@ -1,5 +1,5 @@
 // components/support/SearchBar.jsx
-// Search bar component with autocomplete and suggestions
+// Search bar component with autocomplete and suggestions - FIXED VERSION
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Search, X, Clock, TrendingUp } from 'lucide-react';
@@ -8,12 +8,12 @@ const SearchBar = ({
   onSearch, 
   placeholder = "Search...", 
   initialValue = "",
-  showSuggestions = true,
+  enableSuggestions = true,  // ← RENAMED from showSuggestions to enableSuggestions
   className = "" 
 }) => {
   const [query, setQuery] = useState(initialValue);
   const [suggestions, setSuggestions] = useState([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false); // ← No conflict now
   const [recentSearches, setRecentSearches] = useState([]);
   const [popularSearches] = useState([
     "How to reset password",
@@ -55,7 +55,7 @@ const SearchBar = ({
     const value = e.target.value;
     setQuery(value);
 
-    if (value.trim().length > 2 && showSuggestions) {
+    if (value.trim().length > 2 && enableSuggestions) { // ← Use enableSuggestions
       // Generate suggestions based on popular searches
       const filtered = popularSearches.filter(search =>
         search.toLowerCase().includes(value.toLowerCase())
