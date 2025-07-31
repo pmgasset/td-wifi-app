@@ -1,5 +1,5 @@
-// utils/api-client.js
-// Frontend API client for knowledge base endpoints
+// src/utils/api-client.js
+// Fixed API client with proper public/private endpoint handling
 
 class APIClient {
   constructor(baseURL = '/api') {
@@ -11,6 +11,24 @@ class APIClient {
       request: [],
       response: []
     };
+    
+    // Define which endpoints are public (don't require authentication)
+    this.publicEndpoints = [
+      '/knowledge-base/articles',
+      '/knowledge-base/categories', 
+      '/knowledge-base/stats',
+      '/knowledge-base/search',
+      '/knowledge-base/health',
+      '/test',
+      '/knowledge-base/debug'
+    ];
+  }
+
+  // Check if endpoint requires authentication
+  isPublicEndpoint(endpoint) {
+    return this.publicEndpoints.some(publicPath => 
+      endpoint.startsWith(publicPath) || endpoint.includes('/knowledge-base/')
+    );
   }
 
   // Add request interceptor
@@ -65,8 +83,12 @@ class APIClient {
       data = null,
       headers = {},
       timeout = 30000,
+      requireAuth = null, // Allow explicit override
       ...otherOptions
     } = options;
+
+    // Determine if this endpoint needs authentication
+    const needsAuth = requireAuth !== null ? requireAuth : !this.isPublicEndpoint(endpoint);
 
     // Prepare request config
     let config = {
@@ -84,6 +106,20 @@ class APIClient {
       config.body = JSON.stringify(data);
     }
 
+    // Add authentication headers only for protected endpoints
+    if (needsAuth) {
+      const token = localStorage.getItem('auth_token');
+      if (token) {
+        config.headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      // Add user identification if available
+      const userId = localStorage.getItem('user_id');
+      if (userId) {
+        config.headers['X-User-ID'] = userId;
+      }
+    }
+
     // Apply request interceptors
     config = await this.applyRequestInterceptors(config);
 
@@ -91,21 +127,25 @@ class APIClient {
     const url = this.buildURL(endpoint, params);
 
     try {
-      console.log(`🌐 ${method.toUpperCase()} ${url}`);
+      console.log(`🌐 ${method.toUpperCase()} ${url}${needsAuth ? ' [AUTH]' : ' [PUBLIC]'}`);
       
       const response = await fetch(url, config);
       
-      // Create response object
-      let responseObj = {
-        data: null,
+      // Create response object with additional metadata
+      const responseObj = {
         status: response.status,
         statusText: response.statusText,
         headers: response.headers,
-        config,
-        request: { url }
+        ok: response.ok,
+        data: null,
+        request: {
+          method: config.method,
+          url: url,
+          needsAuth: needsAuth
+        }
       };
 
-      // Parse response body
+      // Parse response data
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         responseObj.data = await response.json();
@@ -114,26 +154,26 @@ class APIClient {
       }
 
       // Apply response interceptors
-      responseObj = await this.applyResponseInterceptors(responseObj);
+      const finalResponse = await this.applyResponseInterceptors(responseObj);
 
-      // Handle non-2xx responses
+      // Handle non-OK responses
       if (!response.ok) {
-        const error = new APIError(
-          responseObj.data?.message || `Request failed with status ${response.status}`,
-          response.status,
-          responseObj
-        );
-        throw error;
+        const errorMessage = finalResponse.data?.message || 
+                           finalResponse.data?.error || 
+                           `Request failed: ${response.status} ${response.statusText}`;
+        
+        throw new APIError(errorMessage, response.status, finalResponse);
       }
 
-      return responseObj;
+      return finalResponse;
+
     } catch (error) {
-      // Handle different types of errors
+      // Handle network errors
       if (error.name === 'AbortError') {
         throw new APIError('Request timeout', 408, null);
       }
       
-      if (error.name === 'TypeError' && error.message === 'Failed to fetch') {
+      if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
         throw new APIError('Network error. Please check your connection.', 0, null);
       }
 
@@ -197,45 +237,38 @@ class APIError extends Error {
 // Create and configure API client instance
 const apiClient = new APIClient();
 
-// Add request interceptor for authentication
-apiClient.addRequestInterceptor(async (config) => {
-  // Add authentication headers if available
-  const token = localStorage.getItem('auth_token');
-  if (token) {
-    config.headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  // Add user identification if available
-  const userId = localStorage.getItem('user_id');
-  if (userId) {
-    config.headers['X-User-ID'] = userId;
-  }
-
-  return config;
-});
-
-// Add response interceptor for error handling
+// Add response interceptor for logging and error handling
 apiClient.addResponseInterceptor(async (response) => {
   // Log response for debugging
   if (process.env.NODE_ENV === 'development') {
-    console.log(`📥 ${response.status} ${response.request.url}`, response.data);
+    console.log(`📥 ${response.status} ${response.request.url}`, 
+      response.data && typeof response.data === 'object' ? 
+        Object.keys(response.data) : response.data?.substring?.(0, 100));
   }
 
   // Handle rate limiting
   if (response.status === 429) {
     const retryAfter = response.data?.retryAfter || 60;
     console.warn(`Rate limited. Retry after ${retryAfter} seconds.`);
-    
-    // Could implement automatic retry logic here
-    // For now, just pass through the error
   }
 
-  // Handle authentication errors
-  if (response.status === 401) {
-    console.warn('Authentication failed. Redirecting to login...');
-    // Could trigger login redirect here
+  // Handle authentication errors ONLY for protected endpoints
+  if (response.status === 401 && response.request.needsAuth) {
+    console.warn('Authentication failed for protected endpoint. Redirecting to login...');
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user_id');
+    
+    // Only redirect if we're on a protected page
+    if (window.location.pathname.includes('/dashboard') || 
+        window.location.pathname.includes('/admin')) {
+      // Could trigger login redirect here
+      // window.location.href = '/login';
+    }
+  }
+
+  // For public endpoints with 401, log but don't redirect
+  if (response.status === 401 && !response.request.needsAuth) {
+    console.warn('Public endpoint returned 401 - this might indicate a server configuration issue');
   }
 
   return response;
@@ -244,7 +277,7 @@ apiClient.addResponseInterceptor(async (response) => {
 // Export API client and error class
 export { apiClient, APIError };
 
-// Export convenience functions for knowledge base operations
+// Export convenience functions for knowledge base operations (all public)
 export const knowledgeBaseAPI = {
   // Articles
   getArticles: (params) => apiClient.get('/knowledge-base/articles', { params }),
@@ -253,17 +286,19 @@ export const knowledgeBaseAPI = {
     params: { q: query, ...params } 
   }),
 
-  // Categories
+  // Categories  
   getCategories: () => apiClient.get('/knowledge-base/categories'),
   getCategory: (id) => apiClient.get(`/knowledge-base/categories/${id}`),
   getSections: (categoryId) => apiClient.get(`/knowledge-base/sections/${categoryId}`),
 
   // Stats and management
   getStats: () => apiClient.get('/knowledge-base/stats'),
-  syncWithZoho: () => apiClient.post('/knowledge-base/sync'),
   healthCheck: () => apiClient.get('/knowledge-base/health'),
 
-  // Contact/Support
+  // Protected endpoints (require authentication)
+  syncWithZoho: () => apiClient.post('/knowledge-base/sync', null, { requireAuth: true }),
+
+  // Contact/Support (might be public or protected depending on implementation)
   submitContactForm: (data) => apiClient.post('/support/contact', data),
   submitFeedback: (articleId, feedback) => apiClient.post(`/knowledge-base/articles/${articleId}/feedback`, feedback)
 };
