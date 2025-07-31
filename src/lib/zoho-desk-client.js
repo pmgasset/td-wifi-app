@@ -52,9 +52,9 @@ class ZohoDeskClient {
     }
     
     return {
-      'Authorization': `Bearer ${this.accessToken}`,
+      'Authorization': `Zoho-oauthtoken ${this.accessToken}`,
       'Content-Type': 'application/json',
-      'X-Zoho-OrgId': this.orgId
+      'orgId': this.orgId
     };
   }
 
@@ -163,11 +163,17 @@ class ZohoDeskClient {
     }
   }
 
-  // Get all articles
+  // Get all knowledge base articles
   async getArticles(params = {}) {
     try {
-      const queryParams = new URLSearchParams(params).toString();
-      const endpoint = `/articles${queryParams ? `?${queryParams}` : ''}`;
+      const queryParams = new URLSearchParams();
+      
+      // Add valid parameters only
+      if (params.limit) queryParams.append('limit', params.limit);
+      if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+      if (params.from) queryParams.append('from', params.from);
+      
+      const endpoint = `/kbArticles${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       
       const response = await this.makeRequest(endpoint);
       return {
@@ -176,25 +182,6 @@ class ZohoDeskClient {
       };
     } catch (error) {
       console.error('Failed to fetch articles:', error);
-      // Return mock data in case of errors during development
-      if (process.env.NODE_ENV !== 'production') {
-        return {
-          data: [
-            {
-              id: 'mock-article-1',
-              title: 'Getting Started with Travel Data WiFi',
-              summary: 'Learn how to set up and use your Travel Data WiFi device',
-              content: 'This is a mock article for development purposes.',
-              status: 'PUBLISHED',
-              categoryId: 'setup',
-              tags: ['setup', 'getting-started'],
-              viewCount: 142,
-              createdTime: new Date().toISOString()
-            }
-          ],
-          total: 1
-        };
-      }
       throw error;
     }
   }
@@ -202,27 +189,10 @@ class ZohoDeskClient {
   // Get single article by ID
   async getArticle(id) {
     try {
-      const response = await this.makeRequest(`/articles/${id}`);
+      const response = await this.makeRequest(`/kbArticles/${id}`);
       return { data: response };
     } catch (error) {
       console.error(`Failed to fetch article ${id}:`, error);
-      
-      // Return mock data in development
-      if (process.env.NODE_ENV !== 'production') {
-        return {
-          data: {
-            id: id,
-            title: 'Mock Article',
-            content: 'This is mock content for development.',
-            summary: 'Mock article summary',
-            status: 'PUBLISHED',
-            categoryId: 'general',
-            tags: ['mock'],
-            viewCount: 0,
-            createdTime: new Date().toISOString()
-          }
-        };
-      }
       throw error;
     }
   }
@@ -231,33 +201,19 @@ class ZohoDeskClient {
   async searchArticles(query, params = {}) {
     try {
       const searchParams = new URLSearchParams({
-        q: query,
-        ...params
-      }).toString();
+        searchStr: query
+      });
       
-      const response = await this.makeRequest(`/articles/search?${searchParams}`);
+      if (params.limit) searchParams.append('limit', params.limit);
+      if (params.sortBy) searchParams.append('sortBy', params.sortBy);
+      
+      const response = await this.makeRequest(`/kbArticles/search?${searchParams.toString()}`);
       return {
         data: response.data || [],
         total: response.total || 0
       };
     } catch (error) {
       console.error('Failed to search articles:', error);
-      
-      // Return mock search results in development
-      if (process.env.NODE_ENV !== 'production') {
-        return {
-          data: [
-            {
-              id: 'search-result-1',
-              title: `Search result for "${query}"`,
-              summary: 'This is a mock search result',
-              status: 'PUBLISHED',
-              categoryId: 'general'
-            }
-          ],
-          total: 1
-        };
-      }
       throw error;
     }
   }
@@ -265,40 +221,13 @@ class ZohoDeskClient {
   // Get all categories
   async getCategories() {
     try {
-      const response = await this.makeRequest('/categories');
+      const response = await this.makeRequest('/kbCategories');
       return {
         data: response.data || [],
         total: response.data?.length || 0
       };
     } catch (error) {
       console.error('Failed to fetch categories:', error);
-      
-      // Return mock categories in development
-      if (process.env.NODE_ENV !== 'production') {
-        return {
-          data: [
-            {
-              id: 'setup',
-              name: 'Device Setup',
-              description: 'Getting started with your devices',
-              articleCount: 5
-            },
-            {
-              id: 'connectivity',
-              name: 'Connection Issues',
-              description: 'Troubleshooting connectivity problems',
-              articleCount: 8
-            },
-            {
-              id: 'performance',
-              name: 'Speed & Performance',
-              description: 'Optimizing your internet speed',
-              articleCount: 3
-            }
-          ],
-          total: 3
-        };
-      }
       throw error;
     }
   }
@@ -306,7 +235,7 @@ class ZohoDeskClient {
   // Get category by ID
   async getCategory(id) {
     try {
-      const response = await this.makeRequest(`/categories/${id}`);
+      const response = await this.makeRequest(`/kbCategories/${id}`);
       return { data: response };
     } catch (error) {
       console.error(`Failed to fetch category ${id}:`, error);
@@ -317,29 +246,13 @@ class ZohoDeskClient {
   // Get sections for a category
   async getSections(categoryId) {
     try {
-      const response = await this.makeRequest(`/categories/${categoryId}/sections`);
+      const response = await this.makeRequest(`/kbCategories/${categoryId}/kbSections`);
       return {
         data: response.data || [],
         total: response.data?.length || 0
       };
     } catch (error) {
       console.error(`Failed to fetch sections for category ${categoryId}:`, error);
-      
-      // Return mock sections in development
-      if (process.env.NODE_ENV !== 'production') {
-        return {
-          data: [
-            {
-              id: 'section-1',
-              name: 'Getting Started',
-              description: 'Basic setup and configuration',
-              categoryId: categoryId,
-              articleCount: 5
-            }
-          ],
-          total: 1
-        };
-      }
       throw error;
     }
   }
@@ -347,8 +260,11 @@ class ZohoDeskClient {
   // Get articles by category
   async getArticlesByCategory(categoryId, params = {}) {
     try {
-      const queryParams = new URLSearchParams(params).toString();
-      const endpoint = `/categories/${categoryId}/articles${queryParams ? `?${queryParams}` : ''}`;
+      const queryParams = new URLSearchParams();
+      if (params.limit) queryParams.append('limit', params.limit);
+      if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+      
+      const endpoint = `/kbCategories/${categoryId}/kbArticles${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       
       const response = await this.makeRequest(endpoint);
       return {
@@ -364,8 +280,11 @@ class ZohoDeskClient {
   // Get articles by section
   async getArticlesBySection(sectionId, params = {}) {
     try {
-      const queryParams = new URLSearchParams(params).toString();
-      const endpoint = `/sections/${sectionId}/articles${queryParams ? `?${queryParams}` : ''}`;
+      const queryParams = new URLSearchParams();
+      if (params.limit) queryParams.append('limit', params.limit);
+      if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+      
+      const endpoint = `/kbSections/${sectionId}/kbArticles${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       
       const response = await this.makeRequest(endpoint);
       return {
@@ -381,41 +300,58 @@ class ZohoDeskClient {
   // Get help center statistics
   async getHelpCenterStats() {
     try {
-      const response = await this.makeRequest('/helpcenter/stats');
-      return response;
+      const [articles, categories] = await Promise.all([
+        this.getArticles({ limit: 1 }),
+        this.getCategories()
+      ]);
+
+      return {
+        totalArticles: articles.total || 0,
+        totalCategories: categories.data?.length || 0,
+        lastUpdated: new Date().toISOString(),
+        recentActivity: {
+          lastUpdated: new Date().toISOString()
+        }
+      };
     } catch (error) {
-      console.error('Failed to fetch help center stats:', error);
-      
-      // Return mock stats in development
-      if (process.env.NODE_ENV !== 'production') {
-        return {
-          totalArticles: 16,
-          totalCategories: 3,
-          totalViews: 1245,
-          mostViewedArticles: [
-            { id: '1', title: 'Device Setup Guide', views: 234 },
-            { id: '2', title: 'Connection Troubleshooting', views: 189 }
-          ]
-        };
-      }
-      throw error;
+      console.error('Failed to get help center stats:', error);
+      return {
+        totalArticles: 0,
+        totalCategories: 0,
+        lastUpdated: new Date().toISOString(),
+        error: error.message
+      };
     }
   }
 
   // Bulk import articles (for sync functionality)
   async bulkImportArticles() {
     try {
-      // This would typically sync from external sources
-      // For now, we'll just return success
+      const categories = await this.getCategories();
+      const allArticles = [];
+
+      for (const category of categories.data || []) {
+        try {
+          const categoryArticles = await this.getArticlesByCategory(category.id);
+          allArticles.push(...(categoryArticles.data || []));
+        } catch (error) {
+          console.error(`Failed to get articles for category ${category.id}:`, error);
+        }
+      }
+
       return {
-        imported: 0,
-        updated: 0,
-        errors: 0,
+        success: true,
+        articlesImported: allArticles.length,
+        categories: categories.data?.length || 0,
         message: 'Sync completed successfully'
       };
     } catch (error) {
-      console.error('Failed to bulk import articles:', error);
-      throw error;
+      console.error('Bulk import failed:', error);
+      return {
+        success: false,
+        error: error.message,
+        articlesImported: 0
+      };
     }
   }
 }

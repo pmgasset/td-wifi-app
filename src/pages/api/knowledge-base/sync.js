@@ -31,22 +31,31 @@ const handleZohoDeskError = (error, res) => {
 };
 
 export default async function handler(req, res) {
+  // This endpoint requires authentication (it's for admin use)
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    // Clear all caches
-    await cache.clear();
+    console.log('🔄 Starting knowledge base sync process');
     
+    // Clear all caches to force fresh data
+    await cache.clear();
+    console.log('🧹 Cache cleared');
+    
+    // Perform bulk import/sync
     const result = await zohoDeskClient.bulkImportArticles();
+    
+    console.log('✅ Sync process completed:', result);
     
     res.json({
       success: true,
       message: 'Knowledge base sync completed',
+      timestamp: new Date().toISOString(),
       ...result
     });
   } catch (error) {
+    console.error('Sync process failed:', error);
     handleZohoDeskError(error, res);
   }
 }

@@ -1,130 +1,73 @@
 // src/pages/api/knowledge-base/categories.js
-// Fixed version with proper error handling and fallbacks
+const { ZohoDeskClient } = require('../../../lib/zoho-desk-client');
+const cache = require('../../../utils/cache-manager');
 
-let ZohoDeskClient, cache;
+// Initialize Zoho Desk client
+const zohoDeskClient = new ZohoDeskClient();
 
-// Dynamic imports with fallbacks
-async function initializeDependencies() {
-  try {
-    const zohoDeskModule = await import('../../../lib/zoho-desk-client.js');
-    ZohoDeskClient = zohoDeskModule.ZohoDeskClient;
-  } catch (error) {
-    console.warn('Could not import ZohoDeskClient:', error.message);
-    // Fallback mock implementation
-    ZohoDeskClient = class MockZohoDeskClient {
-      async getCategories() {
-        return {
-          data: [
-            {
-              id: 'setup',
-              name: 'Device Setup',
-              description: 'Getting started with your Travel Data WiFi devices',
-              articleCount: 5,
-              createdTime: new Date().toISOString(),
-              modifiedTime: new Date().toISOString()
-            },
-            {
-              id: 'connectivity',
-              name: 'Connection Issues',
-              description: 'Troubleshooting connectivity and network problems',
-              articleCount: 8,
-              createdTime: new Date().toISOString(),
-              modifiedTime: new Date().toISOString()
-            },
-            {
-              id: 'performance',
-              name: 'Speed & Performance',
-              description: 'Optimizing your internet speed and performance',
-              articleCount: 3,
-              createdTime: new Date().toISOString(),
-              modifiedTime: new Date().toISOString()
-            },
-            {
-              id: 'security',
-              name: 'Network Security',
-              description: 'Keeping your connection secure and protected',
-              articleCount: 4,
-              createdTime: new Date().toISOString(),
-              modifiedTime: new Date().toISOString()
-            },
-            {
-              id: 'billing',
-              name: 'Billing & Plans',
-              description: 'Information about plans, billing, and subscriptions',
-              articleCount: 6,
-              createdTime: new Date().toISOString(),
-              modifiedTime: new Date().toISOString()
-            }
-          ],
-          total: 5
-        };
-      }
-    };
-  }
-
-  try {
-    const cacheModule = await import('../../../utils/cache-manager.js');
-    cache = cacheModule.default || cacheModule;
-  } catch (error) {
-    console.warn('Could not import cache manager:', error.message);
-    cache = {
-      async get(key) { 
-        console.log(`Mock cache GET: ${key}`);
-        return null; 
-      },
-      async set(key, value, ttl) { 
-        console.log(`Mock cache SET: ${key} (TTL: ${ttl}s)`);
-        return true; 
-      }
-    };
-  }
-}
-
-let dependenciesInitialized = false;
-async function ensureDependencies() {
-  if (!dependenciesInitialized) {
-    await initializeDependencies();
-    dependenciesInitialized = true;
-  }
-}
-
+// Middleware to handle Zoho Desk errors
 const handleZohoDeskError = (error, res) => {
-  console.error('Categories API Error:', error);
+  console.error('Zoho Desk API Error:', error);
   
-  if (error?.name === 'ZohoDeskAuthError') {
+  if (error.name === 'ZohoDeskAuthError') {
     return res.status(401).json({
       error: 'Authentication failed',
       message: 'Unable to authenticate with Zoho Desk'
     });
   }
   
-  if (error?.name === 'ZohoDeskRateLimitError') {
+  if (error.name === 'ZohoDeskRateLimitError') {
     return res.status(429).json({
       error: 'Rate limit exceeded',
       message: 'Too many requests. Please try again later.',
-      retryAfter: error.retryAfter || 60
+      retryAfter: error.retryAfter
     });
   }
   
   return res.status(500).json({
     error: 'Internal server error',
-    message: 'Failed to fetch categories from knowledge base',
-    details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    message: 'Failed to fetch data from knowledge base'
   });
 };
 
+// Helper functions for category styling
+function getCategoryColor(categoryName) {
+  const name = categoryName.toLowerCase();
+  if (name.includes('setup') || name.includes('getting started')) return 'blue';
+  if (name.includes('connect') || name.includes('network') || name.includes('troubleshoot')) return 'red';
+  if (name.includes('performance') || name.includes('speed') || name.includes('optimization')) return 'yellow';
+  if (name.includes('security') || name.includes('safe')) return 'green';
+  if (name.includes('billing') || name.includes('account') || name.includes('payment')) return 'purple';
+  return 'gray';
+}
+
+function getCategoryIcon(categoryName) {
+  const name = categoryName.toLowerCase();
+  if (name.includes('setup') || name.includes('getting started')) return 'Settings';
+  if (name.includes('connect') || name.includes('network')) return 'Wifi';
+  if (name.includes('performance') || name.includes('speed')) return 'Zap';
+  if (name.includes('security') || name.includes('safe')) return 'Shield';
+  if (name.includes('billing') || name.includes('account')) return 'CreditCard';
+  if (name.includes('troubleshoot') || name.includes('help')) return 'Tool';
+  return 'HelpCircle';
+}
+
 export default async function handler(req, res) {
+  // Set CORS headers for public access
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'GET') {
-    return res.status(405).json({ 
-      error: 'Method not allowed',
-      message: 'This endpoint only supports GET requests'
-    });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    await ensureDependencies();
-    
-    const zohoDeskClient = new ZohoDeskClient();
+    console.log('🌍 Public access: GET /api/knowledge-base/categories/');
     
     const cacheKey = 'categories:all';
     const cached = await cache.get(cacheKey);
@@ -145,8 +88,8 @@ export default async function handler(req, res) {
         articleCount: category.articleCount || 0,
         createdTime: category.createdTime,
         modifiedTime: category.modifiedTime,
-        color: getCategoryColor(category.id),
-        icon: getCategoryIcon(category.id)
+        color: getCategoryColor(category.name),
+        icon: getCategoryIcon(category.name)
       })),
       total: categories.data?.length || 0
     };
@@ -161,27 +104,4 @@ export default async function handler(req, res) {
     console.error('Categories API error:', error);
     handleZohoDeskError(error, res);
   }
-}
-
-// Helper functions for category styling
-function getCategoryColor(categoryId) {
-  const colors = {
-    'setup': 'blue',
-    'connectivity': 'red',
-    'performance': 'yellow',
-    'security': 'green',
-    'billing': 'purple'
-  };
-  return colors[categoryId] || 'gray';
-}
-
-function getCategoryIcon(categoryId) {
-  const icons = {
-    'setup': 'Settings',
-    'connectivity': 'Wifi',
-    'performance': 'Zap',
-    'security': 'Shield',
-    'billing': 'CreditCard'
-  };
-  return icons[categoryId] || 'HelpCircle';
 }
