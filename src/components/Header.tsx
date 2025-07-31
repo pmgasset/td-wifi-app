@@ -1,7 +1,7 @@
 // src/components/Header.tsx
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ShoppingCart, Menu, X, Wifi, Phone, Search } from 'lucide-react';
+import { ShoppingCart, Menu, X, Wifi, Phone, Search, HelpCircle } from 'lucide-react';
 import { useCartStore } from '../store/cart';
 import Cart from './Cart';
 
@@ -16,7 +16,7 @@ const Header: React.FC = () => {
     { name: 'Products', href: '/products', description: 'Browse our router selection' },
     { name: 'Solutions', href: '/solutions', description: 'Find your perfect setup' },
     { name: 'Coverage', href: '/coverage', description: 'Check network availability' },
-    { name: 'Support', href: '/support', description: 'Get help and guides' },
+    { name: 'Support Center', href: '/support', description: 'Get help and guides', icon: HelpCircle },
   ];
 
   // Handle scroll effect for header transparency
@@ -69,25 +69,10 @@ const Header: React.FC = () => {
             {/* Top Row - Centered Logo */}
             <div className="flex justify-center items-center mb-3">
               <Link href="/" className="group focus-visible">
-                <img 
-                  src="/logo.svg" 
-                  alt="Travel Data WiFi - Reliable Mobile Internet" 
-                  className={`transition-all duration-300 hover:scale-105 ${
-                    isScrolled ? 'h-12' : 'h-16'
-                  }`}
-                  style={{ width: 'auto' }}
-                  onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-                    console.log('Header logo failed to load, showing fallback');
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    const fallback = target.nextElementSibling as HTMLElement;
-                    if (fallback) fallback.classList.remove('hidden');
-                  }}
-                />
-                <div className={`bg-gradient-cta rounded-xl flex items-center justify-center hidden transition-all duration-300 hover:shadow-lg ${
-                  isScrolled ? 'w-48 h-12' : 'w-72 h-16'
+                <div className={`bg-gradient-to-r from-logo-teal to-logo-ocean rounded-lg p-3 transition-all duration-300 hover:scale-105 ${
+                  isScrolled ? 'w-48 h-12 p-2' : 'w-72 h-16 p-3'
                 }`}>
-                  <div className="flex items-center space-x-3">
+                  <div className="flex items-center justify-center space-x-3 h-full">
                     <Wifi className={`text-white transition-all duration-300 ${
                       isScrolled ? 'h-5 w-5' : 'h-8 w-8'
                     }`} />
@@ -122,11 +107,18 @@ const Header: React.FC = () => {
                   <Link
                     key={item.name}
                     href={item.href}
-                    className="group relative text-gray-700 hover:text-logo-teal font-medium transition-colors duration-200 focus-visible"
+                    className={`group relative font-medium transition-all duration-200 focus-visible flex items-center space-x-2 ${
+                      item.name === 'Support Center'
+                        ? 'text-logo-teal hover:text-logo-ocean bg-teal-50 hover:bg-teal-100 px-3 py-2 rounded-lg'
+                        : 'text-gray-700 hover:text-logo-teal'
+                    }`}
                     title={item.description}
                   >
-                    {item.name}
-                    <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-logo-teal transition-all duration-200 group-hover:w-full"></span>
+                    {item.icon && <item.icon className="h-4 w-4" />}
+                    <span>{item.name}</span>
+                    {item.name !== 'Support Center' && (
+                      <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-logo-teal transition-all duration-200 group-hover:w-full"></span>
+                    )}
                   </Link>
                 ))}
               </nav>
@@ -153,41 +145,31 @@ const Header: React.FC = () => {
                     </span>
                   )}
                 </button>
+
+                <button
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+                  className="menu-button flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 transition-all duration-200 focus-visible"
+                  aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
+                >
+                  {isMenuOpen ? (
+                    <X className="h-5 w-5 text-gray-600" />
+                  ) : (
+                    <Menu className="h-5 w-5 text-gray-600" />
+                  )}
+                </button>
               </div>
             </div>
           </div>
 
-          {/* Mobile/Tablet Layout */}
+          {/* Mobile Layout */}
           <div className="lg:hidden">
             <div className="flex justify-between items-center">
               {/* Mobile Logo */}
-              <Link href="/" className="group focus-visible">
-                <img 
-                  src="/logo.svg" 
-                  alt="Travel Data WiFi" 
-                  className={`transition-all duration-300 ${
-                    isScrolled ? 'h-8' : 'h-10'
-                  }`}
-                  style={{ width: 'auto' }}
-                  onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    const fallback = target.nextElementSibling as HTMLElement;
-                    if (fallback) fallback.classList.remove('hidden');
-                  }}
-                />
-                <div className={`bg-gradient-cta rounded-lg flex items-center justify-center hidden transition-all duration-300 ${
-                  isScrolled ? 'w-32 h-8' : 'w-40 h-10'
-                }`}>
+              <Link href="/" className="focus-visible">
+                <div className="bg-gradient-to-r from-logo-teal to-logo-ocean rounded-lg p-2">
                   <div className="flex items-center space-x-2">
-                    <Wifi className={`text-white ${
-                      isScrolled ? 'h-4 w-4' : 'h-5 w-5'
-                    }`} />
-                    <span className={`font-bold text-white ${
-                      isScrolled ? 'text-sm' : 'text-base'
-                    }`}>
-                      Travel Data
-                    </span>
+                    <Wifi className="h-6 w-6 text-white" />
+                    <span className="font-bold text-white text-lg">Travel Data</span>
                   </div>
                 </div>
               </Link>
@@ -196,13 +178,13 @@ const Header: React.FC = () => {
               <div className="flex items-center space-x-3">
                 <button
                   onClick={openCart}
-                  className="relative flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 transition-all duration-200 focus-visible"
+                  className="relative flex items-center justify-center w-10 h-10 rounded-full bg-logo-teal hover:bg-logo-ocean transition-all duration-200 focus-visible"
                   aria-label={`Shopping cart with ${cartItemCount} items`}
                 >
-                  <ShoppingCart className="h-5 w-5 text-gray-600" />
+                  <ShoppingCart className="h-5 w-5 text-white" />
                   {cartItemCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-logo-signal text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center">
-                      {cartItemCount > 9 ? '9+' : cartItemCount}
+                    <span className="absolute -top-2 -right-2 bg-logo-signal text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-bounce-gentle">
+                      {cartItemCount > 99 ? '99+' : cartItemCount}
                     </span>
                   )}
                 </button>
@@ -256,16 +238,31 @@ const Header: React.FC = () => {
                     className="block group"
                     onClick={() => setIsMenuOpen(false)}
                   >
-                    <div className="flex items-center justify-between p-4 rounded-lg hover:bg-gray-50 transition-colors">
-                      <div>
-                        <div className="text-lg font-semibold text-gray-900 group-hover:text-logo-teal transition-colors">
-                          {item.name}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {item.description}
+                    <div className={`flex items-center justify-between p-4 rounded-lg transition-colors ${
+                      item.name === 'Support Center'
+                        ? 'bg-teal-50 border border-teal-200 hover:bg-teal-100'
+                        : 'hover:bg-gray-50'
+                    }`}>
+                      <div className="flex items-center space-x-3">
+                        {item.icon && <item.icon className="h-5 w-5 text-logo-teal" />}
+                        <div>
+                          <div className={`text-lg font-semibold transition-colors ${
+                            item.name === 'Support Center'
+                              ? 'text-logo-teal'
+                              : 'text-gray-900 group-hover:text-logo-teal'
+                          }`}>
+                            {item.name}
+                          </div>
+                          <div className="text-sm text-gray-500">
+                            {item.description}
+                          </div>
                         </div>
                       </div>
-                      <div className="w-6 h-6 rounded-full bg-logo-teal/10 flex items-center justify-center group-hover:bg-logo-teal group-hover:text-white transition-colors">
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
+                        item.name === 'Support Center'
+                          ? 'bg-logo-teal text-white'
+                          : 'bg-logo-teal/10 group-hover:bg-logo-teal group-hover:text-white'
+                      }`}>
                         <span className="text-xs">→</span>
                       </div>
                     </div>
