@@ -1,6 +1,7 @@
 // src/pages/support/index.tsx
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import Layout from '../../components/Layout';
 import { 
   Search, 
@@ -18,16 +19,27 @@ import {
   Zap,
   Settings,
   Shield,
-  Wifi
+  Wifi,
+  ChevronRight,
+  ArrowLeft,
+  Send,
+  User,
+  AlertCircle,
+  Upload,
+  X,
+  Eye,
+  ThumbsUp,
+  Tag,
+  Filter,
+  Star
 } from 'lucide-react';
 
-// Import support components (these would be the ones we created earlier)
-// For now, we'll create simplified versions that integrate with your existing design
-import SupportDashboard from '../../components/support/SupportDashboard';
+// Import support components with correct path (from root components directory)
+import SupportDashboard from '../../../components/support/SupportDashboard';
 
 const SupportPage: React.FC = () => {
   const router = useRouter();
-  const { view } = router.query;
+  const { view, category } = router.query;
 
   // Quick help categories with your branding
   const quickHelpCategories = [
