@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 
 // Import support components with correct path (from root components directory)
-import SupportDashboard from '../../../components/support/SupportDashboard';
+import SupportDashboard from '../../components/support/SupportDashboard';
 
 const SupportPage: React.FC = () => {
   const router = useRouter();

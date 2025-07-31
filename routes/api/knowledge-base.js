@@ -3,8 +3,8 @@
 
 const express = require('express');
 const { ZohoDeskClient } = require('../../lib/zoho-desk-client');
-const cache = require('../../utils/cache-manager');
-const rateLimit = require('../../middleware/rate-limiter');
+const cache = require('../../src/utils/cache-manager');
+const rateLimit = require('../../src/middleware/rate-limiter');
 
 const router = express.Router();
 
