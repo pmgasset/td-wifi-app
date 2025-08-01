@@ -1,15 +1,97 @@
-// src/utils/zoho-salesiq.js
+/**
+ * Start a chat programmatically
+ */
+export const startChat = (department: string | null = null): boolean => {
+  if (typeof window === 'undefined' || !window.$zoho?.salesiq) {
+    console.warn('Zoho SalesIQ not initialized');
+    return false;
+  }
+
+  try {
+    const salesiq = window.$zoho.salesiq;
+    
+    // Set department if specified
+    if (department && salesiq.visitor) {
+      salesiq.visitor.department(department);
+    }
+
+    // Show and start chat
+    if (salesiq.floatbutton) {
+      salesiq.floatbutton.visible('show');
+    }
+    if (salesiq.chat) {
+      salesiq.chat.start();
+    }
+    
+    console.log('🚀 Chat started');
+    return true;
+  } catch (error) {
+    console.error('Failed to start chat:', error);
+    return false;
+  }
+};
+
+/**
+ * Hide the chat widget
+ */
+export const hideChat = (): void => {
+  if (typeof window === 'undefined' || !window.$zoho?.salesiq?.floatbutton) return;
+
+  try {
+    window.$zoho.salesiq.floatbutton.visible('hide');
+    console.log('👻 Chat widget hidden');
+  } catch (error) {
+    console.error('Failed to hide chat:', error);
+  }
+};
+
+/**
+ * Show the chat widget
+ */
+export const showChat = (): void => {
+  if (typeof window === 'undefined' || !window.$zoho?.salesiq?.floatbutton) return;
+
+  try {
+    window.$zoho.salesiq.floatbutton.visible('show');
+    console.log('👋 Chat widget shown');
+  } catch (error) {
+    console.error('// src/utils/zoho-salesiq.ts
 // Zoho SalesIQ live chat integration utility
+import '../types/zoho-salesiq'; // Import type declarations
+
+interface ZohoSalesIQConfig {
+  widgetCode?: string;
+  language?: string;
+  position?: string;
+  theme?: string;
+  department?: string;
+  customFields?: Record<string, any>;
+  hidden?: boolean;
+}
+
+interface VisitorData {
+  name?: string;
+  email?: string;
+  phone?: string;
+  customFields?: Record<string, any>;
+}
+
+interface ChatEventCallbacks {
+  onChatStart?: () => void;
+  onChatEnd?: () => void;
+  onMessageReceive?: (message: any) => void;
+  onMessageSend?: (message: any) => void;
+}
 
 /**
  * Initialize Zoho SalesIQ widget with configuration
  * Call this in your _app.js or Layout component
  */
-export const initializeZohoSalesIQ = (config = {}) => {
+export const initializeZohoSalesIQ = (config: ZohoSalesIQConfig = {}): void => {
   if (typeof window === 'undefined') return;
 
   // Default configuration
-  const defaultConfig = {
+  const defaultConfig: ZohoSalesIQConfig = {
     widgetCode: process.env.NEXT_PUBLIC_ZOHO_SALESIQ_WIDGET_CODE || 'YOUR_WIDGET_CODE_HERE',
     language: 'en',
     position: 'right',
@@ -31,14 +113,17 @@ export const initializeZohoSalesIQ = (config = {}) => {
     ready: function() {
       console.log('✅ Zoho SalesIQ widget ready');
       
+      const salesiq = window.$zoho?.salesiq;
+      if (!salesiq) return;
+
       // Set department if specified
-      if (finalConfig.department) {
-        window.$zoho.salesiq.visitor.department(finalConfig.department);
+      if (finalConfig.department && salesiq.visitor) {
+        salesiq.visitor.department(finalConfig.department);
       }
 
       // Set custom theme
-      if (finalConfig.theme === 'custom') {
-        window.$zoho.salesiq.theme({
+      if (finalConfig.theme === 'custom' && salesiq.theme) {
+        salesiq.theme({
           primary: '#06b6d4',
           secondary: '#1e40af',
           background: '#ffffff',
@@ -47,17 +132,15 @@ export const initializeZohoSalesIQ = (config = {}) => {
       }
 
       // Set operating hours (10AM-10PM EST)
-      window.$zoho.salesiq.chat.hours('10:00', '22:00', 'America/New_York');
-
-      // Custom welcome message
-      window.$zoho.salesiq.chat.greeting('Hello! How can our RV internet experts help you today?');
-
-      // Set chat window title
-      window.$zoho.salesiq.chat.title('Travel Data WiFi Support');
+      if (salesiq.chat) {
+        salesiq.chat.hours('10:00', '22:00', 'America/New_York');
+        salesiq.chat.greeting('Hello! How can our RV internet experts help you today?');
+        salesiq.chat.title('Travel Data WiFi Support');
+      }
 
       // Hide chat widget initially if needed
-      if (finalConfig.hidden) {
-        window.$zoho.salesiq.floatbutton.visible('hide');
+      if (finalConfig.hidden && salesiq.floatbutton) {
+        salesiq.floatbutton.visible('hide');
       }
     }
   };
@@ -77,7 +160,7 @@ export const initializeZohoSalesIQ = (config = {}) => {
     };
     
     const firstScript = document.getElementsByTagName('script')[0];
-    firstScript.parentNode.insertBefore(script, firstScript);
+    firstScript.parentNode?.insertBefore(script, firstScript);
   }
 };
 
@@ -92,13 +175,17 @@ export const startChat = (department = null) => {
 
   try {
     // Set department if specified
-    if (department) {
+    if (department && window.$zoho.salesiq.visitor) {
       window.$zoho.salesiq.visitor.department(department);
     }
 
     // Show and start chat
-    window.$zoho.salesiq.floatbutton.visible('show');
-    window.$zoho.salesiq.chat.start();
+    if (window.$zoho.salesiq.floatbutton) {
+      window.$zoho.salesiq.floatbutton.visible('show');
+    }
+    if (window.$zoho.salesiq.chat) {
+      window.$zoho.salesiq.chat.start();
+    }
     
     console.log('🚀 Chat started');
     return true;
@@ -112,7 +199,7 @@ export const startChat = (department = null) => {
  * Hide the chat widget
  */
 export const hideChat = () => {
-  if (typeof window === 'undefined' || !window.$zoho?.salesiq) return;
+  if (typeof window === 'undefined' || !window.$zoho?.salesiq?.floatbutton) return;
 
   try {
     window.$zoho.salesiq.floatbutton.visible('hide');
@@ -126,7 +213,7 @@ export const hideChat = () => {
  * Show the chat widget
  */
 export const showChat = () => {
-  if (typeof window === 'undefined' || !window.$zoho?.salesiq) return;
+  if (typeof window === 'undefined' || !window.$zoho?.salesiq?.floatbutton) return;
 
   try {
     window.$zoho.salesiq.floatbutton.visible('show');
@@ -140,7 +227,7 @@ export const showChat = () => {
  * Set visitor information
  */
 export const setVisitorInfo = (visitorData) => {
-  if (typeof window === 'undefined' || !window.$zoho?.salesiq) return;
+  if (typeof window === 'undefined' || !window.$zoho?.salesiq?.visitor) return;
 
   try {
     const { name, email, phone, customFields } = visitorData;
@@ -159,7 +246,9 @@ export const setVisitorInfo = (visitorData) => {
 
     if (customFields) {
       Object.keys(customFields).forEach(key => {
-        window.$zoho.salesiq.visitor.info(key, customFields[key]);
+        if (window.$zoho?.salesiq?.visitor) {
+          window.$zoho.salesiq.visitor.info(key, customFields[key]);
+        }
       });
     }
 
@@ -217,25 +306,25 @@ export const setChatEventListeners = (callbacks = {}) => {
 
   // Wait for SalesIQ to be ready
   const waitForSalesIQ = () => {
-    if (window.$zoho?.salesiq) {
+    if (window.$zoho?.salesiq?.chat) {
       try {
         // Chat started event
-        if (callbacks.onChatStart) {
+        if (callbacks.onChatStart && window.$zoho.salesiq.chat) {
           window.$zoho.salesiq.chat.onstart = callbacks.onChatStart;
         }
 
         // Chat ended event
-        if (callbacks.onChatEnd) {
+        if (callbacks.onChatEnd && window.$zoho.salesiq.chat) {
           window.$zoho.salesiq.chat.onend = callbacks.onChatEnd;
         }
 
         // Message received event
-        if (callbacks.onMessageReceive) {
+        if (callbacks.onMessageReceive && window.$zoho.salesiq.chat) {
           window.$zoho.salesiq.chat.onmessagereceive = callbacks.onMessageReceive;
         }
 
         // Message sent event
-        if (callbacks.onMessageSend) {
+        if (callbacks.onMessageSend && window.$zoho.salesiq.chat) {
           window.$zoho.salesiq.chat.onmessagesend = callbacks.onMessageSend;
         }
 

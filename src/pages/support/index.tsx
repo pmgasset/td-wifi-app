@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import Layout from '../../components/Layout';
+import '../../types/zoho-salesiq'; // Import type declarations
 import { 
   Search, 
   HelpCircle, 
@@ -117,7 +118,7 @@ const SupportPage: React.FC = () => {
     // Initialize Zoho SalesIQ chat widget
     if (typeof window !== 'undefined') {
       // Check if Zoho SalesIQ is loaded
-      if (window.$zoho && window.$zoho.salesiq) {
+      if (window.$zoho?.salesiq?.chat) {
         window.$zoho.salesiq.chat.start();
       } else {
         // Fallback - load and initialize Zoho SalesIQ
@@ -126,10 +127,15 @@ const SupportPage: React.FC = () => {
         script.async = true;
         script.src = 'https://salesiq.zoho.com/widget';
         script.onload = () => {
-          if (window.$zoho && window.$zoho.salesiq) {
-            window.$zoho.salesiq.ready = function() {
-              window.$zoho.salesiq.chat.start();
-            };
+          if (window.$zoho?.salesiq) {
+            if (window.$zoho.salesiq.ready) {
+              window.$zoho.salesiq.ready();
+            }
+            setTimeout(() => {
+              if (window.$zoho?.salesiq?.chat) {
+                window.$zoho.salesiq.chat.start();
+              }
+            }, 1000);
           }
         };
         document.head.appendChild(script);
@@ -527,22 +533,25 @@ const SupportPage: React.FC = () => {
       <script
         dangerouslySetInnerHTML={{
           __html: `
-            var $zoho = $zoho || {};
-            $zoho.salesiq = $zoho.salesiq || {
-              widgetcode: "YOUR_WIDGET_CODE_HERE",
-              values: {},
-              ready: function() {
-                // Widget is ready
-              }
-            };
-            var d = document;
-            var s = d.createElement("script");
-            s.type = "text/javascript";
-            s.id = "zsiqscript";
-            s.defer = true;
-            s.src = "https://salesiq.zoho.com/widget";
-            var t = d.getElementsByTagName("script")[0];
-            t.parentNode.insertBefore(s, t);
+            (function(){
+              var $zoho = $zoho || {};
+              $zoho.salesiq = $zoho.salesiq || {
+                widgetcode: "${process.env.NEXT_PUBLIC_ZOHO_SALESIQ_WIDGET_CODE || 'YOUR_WIDGET_CODE_HERE'}",
+                values: {},
+                ready: function() {
+                  console.log('Zoho SalesIQ ready');
+                }
+              };
+              var d = document;
+              var s = d.createElement("script");
+              s.type = "text/javascript";
+              s.id = "zsiqscript";
+              s.defer = true;
+              s.src = "https://salesiq.zoho.com/widget";
+              var t = d.getElementsByTagName("script")[0];
+              t.parentNode.insertBefore(s, t);
+              window.$zoho = $zoho;
+            })();
           `
         }}
       />
