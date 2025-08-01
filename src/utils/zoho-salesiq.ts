@@ -55,7 +55,9 @@ export const showChat = (): void => {
     window.$zoho.salesiq.floatbutton.visible('show');
     console.log('👋 Chat widget shown');
   } catch (error) {
-    console.error('// src/utils/zoho-salesiq.ts
+    console.error('Failed to show chat:', error);
+  }
+};// src/utils/zoho-salesiq.ts
 // Zoho SalesIQ live chat integration utility
 import '../types/zoho-salesiq'; // Import type declarations
 
