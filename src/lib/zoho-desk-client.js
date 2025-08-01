@@ -30,7 +30,7 @@ class ZohoDeskClient {
   constructor() {
     // Environment variables validation
     this.baseURL = process.env.ZOHO_DESK_API_URL || 'https://desk.zoho.com/api/v1';
-    this.orgId = process.env.ZOHO_ORG_ID;
+    this.orgId = process.env.ZOHO_DESK_ORG_ID;
     this.clientId = process.env.ZOHO_CLIENT_ID;
     this.clientSecret = process.env.ZOHO_CLIENT_SECRET;
     this.refreshToken = process.env.ZOHO_REFRESH_TOKEN;
