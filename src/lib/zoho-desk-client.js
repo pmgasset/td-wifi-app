@@ -1,5 +1,5 @@
 // src/lib/zoho-desk-client.js
-// Updated Zoho Desk API client for Help Center integration
+// Updated Zoho Desk API client using Server-based OAuth credentials
 
 const https = require('https');
 const { URLSearchParams } = require('url');
@@ -30,12 +30,12 @@ class ZohoDeskAPIError extends Error {
 
 class ZohoDeskClient {
   constructor() {
-    // Environment variables validation - Updated to use ZOHO_DESK_ORG_ID
+    // Use Desk-specific Server-based OAuth credentials
     this.baseURL = process.env.ZOHO_DESK_API_URL || 'https://desk.zoho.com/api/v1';
-    this.orgId = process.env.ZOHO_DESK_ORG_ID; // Changed from ZOHO_ORG_ID
-    this.clientId = process.env.ZOHO_CLIENT_ID;
-    this.clientSecret = process.env.ZOHO_CLIENT_SECRET;
-    this.refreshToken = process.env.ZOHO_REFRESH_TOKEN;
+    this.orgId = process.env.ZOHO_DESK_ORG_ID;
+    this.clientId = process.env.ZOHO_DESK_CLIENT_ID;
+    this.clientSecret = process.env.ZOHO_DESK_CLIENT_SECRET;
+    this.refreshToken = process.env.ZOHO_DESK_REFRESH_TOKEN;
     
     // Token management
     this.accessToken = null;
@@ -44,9 +44,18 @@ class ZohoDeskClient {
     this.minRefreshInterval = 5 * 60 * 1000; // 5 minutes minimum between refreshes
     
     // Validate required environment variables
-    if (!this.orgId || !this.clientId || !this.clientSecret || !this.refreshToken) {
-      console.error('Missing required Zoho Desk environment variables');
-      console.error('Required: ZOHO_DESK_ORG_ID, ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, ZOHO_REFRESH_TOKEN');
+    const missingVars = [];
+    if (!this.orgId) missingVars.push('ZOHO_DESK_ORG_ID');
+    if (!this.clientId) missingVars.push('ZOHO_DESK_CLIENT_ID');
+    if (!this.clientSecret) missingVars.push('ZOHO_DESK_CLIENT_SECRET');
+    if (!this.refreshToken) missingVars.push('ZOHO_DESK_REFRESH_TOKEN');
+    
+    if (missingVars.length > 0) {
+      console.error('Missing required Zoho Desk environment variables:');
+      console.error('Missing:', missingVars.join(', '));
+      console.error('Required: ZOHO_DESK_ORG_ID, ZOHO_DESK_CLIENT_ID, ZOHO_DESK_CLIENT_SECRET, ZOHO_DESK_REFRESH_TOKEN');
+    } else {
+      console.log('✅ All Zoho Desk environment variables present');
     }
   }
 
@@ -69,16 +78,18 @@ class ZohoDeskClient {
     return Date.now() >= this.tokenExpiry - 300000; // Refresh 5 minutes before expiry
   }
 
-  // Refresh the access token using refresh token
+  // Refresh the access token using Server-based OAuth refresh token
   async refreshAccessToken() {
     // Prevent rapid consecutive refreshes
     const now = Date.now();
     if (this.lastTokenRefresh && (now - this.lastTokenRefresh) < this.minRefreshInterval) {
-      console.log('Skipping token refresh - too soon since last refresh');
+      console.log('⏸️ Skipping token refresh - too soon since last refresh');
       if (this.accessToken) return this.accessToken;
     }
 
     try {
+      console.log('🔄 Refreshing Zoho Desk access token...');
+      
       const params = new URLSearchParams({
         refresh_token: this.refreshToken,
         client_id: this.clientId,
@@ -94,16 +105,20 @@ class ZohoDeskClient {
         this.accessToken = data.access_token;
         this.tokenExpiry = Date.now() + (data.expires_in * 1000);
         this.lastTokenRefresh = now;
-        console.log('Access token refreshed successfully');
+        console.log('✅ Zoho Desk access token refreshed successfully');
+        console.log(`📅 Token expires in ${Math.round(data.expires_in / 60)} minutes`);
+        return this.accessToken;
       } else {
-        throw new ZohoDeskAuthError('Failed to refresh access token');
+        console.error('❌ No access token in refresh response:', data);
+        throw new ZohoDeskAuthError('Failed to refresh access token - no token in response');
       }
     } catch (error) {
-      console.error('Token refresh failed:', error);
+      console.error('❌ Zoho Desk token refresh failed:', error);
       
       // If rate limited, wait longer before next attempt
-      if (error.message.includes('too many requests')) {
+      if (error.message.includes('too many requests') || error.statusCode === 429) {
         this.lastTokenRefresh = now + (30 * 60 * 1000); // Block for 30 minutes
+        console.log('⏰ Rate limited - blocking token refresh for 30 minutes');
       }
       
       throw new ZohoDeskAuthError(`Token refresh failed: ${error.message}`);
@@ -137,7 +152,7 @@ class ZohoDeskClient {
             if (res.statusCode >= 200 && res.statusCode < 300) {
               resolve(parsedData);
             } else if (res.statusCode === 401) {
-              reject(new ZohoDeskAuthError('Authentication failed'));
+              reject(new ZohoDeskAuthError('Authentication failed - invalid token'));
             } else if (res.statusCode === 403) {
               reject(new ZohoDeskAuthError('Permission denied - check OAuth scopes'));
             } else if (res.statusCode === 429) {
@@ -147,7 +162,8 @@ class ZohoDeskClient {
               reject(new ZohoDeskAPIError(`API error: ${parsedData.message || 'Unknown error'}`, res.statusCode));
             }
           } catch (parseError) {
-            reject(new Error(`Failed to parse response: ${parseError.message}`));
+            // If response isn't JSON, include raw response
+            reject(new Error(`Failed to parse response: ${parseError.message}. Raw response: ${responseData.substring(0, 200)}`));
           }
         });
       });
@@ -177,14 +193,16 @@ class ZohoDeskClient {
 
       console.log(`🌐 ${method} ${url}`);
       
-      return await this.makeHttpRequest(method, url, requestData, headers);
+      const response = await this.makeHttpRequest(method, url, requestData, headers);
+      console.log(`✅ ${method} ${endpoint} - Success`);
+      return response;
     } catch (error) {
-      console.error(`API request failed: ${method} ${endpoint}`, error);
+      console.error(`❌ API request failed: ${method} ${endpoint}`, error.message);
       throw error;
     }
   }
 
-  // Get all help center articles (Help Center API)
+  // Get all help center articles
   async getArticles(params = {}) {
     try {
       const queryParams = new URLSearchParams();
@@ -192,27 +210,34 @@ class ZohoDeskClient {
       // Add valid parameters for Help Center API
       if (params.limit) queryParams.append('limit', params.limit);
       if (params.from) queryParams.append('from', params.from);
-      if (params.sortBy) queryParams.append('sortBy', params.sortBy);
+      if (params.sortBy && params.sortBy !== 'modifiedTime') {
+        // Only add sortBy if it's not the default to avoid parameter issues
+        queryParams.append('sortBy', params.sortBy);
+      }
       
       // Use /articles endpoint (Help Center API)
       const endpoint = `/articles${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
       
       const response = await this.makeRequest(endpoint);
-      return {
-        data: response.data || [],
-        total: response.total || 0
+      
+      const result = {
+        data: response.data || response || [],
+        total: response.total || response.length || 0
       };
+      
+      console.log(`📚 Retrieved ${result.data.length} articles`);
+      return result;
     } catch (error) {
       console.error('Failed to fetch articles:', error);
       throw error;
     }
   }
 
-  // Get single article by ID (Help Center API)
+  // Get single article by ID
   async getArticle(id) {
     try {
-      // Use /articles endpoint instead of /kbArticles
       const response = await this.makeRequest(`/articles/${id}`);
+      console.log(`📄 Retrieved article: ${response.title || id}`);
       return { data: response };
     } catch (error) {
       console.error(`Failed to fetch article ${id}:`, error);
@@ -220,7 +245,7 @@ class ZohoDeskClient {
     }
   }
 
-  // Search articles (Help Center API)
+  // Search articles
   async searchArticles(query, params = {}) {
     try {
       const searchParams = new URLSearchParams({
@@ -230,26 +255,33 @@ class ZohoDeskClient {
       if (params.limit) searchParams.append('limit', params.limit);
       if (params.sortBy) searchParams.append('sortBy', params.sortBy);
       
-      // Use /articles/search endpoint
       const response = await this.makeRequest(`/articles/search?${searchParams.toString()}`);
-      return {
-        data: response.data || [],
-        total: response.total || 0
+      
+      const result = {
+        data: response.data || response || [],
+        total: response.total || response.length || 0
       };
+      
+      console.log(`🔍 Search "${query}" returned ${result.data.length} results`);
+      return result;
     } catch (error) {
       console.error('Failed to search articles:', error);
       throw error;
     }
   }
 
-  // Get departments (Help Center may organize by departments instead of categories)
+  // Get departments (Help Center categories)
   async getDepartments() {
     try {
       const response = await this.makeRequest('/departments');
-      return {
-        data: response.data || [],
-        total: response.data?.length || 0
+      
+      const result = {
+        data: response.data || response || [],
+        total: (response.data || response || []).length
       };
+      
+      console.log(`🏢 Retrieved ${result.data.length} departments`);
+      return result;
     } catch (error) {
       console.error('Failed to fetch departments:', error);
       // Return empty if departments aren't available
@@ -261,28 +293,29 @@ class ZohoDeskClient {
     }
   }
 
-  // Fallback method for categories - try multiple endpoints
+  // Get categories (try multiple endpoints)
   async getCategories() {
     const possibleEndpoints = [
-      '/departments',     // Help Center might use departments
-      '/categories',      // Generic categories
-      '/sections'         // Or sections
+      { endpoint: '/departments', type: 'departments' },
+      { endpoint: '/categories', type: 'categories' },
+      { endpoint: '/sections', type: 'sections' }
     ];
 
-    for (const endpoint of possibleEndpoints) {
+    for (const { endpoint, type } of possibleEndpoints) {
       try {
-        console.log(`Trying categories endpoint: ${endpoint}`);
+        console.log(`🔍 Trying categories endpoint: ${endpoint}`);
         const response = await this.makeRequest(endpoint);
         
         // Transform response to consistent format
-        const data = response.data || [];
-        const categories = data.map(item => ({
+        const rawData = response.data || response || [];
+        const categories = rawData.map(item => ({
           id: item.id,
-          name: item.name || item.departmentName,
+          name: item.name || item.departmentName || item.title,
           description: item.description || '',
           articleCount: item.articleCount || 0,
           createdTime: item.createdTime,
-          modifiedTime: item.modifiedTime
+          modifiedTime: item.modifiedTime,
+          type: type
         }));
 
         console.log(`✅ Found ${categories.length} categories using ${endpoint}`);
@@ -297,7 +330,7 @@ class ZohoDeskClient {
     }
 
     // If no category endpoint works, return empty
-    console.log('No category endpoints available - returning empty');
+    console.log('⚠️ No category endpoints available - returning empty');
     return {
       data: [],
       total: 0,
@@ -305,7 +338,7 @@ class ZohoDeskClient {
     };
   }
 
-  // Get category by ID (try multiple endpoints)
+  // Get category by ID
   async getCategory(id) {
     const possibleEndpoints = [
       `/departments/${id}`,
@@ -325,25 +358,7 @@ class ZohoDeskClient {
     throw new Error(`Category ${id} not found in any endpoint`);
   }
 
-  // Get sections (might be available in Help Center)
-  async getSections(categoryId) {
-    try {
-      const response = await this.makeRequest(`/departments/${categoryId}/sections`);
-      return {
-        data: response.data || [],
-        total: response.data?.length || 0
-      };
-    } catch (error) {
-      console.error(`Failed to fetch sections for category ${categoryId}:`, error);
-      return {
-        data: [],
-        total: 0,
-        error: error.message
-      };
-    }
-  }
-
-  // Get articles by department (Help Center approach)
+  // Get articles by category/department
   async getArticlesByCategory(categoryId, params = {}) {
     try {
       const queryParams = new URLSearchParams();
@@ -355,14 +370,15 @@ class ZohoDeskClient {
       
       const response = await this.makeRequest(endpoint);
       return {
-        data: response.data || [],
-        total: response.total || 0
+        data: response.data || response || [],
+        total: response.total || (response.data || response || []).length
       };
     } catch (error) {
       console.error(`Failed to fetch articles for category ${categoryId}:`, error);
       
       // Fallback: get all articles and filter by category
       try {
+        console.log('🔄 Falling back to filtered articles');
         const allArticles = await this.getArticles(params);
         const filteredArticles = allArticles.data.filter(article => 
           article.departmentId === categoryId || 
@@ -379,52 +395,34 @@ class ZohoDeskClient {
     }
   }
 
-  // Get articles by section
-  async getArticlesBySection(sectionId, params = {}) {
-    try {
-      const queryParams = new URLSearchParams();
-      if (params.limit) queryParams.append('limit', params.limit);
-      if (params.sortBy) queryParams.append('sortBy', params.sortBy);
-      
-      const endpoint = `/sections/${sectionId}/articles${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-      
-      const response = await this.makeRequest(endpoint);
-      return {
-        data: response.data || [],
-        total: response.total || 0
-      };
-    } catch (error) {
-      console.error(`Failed to fetch articles for section ${sectionId}:`, error);
-      return {
-        data: [],
-        total: 0,
-        error: error.message
-      };
-    }
-  }
-
   // Get help center statistics
   async getHelpCenterStats() {
     try {
+      console.log('📊 Fetching help center statistics');
+      
       // Get basic stats by counting articles and departments
-      const [articles, departments] = await Promise.allSettled([
+      const [articlesResult, departmentsResult] = await Promise.allSettled([
         this.getArticles({ limit: 1 }),
         this.getDepartments()
       ]);
 
-      const articlesResult = articles.status === 'fulfilled' ? articles.value : { total: 0, data: [] };
-      const departmentsResult = departments.status === 'fulfilled' ? departments.value : { data: [] };
+      const articles = articlesResult.status === 'fulfilled' ? articlesResult.value : { total: 0, data: [] };
+      const departments = departmentsResult.status === 'fulfilled' ? departmentsResult.value : { data: [] };
 
-      return {
-        totalArticles: articlesResult.total || 0,
-        totalCategories: departmentsResult.data?.length || 0,
-        totalDepartments: departmentsResult.data?.length || 0,
+      const stats = {
+        totalArticles: articles.total || 0,
+        totalCategories: departments.data?.length || 0,
+        totalDepartments: departments.data?.length || 0,
         lastUpdated: new Date().toISOString(),
         recentActivity: {
           lastUpdated: new Date().toISOString()
         },
-        source: 'help_center'
+        source: 'zoho_desk_help_center',
+        apiVersion: 'v1'
       };
+
+      console.log(`📈 Stats: ${stats.totalArticles} articles, ${stats.totalCategories} categories`);
+      return stats;
     } catch (error) {
       console.error('Failed to get help center stats:', error);
       return {
@@ -433,7 +431,7 @@ class ZohoDeskClient {
         totalDepartments: 0,
         lastUpdated: new Date().toISOString(),
         error: error.message,
-        source: 'help_center'
+        source: 'zoho_desk_help_center'
       };
     }
   }
@@ -441,7 +439,7 @@ class ZohoDeskClient {
   // Bulk import articles (for sync functionality)
   async bulkImportArticles() {
     try {
-      console.log('Starting bulk import from Help Center...');
+      console.log('🔄 Starting bulk import from Zoho Desk Help Center...');
       
       // Get all departments/categories
       const departments = await this.getDepartments();
@@ -452,9 +450,9 @@ class ZohoDeskClient {
         try {
           const departmentArticles = await this.getArticlesByCategory(department.id);
           allArticles.push(...(departmentArticles.data || []));
-          console.log(`Imported ${departmentArticles.data?.length || 0} articles from ${department.name}`);
+          console.log(`📥 Imported ${departmentArticles.data?.length || 0} articles from ${department.name}`);
         } catch (error) {
-          console.error(`Failed to get articles for department ${department.id}:`, error);
+          console.error(`❌ Failed to get articles for department ${department.id}:`, error);
         }
       }
 
@@ -467,81 +465,103 @@ class ZohoDeskClient {
         const newArticles = generalArticles.data.filter(a => !existingIds.has(a.id));
         allArticles.push(...newArticles);
         
-        console.log(`Added ${newArticles.length} additional articles`);
+        console.log(`➕ Added ${newArticles.length} additional articles`);
       } catch (error) {
-        console.error('Failed to get general articles:', error);
+        console.error('❌ Failed to get general articles:', error);
       }
 
-      return {
+      const result = {
         success: true,
         articlesImported: allArticles.length,
         categories: departments.data?.length || 0,
         departments: departments.data?.length || 0,
-        message: 'Help Center sync completed successfully',
-        source: 'help_center'
+        message: 'Zoho Desk Help Center sync completed successfully',
+        source: 'zoho_desk_help_center',
+        timestamp: new Date().toISOString()
       };
+
+      console.log('✅ Bulk import completed:', result);
+      return result;
     } catch (error) {
-      console.error('Bulk import failed:', error);
+      console.error('❌ Bulk import failed:', error);
       return {
         success: false,
         error: error.message,
         articlesImported: 0,
-        source: 'help_center'
+        source: 'zoho_desk_help_center',
+        timestamp: new Date().toISOString()
       };
     }
   }
 
-  // Test Help Center connectivity
+  // Test connection and permissions
   async testConnection() {
     try {
+      console.log('🧪 Testing Zoho Desk connection and permissions...');
+      
       const testResults = {
         authentication: false,
         articles: false,
         departments: false,
-        search: false
+        search: false,
+        timestamp: new Date().toISOString()
       };
 
       // Test authentication
       try {
         await this.refreshAccessToken();
         testResults.authentication = true;
+        console.log('✅ Authentication test passed');
       } catch (error) {
-        console.error('Authentication test failed:', error);
+        console.error('❌ Authentication test failed:', error);
       }
 
       // Test articles endpoint
       try {
-        await this.getArticles({ limit: 1 });
-        testResults.articles = true;
+        const articles = await this.getArticles({ limit: 1 });
+        testResults.articles = articles.total >= 0; // Even 0 articles is a valid response
+        console.log('✅ Articles endpoint test passed');
       } catch (error) {
-        console.error('Articles test failed:', error);
+        console.error('❌ Articles test failed:', error);
       }
 
       // Test departments endpoint
       try {
-        await this.getDepartments();
-        testResults.departments = true;
+        const departments = await this.getDepartments();
+        testResults.departments = departments.total >= 0;
+        console.log('✅ Departments endpoint test passed');
       } catch (error) {
-        console.error('Departments test failed:', error);
+        console.error('❌ Departments test failed:', error);
       }
 
       // Test search
       try {
         await this.searchArticles('test', { limit: 1 });
         testResults.search = true;
+        console.log('✅ Search test passed');
       } catch (error) {
-        console.error('Search test failed:', error);
+        console.error('❌ Search test failed:', error);
       }
 
-      return testResults;
+      const passedTests = Object.values(testResults).filter(v => v === true).length - 1; // -1 for timestamp
+      const totalTests = Object.keys(testResults).length - 1; // -1 for timestamp
+      
+      console.log(`📊 Connection test results: ${passedTests}/${totalTests} tests passed`);
+      
+      return {
+        ...testResults,
+        summary: `${passedTests}/${totalTests} tests passed`,
+        allPassed: passedTests === totalTests
+      };
     } catch (error) {
-      console.error('Connection test failed:', error);
+      console.error('❌ Connection test failed:', error);
       return {
         authentication: false,
         articles: false,
         departments: false,
         search: false,
-        error: error.message
+        error: error.message,
+        timestamp: new Date().toISOString()
       };
     }
   }
