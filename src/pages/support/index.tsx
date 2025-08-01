@@ -41,63 +41,19 @@ const SupportPage: React.FC = () => {
   const router = useRouter();
   const { view, category } = router.query;
 
-  // Quick help categories with your branding
-  const quickHelpCategories = [
-    {
-      id: 'setup',
-      title: 'Device Setup',
-      description: 'Get your devices up and running quickly',
-      icon: Settings,
-      color: 'bg-blue-50 text-blue-600 border-blue-200',
-      articles: 15,
-      popular: true
-    },
-    {
-      id: 'connectivity',
-      title: 'Connection Issues',
-      description: 'Troubleshoot connectivity problems',
-      icon: Wifi,
-      color: 'bg-red-50 text-red-600 border-red-200',
-      articles: 23,
-      popular: true
-    },
-    {
-      id: 'performance',
-      title: 'Speed & Performance',
-      description: 'Optimize your internet speed',
-      icon: Zap,
-      color: 'bg-yellow-50 text-yellow-600 border-yellow-200',
-      articles: 18,
-      popular: false
-    },
-    {
-      id: 'security',
-      title: 'Network Security',
-      description: 'Keep your connection secure',
-      icon: Shield,
-      color: 'bg-green-50 text-green-600 border-green-200',
-      articles: 12,
-      popular: false
-    }
-  ];
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isEmailFormOpen, setIsEmailFormOpen] = useState(false);
+  const [emailFormData, setEmailFormData] = useState({
+    name: '',
+    email: '',
+    subject: '',
+    message: ''
+  });
+  const [emailSubmitting, setEmailSubmitting] = useState(false);
+  const [emailSubmitted, setEmailSubmitted] = useState(false);
 
-  const supportStats = {
-    totalArticles: 150,
-    totalCategories: 8,
-    avgResponseTime: '< 2 hours',
-    satisfactionRate: '98%'
-  };
-
+  // Updated contact options - removed phone support, enabled email and chat
   const contactOptions = [
-    {
-      title: 'Phone Support',
-      description: 'Speak directly with our RV internet experts',
-      icon: Phone,
-      contact: '1-800-555-0123',
-      hours: 'Mon-Fri 8AM-8PM EST',
-      color: 'bg-logo-teal text-white',
-      action: 'Call Now'
-    },
     {
       title: 'Email Support',
       description: '24/7 email support with detailed responses',
@@ -105,18 +61,92 @@ const SupportPage: React.FC = () => {
       contact: 'support@traveldatawifi.com',
       hours: 'Response within 2 hours',
       color: 'bg-logo-ocean text-white',
-      action: 'Send Email'
+      action: 'Send Email',
+      enabled: true
     },
     {
       title: 'Live Chat',
       description: 'Instant help from our support team',
       icon: MessageCircle,
       contact: 'Available now',
-      hours: 'Mon-Sat 9AM-6PM EST',
+      hours: 'Daily 10AM-10PM EST',
       color: 'bg-logo-signal text-white',
-      action: 'Start Chat'
+      action: 'Start Chat',
+      enabled: true
     }
   ];
+
+  // Handle email form submission
+  const handleEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEmailSubmitting(true);
+
+    try {
+      const response = await fetch('/api/support/contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ...emailFormData,
+          type: 'email_support',
+          timestamp: new Date().toISOString()
+        }),
+      });
+
+      if (response.ok) {
+        setEmailSubmitted(true);
+        setEmailFormData({ name: '', email: '', subject: '', message: '' });
+        setTimeout(() => {
+          setIsEmailFormOpen(false);
+          setEmailSubmitted(false);
+        }, 3000);
+      } else {
+        throw new Error('Failed to send email');
+      }
+    } catch (error) {
+      console.error('Error sending email:', error);
+      alert('Failed to send email. Please try again or contact us directly at support@traveldatawifi.com');
+    } finally {
+      setEmailSubmitting(false);
+    }
+  };
+
+  // Handle live chat initialization
+  const handleStartChat = () => {
+    // Initialize Zoho SalesIQ chat widget
+    if (typeof window !== 'undefined') {
+      // Check if Zoho SalesIQ is loaded
+      if (window.$zoho && window.$zoho.salesiq) {
+        window.$zoho.salesiq.chat.start();
+      } else {
+        // Fallback - load and initialize Zoho SalesIQ
+        const script = document.createElement('script');
+        script.type = 'text/javascript';
+        script.async = true;
+        script.src = 'https://salesiq.zoho.com/widget';
+        script.onload = () => {
+          if (window.$zoho && window.$zoho.salesiq) {
+            window.$zoho.salesiq.ready = function() {
+              window.$zoho.salesiq.chat.start();
+            };
+          }
+        };
+        document.head.appendChild(script);
+      }
+    }
+  };
+
+  // Handle contact option click
+  const handleContactClick = (option: any) => {
+    if (!option.enabled) return;
+    
+    if (option.title === 'Email Support') {
+      setIsEmailFormOpen(true);
+    } else if (option.title === 'Live Chat') {
+      handleStartChat();
+    }
+  };
 
   return (
     <Layout 
@@ -124,42 +154,52 @@ const SupportPage: React.FC = () => {
       description="Get expert help with your mobile internet setup. Access our knowledge base, contact support, and find solutions for RV internet connectivity."
     >
       <div className="min-h-screen bg-gray-50">
-        {/* Hero Section */}
-        <div className="bg-gradient-to-br from-logo-teal via-logo-ocean to-logo-teal text-white">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+        {/* Simplified Hero Section - Removed banner and stats */}
+        <div className="bg-white border-b">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
             <div className="text-center">
               <div className="flex justify-center mb-6">
-                <div className="bg-white/20 backdrop-blur-sm rounded-full p-4">
-                  <HelpCircle className="h-12 w-12 text-white" />
+                <div className="bg-logo-teal/10 rounded-full p-4">
+                  <HelpCircle className="h-12 w-12 text-logo-teal" />
                 </div>
               </div>
               
-              <h1 className="text-4xl lg:text-5xl font-bold mb-6">
-                Travel Data WiFi Support Center
+              <h1 className="text-4xl lg:text-5xl font-bold mb-6 text-gray-900">
+                Need Personal Help?
               </h1>
               
-              <p className="text-xl lg:text-2xl text-teal-100 mb-8 max-w-3xl mx-auto">
-                Expert help for your mobile internet needs. Get instant answers, 
-                step-by-step guides, and personalized support from RV connectivity specialists.
+              <p className="text-xl text-gray-600 mb-8 max-w-2xl mx-auto">
+                Our RV internet experts are here to help you succeed
               </p>
 
-              {/* Quick Stats */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 max-w-4xl mx-auto">
-                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
-                  <div className="text-2xl font-bold">{supportStats.totalArticles}+</div>
-                  <div className="text-teal-100 text-sm">Help Articles</div>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
-                  <div className="text-2xl font-bold">{supportStats.avgResponseTime}</div>
-                  <div className="text-teal-100 text-sm">Response Time</div>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
-                  <div className="text-2xl font-bold">{supportStats.satisfactionRate}</div>
-                  <div className="text-teal-100 text-sm">Satisfaction Rate</div>
-                </div>
-                <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
-                  <div className="text-2xl font-bold">50K+</div>
-                  <div className="text-teal-100 text-sm">Happy Customers</div>
+              {/* Search Bar */}
+              <div className="max-w-2xl mx-auto">
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search for help articles..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-12 pr-4 py-4 text-lg border border-gray-300 rounded-lg focus:ring-2 focus:ring-logo-teal focus:border-transparent"
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && searchQuery.trim()) {
+                        router.push(`/support?view=search&q=${encodeURIComponent(searchQuery)}`);
+                      }
+                    }}
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => {
+                        if (searchQuery.trim()) {
+                          router.push(`/support?view=search&q=${encodeURIComponent(searchQuery)}`);
+                        }
+                      }}
+                      className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-logo-teal text-white px-4 py-2 rounded-md hover:bg-logo-ocean transition-colors"
+                    >
+                      Search
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -178,12 +218,10 @@ const SupportPage: React.FC = () => {
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                <div className="flex items-center space-x-2">
-                  <HelpCircle className="h-4 w-4" />
-                  <span>Support Home</span>
-                </div>
+                <HelpCircle className="inline h-4 w-4 mr-1" />
+                Support Home
               </button>
-
+              
               <button
                 onClick={() => router.push('/support?view=articles')}
                 className={`py-4 px-2 border-b-2 font-medium text-sm whitespace-nowrap transition-colors ${
@@ -192,12 +230,10 @@ const SupportPage: React.FC = () => {
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                <div className="flex items-center space-x-2">
-                  <BookOpen className="h-4 w-4" />
-                  <span>Knowledge Base</span>
-                </div>
+                <BookOpen className="inline h-4 w-4 mr-1" />
+                Knowledge Base
               </button>
-
+              
               <button
                 onClick={() => router.push('/support?view=contact')}
                 className={`py-4 px-2 border-b-2 font-medium text-sm whitespace-nowrap transition-colors ${
@@ -206,91 +242,40 @@ const SupportPage: React.FC = () => {
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                <div className="flex items-center space-x-2">
-                  <MessageCircle className="h-4 w-4" />
-                  <span>Contact Us</span>
-                </div>
+                <MessageCircle className="inline h-4 w-4 mr-1" />
+                Contact Support
               </button>
             </nav>
           </div>
         </div>
 
         {/* Main Content */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          {/* Support Dashboard Integration */}
-          {(!view || view === 'home' || view === 'articles' || view === 'contact' || view === 'search') && (
-            <SupportDashboard />
-          )}
-
-          {/* Quick Help Section - Only show on home view */}
-          {(!view || view === 'home') && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {!view || view === 'home' ? (
             <>
-              {/* Quick Help Categories */}
-              <div className="mb-16">
-                <div className="text-center mb-12">
-                  <h2 className="text-3xl font-bold text-gray-900 mb-4">
-                    Popular Help Topics
-                  </h2>
-                  <p className="text-xl text-gray-600">
-                    Get quick answers to the most common questions
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  {quickHelpCategories.map((category) => (
-                    <div
-                      key={category.id}
-                      className={`relative group cursor-pointer rounded-xl border-2 p-6 hover:shadow-lg transition-all duration-200 ${category.color}`}
-                      onClick={() => router.push(`/support?view=articles&category=${category.id}`)}
-                    >
-                      {category.popular && (
-                        <div className="absolute -top-2 -right-2 bg-logo-signal text-white text-xs font-bold px-2 py-1 rounded-full">
-                          Popular
-                        </div>
-                      )}
-                      
-                      <div className="flex items-center mb-4">
-                        <category.icon className="h-8 w-8 mr-3" />
-                        <h3 className="text-lg font-semibold">{category.title}</h3>
-                      </div>
-                      
-                      <p className="text-sm mb-4 opacity-80">
-                        {category.description}
-                      </p>
-                      
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">
-                          {category.articles} articles
-                        </span>
-                        <ArrowRight className="h-4 w-4 transform group-hover:translate-x-1 transition-transform" />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Contact Options */}
-              <div className="mb-16">
-                <div className="text-center mb-12">
-                  <h2 className="text-3xl font-bold text-gray-900 mb-4">
-                    Need Personal Help?
-                  </h2>
-                  <p className="text-xl text-gray-600">
-                    Our RV internet experts are here to help you succeed
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+              {/* Contact Options - Updated with removed phone support and enabled buttons */}
+              <div className="mb-12">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {contactOptions.map((option, index) => (
                     <div
                       key={index}
-                      className="bg-white rounded-xl shadow-lg border border-gray-200 p-8 hover:shadow-xl transition-shadow"
+                      className={`relative p-6 rounded-xl border-2 transition-all duration-300 cursor-pointer ${
+                        option.enabled 
+                          ? 'hover:border-logo-teal hover:shadow-lg transform hover:-translate-y-1' 
+                          : 'opacity-50 cursor-not-allowed'
+                      }`}
+                      onClick={() => handleContactClick(option)}
                     >
-                      <div className={`w-16 h-16 ${option.color} rounded-full flex items-center justify-center mb-6`}>
-                        <option.icon className="h-8 w-8" />
+                      <div className="flex items-center justify-between mb-4">
+                        <div className={`p-3 rounded-full ${option.color}`}>
+                          <option.icon className="h-6 w-6" />
+                        </div>
+                        {option.enabled && (
+                          <span className="text-sm text-green-600 font-medium">Available</span>
+                        )}
                       </div>
                       
-                      <h3 className="text-xl font-semibold text-gray-900 mb-3">
+                      <h3 className="text-xl font-bold text-gray-900 mb-2">
                         {option.title}
                       </h3>
                       
@@ -298,12 +283,19 @@ const SupportPage: React.FC = () => {
                         {option.description}
                       </p>
                       
-                      <div className="mb-6">
-                        <p className="font-semibold text-gray-900">{option.contact}</p>
-                        <p className="text-sm text-gray-500">{option.hours}</p>
+                      <div className="text-sm text-gray-500 mb-4">
+                        <p className="font-medium">{option.contact}</p>
+                        <p>{option.hours}</p>
                       </div>
                       
-                      <button className={`w-full ${option.color} py-3 px-4 rounded-lg font-semibold hover:opacity-90 transition-opacity`}>
+                      <button
+                        className={`w-full py-3 px-4 rounded-lg font-medium transition-colors ${
+                          option.enabled
+                            ? `${option.color} hover:opacity-90 text-white`
+                            : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                        }`}
+                        disabled={!option.enabled}
+                      >
                         {option.action}
                       </button>
                     </div>
@@ -311,65 +303,249 @@ const SupportPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Success Stories */}
-              <div className="bg-white rounded-xl shadow-lg border border-gray-200 p-8">
-                <div className="text-center mb-8">
-                  <h2 className="text-2xl font-bold text-gray-900 mb-4">
-                    Success Stories
-                  </h2>
-                  <p className="text-gray-600">
-                    See how we've helped fellow RV travelers stay connected
-                  </p>
+              {/* Browse Knowledge Base */}
+              <div className="bg-white rounded-lg shadow-sm border p-6 mb-8">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-2xl font-bold text-gray-900">Browse Knowledge Base</h2>
+                  <Link
+                    href="/support?view=articles"
+                    className="text-logo-teal hover:text-logo-ocean font-medium flex items-center"
+                  >
+                    View All Articles
+                    <ArrowRight className="h-4 w-4 ml-1" />
+                  </Link>
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {[
-                    {
-                      name: "Sarah & Mike",
-                      location: "Full-time RVers",
-                      testimonial: "Travel Data WiFi transformed our remote work setup. Crystal clear video calls from anywhere!",
-                      setup: "5G Hotspot + Signal Booster"
-                    },
-                    {
-                      name: "The Johnson Family",
-                      location: "Weekend Warriors",
-                      testimonial: "Kids can stream, we can work, and everyone stays happy on our camping trips.",
-                      setup: "Mobile Hotspot + External Antenna"
-                    },
-                    {
-                      name: "Robert Thompson",
-                      location: "Solo Traveler",
-                      testimonial: "Best investment for my RV. Reliable internet in places I never thought possible.",
-                      setup: "Complete Connectivity Kit"
-                    }
-                  ].map((story, index) => (
-                    <div key={index} className="border border-gray-200 rounded-lg p-6">
+                
+                <p className="text-gray-600 mb-6">
+                  Find answers to common questions and step-by-step guides
+                </p>
+                
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <Link
+                    href="/support?view=articles&category=setup"
+                    className="p-4 border rounded-lg hover:border-logo-teal hover:shadow-md transition-all"
+                  >
+                    <Settings className="h-6 w-6 text-blue-600 mb-2" />
+                    <h3 className="font-semibold text-gray-900">Getting Started</h3>
+                    <p className="text-sm text-gray-600">Setup guides and tutorials</p>
+                  </Link>
+                  
+                  <Link
+                    href="/support?view=articles&category=troubleshooting"
+                    className="p-4 border rounded-lg hover:border-logo-teal hover:shadow-md transition-all"
+                  >
+                    <AlertCircle className="h-6 w-6 text-red-600 mb-2" />
+                    <h3 className="font-semibold text-gray-900">Troubleshooting</h3>
+                    <p className="text-sm text-gray-600">Fix common issues</p>
+                  </Link>
+                  
+                  <Link
+                    href="/support?view=articles&category=tips"
+                    className="p-4 border rounded-lg hover:border-logo-teal hover:shadow-md transition-all"
+                  >
+                    <Star className="h-6 w-6 text-yellow-600 mb-2" />
+                    <h3 className="font-semibold text-gray-900">Tips & Tricks</h3>
+                    <p className="text-sm text-gray-600">Optimize your setup</p>
+                  </Link>
+                </div>
+              </div>
+            </>
+          ) : view === 'articles' ? (
+            <SupportDashboard />
+          ) : view === 'contact' ? (
+            <div className="max-w-4xl mx-auto">
+              <div className="bg-white rounded-lg shadow-sm border p-8">
+                <h2 className="text-3xl font-bold text-gray-900 mb-6">Contact Support</h2>
+                
+                {/* Contact options repeated here for contact view */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {contactOptions.map((option, index) => (
+                    <div
+                      key={index}
+                      className={`p-6 rounded-lg border-2 transition-all duration-300 cursor-pointer ${
+                        option.enabled 
+                          ? 'hover:border-logo-teal hover:shadow-lg' 
+                          : 'opacity-50 cursor-not-allowed'
+                      }`}
+                      onClick={() => handleContactClick(option)}
+                    >
                       <div className="flex items-center mb-4">
-                        <div className="w-12 h-12 bg-logo-teal rounded-full flex items-center justify-center text-white font-bold">
-                          {story.name.charAt(0)}
+                        <div className={`p-2 rounded-full ${option.color} mr-3`}>
+                          <option.icon className="h-5 w-5" />
                         </div>
-                        <div className="ml-3">
-                          <h4 className="font-semibold text-gray-900">{story.name}</h4>
-                          <p className="text-sm text-gray-500">{story.location}</p>
+                        <div>
+                          <h3 className="font-bold text-gray-900">{option.title}</h3>
+                          <p className="text-sm text-gray-600">{option.hours}</p>
                         </div>
                       </div>
                       
-                      <p className="text-gray-700 mb-4 italic">
-                        "{story.testimonial}"
-                      </p>
-                      
-                      <div className="text-sm">
-                        <span className="font-medium text-gray-900">Setup: </span>
-                        <span className="text-gray-600">{story.setup}</span>
-                      </div>
+                      <button
+                        className={`w-full py-2 px-4 rounded-md font-medium transition-colors ${
+                          option.enabled
+                            ? `${option.color} hover:opacity-90 text-white`
+                            : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                        }`}
+                        disabled={!option.enabled}
+                      >
+                        {option.action}
+                      </button>
                     </div>
                   ))}
                 </div>
               </div>
-            </>
-          )}
+            </div>
+          ) : view === 'search' ? (
+            <div className="max-w-4xl mx-auto">
+              <div className="bg-white rounded-lg shadow-sm border p-8">
+                <h2 className="text-2xl font-bold text-gray-900 mb-6">Search Results</h2>
+                <p className="text-gray-600">
+                  Searching for: <span className="font-medium">"{router.query.q}"</span>
+                </p>
+                {/* Search results would be loaded here */}
+                <div className="mt-8 text-center text-gray-500">
+                  <BookOpen className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>Search functionality coming soon</p>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
+
+        {/* Email Support Modal */}
+        {isEmailFormOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-xl font-bold text-gray-900">Send Email</h3>
+                  <button
+                    onClick={() => setIsEmailFormOpen(false)}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-6 w-6" />
+                  </button>
+                </div>
+
+                {emailSubmitted ? (
+                  <div className="text-center py-8">
+                    <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
+                    <h4 className="text-lg font-semibold text-gray-900 mb-2">Email Sent!</h4>
+                    <p className="text-gray-600">
+                      We'll respond within 2 hours during business hours.
+                    </p>
+                  </div>
+                ) : (
+                  <form onSubmit={handleEmailSubmit} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={emailFormData.name}
+                        onChange={(e) => setEmailFormData({...emailFormData, name: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-logo-teal focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Email *
+                      </label>
+                      <input
+                        type="email"
+                        required
+                        value={emailFormData.email}
+                        onChange={(e) => setEmailFormData({...emailFormData, email: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-logo-teal focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Subject *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={emailFormData.subject}
+                        onChange={(e) => setEmailFormData({...emailFormData, subject: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-logo-teal focus:border-transparent"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Message *
+                      </label>
+                      <textarea
+                        required
+                        rows={4}
+                        value={emailFormData.message}
+                        onChange={(e) => setEmailFormData({...emailFormData, message: e.target.value})}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-logo-teal focus:border-transparent"
+                        placeholder="Describe your issue or question..."
+                      />
+                    </div>
+
+                    <div className="flex space-x-3 pt-4">
+                      <button
+                        type="button"
+                        onClick={() => setIsEmailFormOpen(false)}
+                        className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={emailSubmitting}
+                        className="flex-1 px-4 py-2 bg-logo-ocean text-white rounded-md hover:bg-logo-teal transition-colors disabled:opacity-50 flex items-center justify-center"
+                      >
+                        {emailSubmitting ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                            Sending...
+                          </>
+                        ) : (
+                          <>
+                            <Send className="h-4 w-4 mr-2" />
+                            Send Email
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Zoho SalesIQ Script */}
+      <script
+        dangerouslySetInnerHTML={{
+          __html: `
+            var $zoho = $zoho || {};
+            $zoho.salesiq = $zoho.salesiq || {
+              widgetcode: "YOUR_WIDGET_CODE_HERE",
+              values: {},
+              ready: function() {
+                // Widget is ready
+              }
+            };
+            var d = document;
+            var s = d.createElement("script");
+            s.type = "text/javascript";
+            s.id = "zsiqscript";
+            s.defer = true;
+            s.src = "https://salesiq.zoho.com/widget";
+            var t = d.getElementsByTagName("script")[0];
+            t.parentNode.insertBefore(s, t);
+          `
+        }}
+      />
     </Layout>
   );
 };
