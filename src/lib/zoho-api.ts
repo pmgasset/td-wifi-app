@@ -278,14 +278,14 @@ class ZohoCommerceAPI {
   /**
    * Alternative endpoint test (for debugging)
    */
-  async testAlternativeEndpoints(): Promise<any> {
+  async testAlternativeEndpoints(): Promise<Record<string, any>> {
     const endpoints = [
       `/stores/${this.storeId}/products`,
       `/products`,
       `/stores`
     ];
 
-    const results = {};
+    const results: Record<string, any> = {};
 
     for (const endpoint of endpoints) {
       try {
