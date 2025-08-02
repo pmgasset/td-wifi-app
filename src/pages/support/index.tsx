@@ -69,13 +69,36 @@ const SupportPage: React.FC = () => {
   const openHelpWidget = (view?: string) => {
     if ((window as any).ZohoDeskAsapReady && (window as any).ZohoDeskAsap) {
       (window as any).ZohoDeskAsapReady(() => {
-        const ZohoDeskAsap = (window as any).ZohoDeskAsap;
-        if (view) {
-          // Route to specific page
-          ZohoDeskAsap.invoke("routeTo", { page: view });
-        } else {
-          // Just open the widget
-          ZohoDeskAsap.invoke("open");
+        try {
+          const ZohoDeskAsap = (window as any).ZohoDeskAsap;
+          if (view) {
+            // Route to specific page with error handling
+            console.log(`Opening ASAP widget with view: ${view}`);
+            ZohoDeskAsap.invoke("routeTo", { page: view });
+          } else {
+            // Just open the widget
+            console.log('Opening ASAP widget');
+            ZohoDeskAsap.invoke("open");
+          }
+        } catch (error) {
+          console.warn('ASAP routing failed, opening main widget:', error);
+          // Fallback: just open the main widget
+          (window as any).ZohoDeskAsap.invoke("open");
+        }
+      });
+    } else {
+      console.warn('Zoho ASAP not ready yet');
+    }
+  };
+
+  // Simple function to just open the main widget (fallback)
+  const openMainWidget = () => {
+    if ((window as any).ZohoDeskAsapReady && (window as any).ZohoDeskAsap) {
+      (window as any).ZohoDeskAsapReady(() => {
+        try {
+          (window as any).ZohoDeskAsap.invoke("open");
+        } catch (error) {
+          console.error('Failed to open ASAP widget:', error);
         }
       });
     }
@@ -117,7 +140,7 @@ const SupportPage: React.FC = () => {
             
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <button
-                onClick={() => openHelpWidget("kb.category.detail")}
+                onClick={() => openMainWidget()}
                 className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all group"
               >
                 <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-logo-teal">Setup Guides</h3>
@@ -125,7 +148,7 @@ const SupportPage: React.FC = () => {
               </button>
               
               <button
-                onClick={() => openHelpWidget("kb.category.detail")}
+                onClick={() => openMainWidget()}
                 className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all group"
               >
                 <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-logo-teal">Troubleshooting</h3>
@@ -133,7 +156,7 @@ const SupportPage: React.FC = () => {
               </button>
               
               <button
-                onClick={() => openHelpWidget("community.category.list")}
+                onClick={() => openMainWidget()}
                 className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all group"
               >
                 <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-logo-teal">Community</h3>
@@ -141,7 +164,7 @@ const SupportPage: React.FC = () => {
               </button>
               
               <button
-                onClick={() => openHelpWidget("ticket.form")}
+                onClick={() => openMainWidget()}
                 className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all group"
               >
                 <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-logo-teal">Contact Us</h3>
