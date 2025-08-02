@@ -1,4 +1,6 @@
 // ===== src/lib/zoho-api.ts ===== (UPDATED TO USE STOREFRONT API FOR IMAGES)
+import { tokenManager } from './enhanced-token-manager';
+
 class ZohoCommerceAPI {
   private baseURL = 'https://commerce.zoho.com/store/api/v1';
   private storefrontURL = 'https://commerce.zoho.com/storefront/api/v1';
@@ -19,30 +21,12 @@ class ZohoCommerceAPI {
 
   async getAccessToken(): Promise<string> {
     this.validateEnvVars();
-    
-    const credentials = {
-      client_id: process.env.ZOHO_CLIENT_ID!,
-      client_secret: process.env.ZOHO_CLIENT_SECRET!,
-      refresh_token: process.env.ZOHO_REFRESH_TOKEN!,
-      grant_type: 'refresh_token',
-    };
-
-    const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(credentials),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Auth error: ${response.status} - ${await response.text()}`);
+    try {
+      return await tokenManager.getAccessToken('commerce');
+    } catch (error) {
+      console.error('Failed to get access token from token manager:', error);
+      throw new Error(`Token manager error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-
-    const data = await response.json();
-    if (!data.access_token) {
-      throw new Error(`No access token received: ${JSON.stringify(data)}`);
-    }
-
-    return data.access_token;
   }
 
   async apiRequest(endpoint: string, options: RequestInit = {}, retry = true): Promise<any> {
@@ -77,9 +61,10 @@ class ZohoCommerceAPI {
       // Handle auth errors with single retry
       if (retry && (response.status === 401 || response.status === 403)) {
         console.log('Auth error detected, retrying with new token...');
+        tokenManager.clearCache('commerce');
         return this.apiRequest(endpoint, options, false);
       }
-      
+
       throw new Error(`API error: ${response.status} - ${responseText}`);
     }
 
@@ -100,7 +85,7 @@ class ZohoCommerceAPI {
   }
 
   // Storefront API request method for getting products with images
-  async storefrontRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
+  async storefrontRequest(endpoint: string, options: RequestInit = {}, retry = true): Promise<any> {
     const token = await this.getAccessToken();
     const url = `${this.storefrontURL}${endpoint}`;
 
@@ -126,6 +111,10 @@ class ZohoCommerceAPI {
     const responseText = await response.text();
 
     if (!response.ok) {
+      if (retry && (response.status === 401 || response.status === 403)) {
+        tokenManager.clearCache('commerce');
+        return this.storefrontRequest(endpoint, options, false);
+      }
       throw new Error(`Storefront API error: ${response.status} - ${responseText}`);
     }
 
