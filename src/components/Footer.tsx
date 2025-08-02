@@ -86,8 +86,8 @@ const Footer: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
             <div>
-              <h3 className="text-2xl font-bold mb-2">Stay Connected On The Road</h3>
-              <p className="text-gray-300">
+              <h3 className="text-2xl font-bold mb-2 text-white">Stay Connected On The Road</h3>
+              <p className="text-gray-200">
                 Get exclusive RV internet tips, product updates, and special offers delivered to your inbox.
                 Join 15,000+ fellow travelers!
               </p>
@@ -148,7 +148,7 @@ const Footer: React.FC = () => {
                   <p className="text-sm text-gray-300">Reliable Mobile Internet</p>
                 </div>
               </div>
-              <p className="text-gray-300 mb-6 leading-relaxed">
+              <p className="text-gray-200 mb-6 leading-relaxed">
                 Keeping RV travelers and remote workers connected with premium mobile internet solutions. 
                 Expert support, quality products, and nationwide coverage you can trust.
               </p>
@@ -168,13 +168,13 @@ const Footer: React.FC = () => {
 
             {/* Company Links */}
             <div>
-              <h5 className="text-lg font-semibold mb-6">Company</h5>
+              <h5 className="text-lg font-semibold mb-6 text-white">Company</h5>
               <ul className="space-y-3">
                 {companyLinks.map((link) => (
                   <li key={link.name}>
                     <Link 
                       href={link.href}
-                      className="text-gray-300 hover:text-white transition-colors duration-200 hover:translate-x-1 transform inline-block"
+                      className="text-gray-200 hover:text-white transition-colors duration-200 hover:translate-x-1 transform inline-block"
                     >
                       {link.name}
                     </Link>
@@ -185,14 +185,14 @@ const Footer: React.FC = () => {
 
             {/* Contact & Support Info */}
             <div>
-              <h5 className="text-lg font-semibold mb-6">Contact & Support</h5>
+              <h5 className="text-lg font-semibold mb-6 text-white">Contact & Support</h5>
               <div className="space-y-4">
-                <p className="text-gray-300">
+                <p className="text-gray-200">
                   Need help? Use our support widget on any page or visit our help center.
                 </p>
                 <div className="bg-gray-800/50 p-4 rounded-lg">
                   <h6 className="font-semibold text-white mb-2">Business Hours</h6>
-                  <p className="text-sm text-gray-300">
+                  <p className="text-sm text-gray-200">
                     Monday - Friday: 10AM - 10PM EST<br />
                     Saturday: 10AM - 6PM EST<br />
                     Sunday: Closed - Email Always Available
@@ -214,7 +214,7 @@ const Footer: React.FC = () => {
               </p>
               <div className="flex items-center space-x-2">
                 <Star className="h-4 w-4 text-yellow-400" />
-                <span className="text-sm text-gray-300">4.9/5 from 2,847 reviews</span>
+                <span className="text-sm text-gray-200">4.9/5 from 2,847 reviews</span>
               </div>
             </div>
             
@@ -223,7 +223,7 @@ const Footer: React.FC = () => {
                 <Link 
                   key={link.name}
                   href={link.href}
-                  className="text-gray-400 hover:text-white text-sm transition-colors duration-200"
+                  className="text-gray-300 hover:text-white text-sm transition-colors duration-200"
                 >
                   {link.name}
                 </Link>
@@ -234,7 +234,7 @@ const Footer: React.FC = () => {
           {/* Additional Trust Signals */}
           <div className="mt-6 pt-6 border-t border-gray-800 text-center">
             <p className="text-xs text-gray-400">
-              Professional installation available nationwide • FCC ID approved equipment • 
+              Plug & Play Included • FCC ID approved equipment • 
               30-day money-back guarantee • Employee-owned business
             </p>
           </div>
