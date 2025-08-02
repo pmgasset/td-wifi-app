@@ -186,7 +186,8 @@ class ZohoCommerceAPI {
                   break;
                 }
               } catch (storeError) {
-                console.log(`❌ Store products failed: ${storeError.message}`);
+                const errorMessage = storeError instanceof Error ? storeError.message : 'Unknown error';
+                console.log(`❌ Store products failed: ${errorMessage}`);
               }
             }
           } else if (Array.isArray(response)) {
