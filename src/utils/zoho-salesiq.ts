@@ -1,63 +1,4 @@
-/**
- * Start a chat programmatically
- */
-export const startChat = (department: string | null = null): boolean => {
-  if (typeof window === 'undefined' || !window.$zoho?.salesiq) {
-    console.warn('Zoho SalesIQ not initialized');
-    return false;
-  }
-
-  try {
-    const salesiq = window.$zoho.salesiq;
-    
-    // Set department if specified
-    if (department && salesiq.visitor) {
-      salesiq.visitor.department(department);
-    }
-
-    // Show and start chat
-    if (salesiq.floatbutton) {
-      salesiq.floatbutton.visible('show');
-    }
-    if (salesiq.chat) {
-      salesiq.chat.start();
-    }
-    
-    console.log('🚀 Chat started');
-    return true;
-  } catch (error) {
-    console.error('Failed to start chat:', error);
-    return false;
-  }
-};
-
-/**
- * Hide the chat widget
- */
-export const hideChat = (): void => {
-  if (typeof window === 'undefined' || !window.$zoho?.salesiq?.floatbutton) return;
-
-  try {
-    window.$zoho.salesiq.floatbutton.visible('hide');
-    console.log('👻 Chat widget hidden');
-  } catch (error) {
-    console.error('Failed to hide chat:', error);
-  }
-};
-
-/**
- * Show the chat widget
- */
-export const showChat = (): void => {
-  if (typeof window === 'undefined' || !window.$zoho?.salesiq?.floatbutton) return;
-
-  try {
-    window.$zoho.salesiq.floatbutton.visible('show');
-    console.log('👋 Chat widget shown');
-  } catch (error) {
-    console.error('Failed to show chat:', error);
-  }
-};// src/utils/zoho-salesiq.ts
+// src/utils/zoho-salesiq.ts
 // Zoho SalesIQ live chat integration utility
 import '../types/zoho-salesiq'; // Import type declarations
 
@@ -169,24 +110,26 @@ export const initializeZohoSalesIQ = (config: ZohoSalesIQConfig = {}): void => {
 /**
  * Start a chat programmatically
  */
-export const startChat = (department = null) => {
+export const startChat = (department: string | null = null): boolean => {
   if (typeof window === 'undefined' || !window.$zoho?.salesiq) {
     console.warn('Zoho SalesIQ not initialized');
     return false;
   }
 
   try {
+    const salesiq = window.$zoho.salesiq;
+    
     // Set department if specified
-    if (department && window.$zoho.salesiq.visitor) {
-      window.$zoho.salesiq.visitor.department(department);
+    if (department && salesiq.visitor) {
+      salesiq.visitor.department(department);
     }
 
     // Show and start chat
-    if (window.$zoho.salesiq.floatbutton) {
-      window.$zoho.salesiq.floatbutton.visible('show');
+    if (salesiq.floatbutton) {
+      salesiq.floatbutton.visible('show');
     }
-    if (window.$zoho.salesiq.chat) {
-      window.$zoho.salesiq.chat.start();
+    if (salesiq.chat) {
+      salesiq.chat.start();
     }
     
     console.log('🚀 Chat started');
@@ -200,7 +143,7 @@ export const startChat = (department = null) => {
 /**
  * Hide the chat widget
  */
-export const hideChat = () => {
+export const hideChat = (): void => {
   if (typeof window === 'undefined' || !window.$zoho?.salesiq?.floatbutton) return;
 
   try {
@@ -214,7 +157,7 @@ export const hideChat = () => {
 /**
  * Show the chat widget
  */
-export const showChat = () => {
+export const showChat = (): void => {
   if (typeof window === 'undefined' || !window.$zoho?.salesiq?.floatbutton) return;
 
   try {
@@ -228,22 +171,23 @@ export const showChat = () => {
 /**
  * Set visitor information
  */
-export const setVisitorInfo = (visitorData) => {
+export const setVisitorInfo = (visitorData: VisitorData): void => {
   if (typeof window === 'undefined' || !window.$zoho?.salesiq?.visitor) return;
 
   try {
     const { name, email, phone, customFields } = visitorData;
+    const visitor = window.$zoho.salesiq.visitor;
     
     if (name) {
-      window.$zoho.salesiq.visitor.name(name);
+      visitor.name(name);
     }
     
     if (email) {
-      window.$zoho.salesiq.visitor.email(email);
+      visitor.email(email);
     }
     
     if (phone) {
-      window.$zoho.salesiq.visitor.phone(phone);
+      visitor.phone(phone);
     }
 
     if (customFields) {
@@ -263,7 +207,7 @@ export const setVisitorInfo = (visitorData) => {
 /**
  * Check if chat is available (within operating hours)
  */
-export const isChatAvailable = () => {
+export const isChatAvailable = (): boolean => {
   if (typeof window === 'undefined' || !window.$zoho?.salesiq) return false;
 
   try {
@@ -283,7 +227,7 @@ export const isChatAvailable = () => {
 /**
  * Get chat status
  */
-export const getChatStatus = () => {
+export const getChatStatus = (): 'available' | 'offline' | 'unavailable' | 'unknown' => {
   if (typeof window === 'undefined' || !window.$zoho?.salesiq) {
     return 'unavailable';
   }
@@ -303,31 +247,33 @@ export const getChatStatus = () => {
 /**
  * Set up chat event listeners
  */
-export const setChatEventListeners = (callbacks = {}) => {
+export const setChatEventListeners = (callbacks: ChatEventCallbacks = {}): void => {
   if (typeof window === 'undefined') return;
 
   // Wait for SalesIQ to be ready
   const waitForSalesIQ = () => {
     if (window.$zoho?.salesiq?.chat) {
       try {
+        const chat = window.$zoho.salesiq.chat;
+
         // Chat started event
-        if (callbacks.onChatStart && window.$zoho.salesiq.chat) {
-          window.$zoho.salesiq.chat.onstart = callbacks.onChatStart;
+        if (callbacks.onChatStart) {
+          chat.onstart = callbacks.onChatStart;
         }
 
         // Chat ended event
-        if (callbacks.onChatEnd && window.$zoho.salesiq.chat) {
-          window.$zoho.salesiq.chat.onend = callbacks.onChatEnd;
+        if (callbacks.onChatEnd) {
+          chat.onend = callbacks.onChatEnd;
         }
 
         // Message received event
-        if (callbacks.onMessageReceive && window.$zoho.salesiq.chat) {
-          window.$zoho.salesiq.chat.onmessagereceive = callbacks.onMessageReceive;
+        if (callbacks.onMessageReceive) {
+          chat.onmessagereceive = callbacks.onMessageReceive;
         }
 
         // Message sent event
-        if (callbacks.onMessageSend && window.$zoho.salesiq.chat) {
-          window.$zoho.salesiq.chat.onmessagesend = callbacks.onMessageSend;
+        if (callbacks.onMessageSend) {
+          chat.onmessagesend = callbacks.onMessageSend;
         }
 
         console.log('📡 Chat event listeners set up');
@@ -342,51 +288,6 @@ export const setChatEventListeners = (callbacks = {}) => {
   waitForSalesIQ();
 };
 
-/**
- * React hook for Zoho SalesIQ integration
- */
-export const useZohoSalesIQ = (config = {}) => {
-  const [isInitialized, setIsInitialized] = React.useState(false);
-  const [isAvailable, setIsAvailable] = React.useState(false);
-  const [chatStatus, setChatStatus] = React.useState('loading');
-
-  React.useEffect(() => {
-    // Initialize SalesIQ
-    initializeZohoSalesIQ(config);
-
-    // Set up availability check
-    const checkAvailability = () => {
-      const available = isChatAvailable();
-      setIsAvailable(available);
-      setChatStatus(getChatStatus());
-    };
-
-    // Check immediately and then every minute
-    checkAvailability();
-    const interval = setInterval(checkAvailability, 60000);
-
-    // Mark as initialized after a short delay
-    const initTimeout = setTimeout(() => {
-      setIsInitialized(true);
-    }, 2000);
-
-    return () => {
-      clearInterval(interval);
-      clearTimeout(initTimeout);
-    };
-  }, []);
-
-  return {
-    isInitialized,
-    isAvailable,
-    chatStatus,
-    startChat,
-    hideChat,
-    showChat,
-    setVisitorInfo
-  };
-};
-
 // Default export for easy importing
 export default {
   initialize: initializeZohoSalesIQ,
@@ -396,6 +297,5 @@ export default {
   setVisitorInfo,
   isChatAvailable,
   getChatStatus,
-  setChatEventListeners,
-  useZohoSalesIQ
+  setChatEventListeners
 };
