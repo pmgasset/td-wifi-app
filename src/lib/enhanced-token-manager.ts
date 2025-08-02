@@ -1,6 +1,8 @@
 // src/lib/enhanced-token-manager.ts - Centralized token management with advanced rate limiting
 // CRITICAL: This replaces all scattered token caching implementations
 
+import { loadToken, saveToken, deleteToken } from './token-persistence';
+
 interface TokenCacheEntry {
   accessToken: string;
   expiryTime: number;
@@ -70,11 +72,11 @@ class EnhancedTokenManager {
    */
   async getAccessToken(service: 'inventory' | 'commerce' = 'inventory'): Promise<string> {
     const cacheKey = `zoho_${service}`;
-    
+
     // Check if we need to wait due to rate limiting
     await this.enforceRateLimit(cacheKey);
-    
-    // Check cache first
+
+    // Check in-memory cache first
     const cachedToken = this.getCachedToken(cacheKey);
     if (cachedToken) {
       this.metrics.cacheHits++;
@@ -82,6 +84,25 @@ class EnhancedTokenManager {
         console.log('✓ Using cached Zoho access token', { service, cacheAge: Date.now() - cachedToken.lastRefresh });
       }
       return cachedToken.accessToken;
+    }
+
+    // Attempt to load persisted token
+    try {
+      const stored = await loadToken(cacheKey);
+      if (stored) {
+        const entry: TokenCacheEntry = JSON.parse(stored);
+        this.tokenCache.set(cacheKey, entry);
+        const persistedToken = this.getCachedToken(cacheKey);
+        if (persistedToken) {
+          this.metrics.cacheHits++;
+          if (this.config.enableMetrics) {
+            console.log('✓ Using persisted Zoho access token', { service, cacheAge: Date.now() - entry.lastRefresh });
+          }
+          return persistedToken.accessToken;
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load persisted token:', err);
     }
 
     // Prevent concurrent refreshes for the same service
@@ -231,6 +252,7 @@ class EnhancedTokenManager {
       };
 
       this.tokenCache.set(cacheKey, entry);
+      await saveToken(cacheKey, JSON.stringify(entry));
       this.metrics.successfulRefreshes++;
 
       if (this.config.enableMetrics) {
@@ -286,6 +308,7 @@ class EnhancedTokenManager {
       const cacheKey = `zoho_${service}`;
       this.tokenCache.delete(cacheKey);
       this.rateLimitState.delete(cacheKey);
+      void deleteToken(cacheKey);
       console.log(`🗑️ Cleared cache for ${service}`);
     } else {
       this.tokenCache.clear();
