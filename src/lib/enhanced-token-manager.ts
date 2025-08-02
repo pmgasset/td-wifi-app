@@ -319,21 +319,21 @@ class EnhancedTokenManager {
     let cleanedTokens = 0;
     let cleanedRateLimit = 0;
 
-    // Clean expired tokens
-    for (const [key, entry] of this.tokenCache.entries()) {
+    // Clean expired tokens - compatible with older TypeScript targets
+    this.tokenCache.forEach((entry, key) => {
       if (now > entry.expiryTime) {
         this.tokenCache.delete(key);
         cleanedTokens++;
       }
-    }
+    });
 
-    // Clean old rate limit state
-    for (const [key, state] of this.rateLimitState.entries()) {
+    // Clean old rate limit state - compatible with older TypeScript targets
+    this.rateLimitState.forEach((state, key) => {
       if (now - state.windowStart > 2 * 60 * 60 * 1000) { // 2 hours old
         this.rateLimitState.delete(key);
         cleanedRateLimit++;
       }
-    }
+    });
 
     if ((cleanedTokens > 0 || cleanedRateLimit > 0) && this.config.enableMetrics) {
       console.log(`🧹 Cleanup: removed ${cleanedTokens} expired tokens, ${cleanedRateLimit} old rate limit entries`);

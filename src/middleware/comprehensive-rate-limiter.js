@@ -322,31 +322,31 @@ class ComprehensiveRateLimiter {
     const now = Date.now();
     let cleanedCount = 0;
 
-    // Clean token refresh limits
-    for (const [key, data] of this.tokenRefreshLimit.requests) {
+    // Clean token refresh limits - compatible with older targets
+    this.tokenRefreshLimit.requests.forEach((data, key) => {
       if (now > data.resetTime) {
         this.tokenRefreshLimit.requests.delete(key);
         cleanedCount++;
       }
-    }
+    });
 
-    // Clean API limits
+    // Clean API limits - compatible with older targets
     Object.values(this.apiLimits).forEach(limit => {
-      for (const [key, data] of limit.requests) {
+      limit.requests.forEach((data, key) => {
         if (now > data.resetTime) {
           limit.requests.delete(key);
           cleanedCount++;
         }
-      }
+      });
     });
 
-    // Clean global limits
-    for (const [key, data] of this.globalLimit.requests) {
+    // Clean global limits - compatible with older targets
+    this.globalLimit.requests.forEach((data, key) => {
       if (now > data.resetTime) {
         this.globalLimit.requests.delete(key);
         cleanedCount++;
       }
-    }
+    });
 
     if (cleanedCount > 0) {
       console.log(`Rate limiter cleanup: removed ${cleanedCount} expired entries`);
@@ -359,17 +359,20 @@ class ComprehensiveRateLimiter {
   getStatus() {
     const now = Date.now();
     
+    // Convert API limits to compatible format
+    const apiLimitsStatus = Object.entries(this.apiLimits).map(([type, limit]) => ({
+      type,
+      active_windows: limit.requests.size,
+      max_requests_per_minute: limit.maxRequests
+    }));
+    
     return {
       timestamp: now,
       token_refresh: {
         active_windows: this.tokenRefreshLimit.requests.size,
         max_requests_per_hour: this.tokenRefreshLimit.maxRequests
       },
-      api_limits: Object.entries(this.apiLimits).map(([type, limit]) => ({
-        type,
-        active_windows: limit.requests.size,
-        max_requests_per_minute: limit.maxRequests
-      })),
+      api_limits: apiLimitsStatus,
       global_limit: {
         active_windows: this.globalLimit.requests.size,
         max_requests_per_minute: this.globalLimit.maxRequests
