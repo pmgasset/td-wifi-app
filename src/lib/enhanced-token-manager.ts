@@ -1,6 +1,8 @@
 // src/lib/enhanced-token-manager.ts - Centralized token management with advanced rate limiting
 // CRITICAL: This replaces all scattered token caching implementations
 
+import { readToken, writeToken, readRateLimit, writeRateLimit, clearTokenStore, clearRateLimitStore } from './token-persistence';
+
 interface TokenCacheEntry {
   accessToken: string;
   expiryTime: number;
@@ -75,7 +77,7 @@ class EnhancedTokenManager {
     await this.enforceRateLimit(cacheKey);
     
     // Check cache first
-    const cachedToken = this.getCachedToken(cacheKey);
+    const cachedToken = await this.getCachedToken(cacheKey);
     if (cachedToken) {
       this.metrics.cacheHits++;
       if (this.config.enableMetrics) {
@@ -105,19 +107,25 @@ class EnhancedTokenManager {
   /**
    * Check cached token validity
    */
-  private getCachedToken(cacheKey: string): TokenCacheEntry | null {
+  private async getCachedToken(cacheKey: string): Promise<TokenCacheEntry | null> {
+    const persisted = await readToken(cacheKey);
+    if (persisted) {
+      this.tokenCache.set(cacheKey, persisted);
+    }
     const cached = this.tokenCache.get(cacheKey);
     if (!cached) return null;
 
     const now = Date.now();
     const bufferTime = this.config.tokenBufferMinutes * 60 * 1000;
-    
+
     // Return token if it's still valid with buffer
     if (now < (cached.expiryTime - bufferTime)) {
       return cached;
     }
 
     // Token is expired or close to expiry
+    this.tokenCache.delete(cacheKey);
+    await writeToken(cacheKey, null);
     return null;
   }
 
@@ -129,7 +137,7 @@ class EnhancedTokenManager {
     let state = this.rateLimitState.get(cacheKey);
 
     if (!state) {
-      state = {
+      state = await readRateLimit(cacheKey) || {
         windowStart: now,
         requestCount: 0,
         lastRequest: 0,
@@ -150,17 +158,19 @@ class EnhancedTokenManager {
     if (now - state.windowStart > 60 * 60 * 1000) {
       state.windowStart = now;
       state.requestCount = 0;
+      await writeRateLimit(cacheKey, state);
     }
 
     // Check if we've exceeded hourly limit
     if (state.requestCount >= this.config.maxRefreshesPerHour) {
       const waitTime = (state.windowStart + 60 * 60 * 1000) - now;
       this.metrics.rateLimitHits++;
-      
+
       console.warn(`🚫 Hourly rate limit reached (${this.config.maxRefreshesPerHour} requests). Waiting ${Math.ceil(waitTime / 60000)} minutes.`);
-      
+
       // Set backoff until window resets
       state.backoffUntil = state.windowStart + 60 * 60 * 1000;
+      await writeRateLimit(cacheKey, state);
       await new Promise(resolve => setTimeout(resolve, Math.min(waitTime, 60000))); // Wait max 1 minute
       throw new Error('Rate limit exceeded. Please reduce API call frequency.');
     }
@@ -168,6 +178,7 @@ class EnhancedTokenManager {
     // Update request tracking
     state.requestCount++;
     state.lastRequest = now;
+    await writeRateLimit(cacheKey, state);
   }
 
   /**
@@ -230,6 +241,7 @@ class EnhancedTokenManager {
         failureCount: 0
       };
 
+      await writeToken(cacheKey, entry);
       this.tokenCache.set(cacheKey, entry);
       this.metrics.successfulRefreshes++;
 
@@ -267,6 +279,7 @@ class EnhancedTokenManager {
         
         state.backoffUntil = now + backoffTime;
         this.rateLimitState.set(cacheKey, state);
+        await writeRateLimit(cacheKey, state);
         
         console.error(`🚫 Rate limited by Zoho. Backing off for ${Math.ceil(backoffTime / 1000)}s`);
         
@@ -281,15 +294,19 @@ class EnhancedTokenManager {
   /**
    * Clear cache for a service (useful for testing or forced refresh)
    */
-  clearCache(service?: string): void {
+  async clearCache(service?: string): Promise<void> {
     if (service) {
       const cacheKey = `zoho_${service}`;
       this.tokenCache.delete(cacheKey);
       this.rateLimitState.delete(cacheKey);
+      await writeToken(cacheKey, null);
+      await writeRateLimit(cacheKey, null);
       console.log(`🗑️ Cleared cache for ${service}`);
     } else {
       this.tokenCache.clear();
       this.rateLimitState.clear();
+      await clearTokenStore();
+      await clearRateLimitStore();
       console.log('🗑️ Cleared all token cache');
     }
   }
@@ -314,26 +331,26 @@ class EnhancedTokenManager {
   /**
    * Cleanup expired entries
    */
-  private cleanup(): void {
+  private async cleanup(): Promise<void> {
     const now = Date.now();
     let cleanedTokens = 0;
     let cleanedRateLimit = 0;
 
-    // Clean expired tokens - compatible with older TypeScript targets
-    this.tokenCache.forEach((entry, key) => {
+    for (const [key, entry] of Array.from(this.tokenCache.entries())) {
       if (now > entry.expiryTime) {
         this.tokenCache.delete(key);
+        await writeToken(key, null);
         cleanedTokens++;
       }
-    });
+    }
 
-    // Clean old rate limit state - compatible with older TypeScript targets
-    this.rateLimitState.forEach((state, key) => {
-      if (now - state.windowStart > 2 * 60 * 60 * 1000) { // 2 hours old
+    for (const [key, state] of Array.from(this.rateLimitState.entries())) {
+      if (now - state.windowStart > 2 * 60 * 60 * 1000) {
         this.rateLimitState.delete(key);
+        await writeRateLimit(key, null);
         cleanedRateLimit++;
       }
-    });
+    }
 
     if ((cleanedTokens > 0 || cleanedRateLimit > 0) && this.config.enableMetrics) {
       console.log(`🧹 Cleanup: removed ${cleanedTokens} expired tokens, ${cleanedRateLimit} old rate limit entries`);
