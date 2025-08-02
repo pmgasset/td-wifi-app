@@ -34,7 +34,7 @@ export default async function handler(req, res) {
         console.log(`Trying Admin API: ${endpoint.url}`);
         
         // Import zohoAPI only when needed
-        const zohoModule = await import('../../../lib/zoho-api.old');
+        const zohoModule = await import('../../../lib/zoho-api.ts');
         const zohoAPI = zohoModule.zohoAPI || zohoModule.simpleZohoAPI;
         
         orderData = await zohoAPI.apiRequest(endpoint.url);

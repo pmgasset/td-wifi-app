@@ -1,5 +1,5 @@
 // ===== src/pages/api/categories.js ===== (Create this new file)
-import { zohoAPI } from '../../lib/zoho-api.old';
+import { zohoAPI } from '../../lib/zoho-api.ts';
 
 export default async function handler(req, res) {
   console.log('Categories API called:', req.method, req.url);

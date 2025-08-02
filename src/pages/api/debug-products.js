@@ -1,5 +1,5 @@
 // ===== src/pages/api/debug-products.js =====
-import { zohoAPI } from '../../lib/zoho-api.old';
+import { zohoAPI } from '../../lib/zoho-api.ts';
 
 export default async function handler(req, res) {
   console.log('Debug API route called');

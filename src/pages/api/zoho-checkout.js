@@ -1,5 +1,5 @@
 // ===== src/pages/api/zoho-checkout.js ===== (SIMPLE WORKING VERSION)
-import { zohoAPI } from '../../lib/zoho-api.old';
+import { zohoAPI } from '../../lib/zoho-api.ts';
 
 export default async function handler(req, res) {
   const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(7)}`;
