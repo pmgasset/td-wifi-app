@@ -145,16 +145,13 @@ class ZohoCommerceAPI {
     try {
       console.log('🛒 Fetching products from Zoho Commerce API...');
       
-      // Try multiple endpoint patterns based on your project knowledge
+      // FIXED: Use the working endpoint pattern from your test results
+      // Your test shows these work: /products (NOT /stores/{id}/products)
       const endpoints = [
-        // First try the working pattern from your debug files
-        `/stores/${this.storeId}/products`,
-        // Alternative patterns from your project knowledge  
+        // Primary working endpoint from your test
         `/products`,
-        // Organization-based endpoint
-        `/organizations/${this.storeId}/stores`,
-        // Direct store access
-        `/stores`
+        // Alternative working endpoint (backup)
+        `/products?status=active`
       ];
       
       let products = [];
@@ -166,34 +163,11 @@ class ZohoCommerceAPI {
           console.log(`🧪 Trying Commerce API endpoint: ${endpoint}`);
           const response = await this.apiRequest(endpoint);
           
-          // Handle different response structures
+          // Handle response structure (your test shows products array)
           if (response.products && Array.isArray(response.products)) {
             products = response.products;
             workingEndpoint = endpoint;
             console.log(`✅ Success with endpoint: ${endpoint} - Found ${products.length} products`);
-            break;
-          } else if (response.stores && Array.isArray(response.stores)) {
-            // If we got stores, try to get products from the first store
-            const firstStore = response.stores[0];
-            if (firstStore && firstStore.store_id) {
-              console.log(`🏪 Found stores, trying products from store: ${firstStore.store_id}`);
-              try {
-                const storeResponse = await this.apiRequest(`/stores/${firstStore.store_id}/products`);
-                if (storeResponse.products) {
-                  products = storeResponse.products;
-                  workingEndpoint = `/stores/${firstStore.store_id}/products`;
-                  console.log(`✅ Success with store endpoint: Found ${products.length} products`);
-                  break;
-                }
-              } catch (storeError) {
-                const errorMessage = storeError instanceof Error ? storeError.message : 'Unknown error';
-                console.log(`❌ Store products failed: ${errorMessage}`);
-              }
-            }
-          } else if (Array.isArray(response)) {
-            products = response;
-            workingEndpoint = endpoint;
-            console.log(`✅ Success with array response: ${endpoint} - Found ${products.length} products`);
             break;
           } else {
             console.log(`⚠️ Unexpected response structure from ${endpoint}:`, Object.keys(response));
@@ -235,10 +209,7 @@ class ZohoCommerceAPI {
           throw new Error('Commerce API rate limited. Please wait before retrying.');
         }
         if (error.message.includes('Invalid URL')) {
-          throw new Error(`Invalid Commerce API URL. Current base URL: ${this.baseURL}, Store ID: ${this.storeId}. Check ZOHO_STORE_ID environment variable.`);
-        }
-        if (error.message.includes('store') || error.message.includes('Store')) {
-          throw new Error('Invalid store ID or store not found. Check ZOHO_STORE_ID environment variable.');
+          throw new Error(`Invalid Commerce API URL. Current base URL: ${this.baseURL}. The working endpoints are /products (not /stores/{id}/products).`);
         }
         if (error.message.includes('Authentication failed')) {
           throw new Error('Zoho Commerce authentication failed. Check OAuth credentials.');
