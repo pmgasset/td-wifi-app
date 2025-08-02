@@ -49,15 +49,21 @@ class ZohoCommerceAPI {
     const token = await this.getAccessToken();
     const url = `${this.baseURL}${endpoint}`;
 
-    const headers: Record<string, string> = {
-      'Authorization': `Zoho-oauthtoken ${token}`,
-      'Content-Type': 'application/json',
-      ...options.headers,
-    };
-
-    // Add store ID header if it exists
+    // Create headers using the Headers API
+    const headers = new Headers();
+    headers.append('Authorization', `Zoho-oauthtoken ${token}`);
+    headers.append('Content-Type', 'application/json');
+    
     if (process.env.ZOHO_STORE_ID) {
-      headers['X-com-zoho-store-organizationid'] = process.env.ZOHO_STORE_ID;
+      headers.append('X-com-zoho-store-organizationid', process.env.ZOHO_STORE_ID);
+    }
+
+    // Add any existing headers from options
+    if (options.headers) {
+      const incomingHeaders = new Headers(options.headers);
+      incomingHeaders.forEach((value, key) => {
+        headers.append(key, value);
+      });
     }
 
     const response = await fetch(url, {
@@ -98,14 +104,23 @@ class ZohoCommerceAPI {
     const token = await this.getAccessToken();
     const url = `${this.storefrontURL}${endpoint}`;
 
+    // Create headers using the Headers API
+    const headers = new Headers();
+    headers.append('Authorization', `Zoho-oauthtoken ${token}`);
+    headers.append('Content-Type', 'application/json');
+    headers.append('domain-name', 'www.traveldatawifi.com');
+    
+    // Add any existing headers from options
+    if (options.headers) {
+      const incomingHeaders = new Headers(options.headers);
+      incomingHeaders.forEach((value, key) => {
+        headers.append(key, value);
+      });
+    }
+
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Authorization': `Zoho-oauthtoken ${token}`,
-        'Content-Type': 'application/json',
-        'domain-name': 'www.traveldatawifi.com', // Your store domain
-        ...options.headers,
-      },
+      headers,
     });
 
     const responseText = await response.text();
