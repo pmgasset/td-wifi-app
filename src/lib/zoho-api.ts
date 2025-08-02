@@ -158,7 +158,7 @@ class ZohoCommerceAPI {
       ];
       
       let products = [];
-      let lastError = null;
+      let lastError: Error | null = null;
       let workingEndpoint = null;
       
       for (const endpoint of endpoints) {
@@ -199,8 +199,9 @@ class ZohoCommerceAPI {
             console.log(`⚠️ Unexpected response structure from ${endpoint}:`, Object.keys(response));
           }
         } catch (error) {
-          console.log(`❌ Endpoint failed: ${endpoint} - ${error.message}`);
-          lastError = error;
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+          console.log(`❌ Endpoint failed: ${endpoint} - ${errorMessage}`);
+          lastError = error instanceof Error ? error : new Error(String(error));
           continue;
         }
       }
