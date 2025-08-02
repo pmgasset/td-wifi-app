@@ -3,7 +3,23 @@ class ZohoCommerceAPI {
   private baseURL = 'https://commerce.zoho.com/store/api/v1';
   private storefrontURL = 'https://commerce.zoho.com/storefront/api/v1';
 
+  private validateEnvVars(): void {
+    const requiredVars = [
+      'ZOHO_CLIENT_ID',
+      'ZOHO_CLIENT_SECRET',
+      'ZOHO_REFRESH_TOKEN'
+    ];
+    
+    const missingVars = requiredVars.filter(varName => !process.env[varName]);
+    
+    if (missingVars.length > 0) {
+      throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+    }
+  }
+
   async getAccessToken(): Promise<string> {
+    this.validateEnvVars();
+    
     const credentials = {
       client_id: process.env.ZOHO_CLIENT_ID!,
       client_secret: process.env.ZOHO_CLIENT_SECRET!,
@@ -29,23 +45,35 @@ class ZohoCommerceAPI {
     return data.access_token;
   }
 
-  async apiRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
+  async apiRequest(endpoint: string, options: RequestInit = {}, retry = true): Promise<any> {
     const token = await this.getAccessToken();
     const url = `${this.baseURL}${endpoint}`;
 
+    const headers: Record<string, string> = {
+      'Authorization': `Zoho-oauthtoken ${token}`,
+      'Content-Type': 'application/json',
+      ...options.headers,
+    };
+
+    // Add store ID header if it exists
+    if (process.env.ZOHO_STORE_ID) {
+      headers['X-com-zoho-store-organizationid'] = process.env.ZOHO_STORE_ID;
+    }
+
     const response = await fetch(url, {
       ...options,
-      headers: {
-        'Authorization': `Zoho-oauthtoken ${token}`,
-        'Content-Type': 'application/json',
-        'X-com-zoho-store-organizationid': process.env.ZOHO_STORE_ID,
-        ...options.headers,
-      },
+      headers,
     });
 
     const responseText = await response.text();
 
     if (!response.ok) {
+      // Handle auth errors with single retry
+      if (retry && (response.status === 401 || response.status === 403)) {
+        console.log('Auth error detected, retrying with new token...');
+        return this.apiRequest(endpoint, options, false);
+      }
+      
       throw new Error(`API error: ${response.status} - ${responseText}`);
     }
 
@@ -65,7 +93,7 @@ class ZohoCommerceAPI {
     }
   }
 
-  // NEW: Storefront API request method for getting products with images
+  // Storefront API request method for getting products with images
   async storefrontRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
     const token = await this.getAccessToken();
     const url = `${this.storefrontURL}${endpoint}`;
@@ -87,9 +115,8 @@ class ZohoCommerceAPI {
     }
 
     try {
-      const jsonResponse = JSON.parse(responseText);
-      return jsonResponse;
-    } catch (parseError) {
+      return JSON.parse(responseText);
+    } catch {
       throw new Error(`Invalid JSON from storefront: ${responseText}`);
     }
   }
@@ -97,22 +124,18 @@ class ZohoCommerceAPI {
   async getProducts(): Promise<any[]> {
     try {
       console.log('🛍️ Getting products from Store API for basic data...');
-      // Get basic product data from Store API
       const storeResponse = await this.apiRequest('/products');
-      const storeProducts: any[] = storeResponse.products || []; // Explicitly type as any[]
+      const storeProducts: any[] = storeResponse.products || [];
       console.log(`✅ Retrieved ${storeProducts.length} products from Store API`);
 
       console.log('🖼️ Getting product images from Storefront API...');
-      // Get product images from Storefront API for each product
       const productsWithImages = await Promise.all(
-        storeProducts.map(async (product: any) => { // Explicitly type product as any
+        storeProducts.map(async (product: any) => {
           try {
-            // Get images from Storefront API
             const storefrontData = await this.storefrontRequest(`/products/${product.product_id}?format=json`);
             const storefrontProduct = storefrontData?.payload?.product || storefrontData?.product || storefrontData;
             
             if (storefrontProduct) {
-              // Extract images from Storefront API response
               const images = this.extractStorefrontImages(storefrontProduct);
               
               if (images.length > 0) {
@@ -123,165 +146,122 @@ class ZohoCommerceAPI {
                 ...product,
                 product_name: product.name || product.product_name,
                 product_price: product.min_rate || product.max_rate || product.product_price || 0,
-                product_images: images, // Use Storefront API images
+                product_images: images,
                 inventory_count: this.parseStock(product.overall_stock),
                 product_category: product.category_name || product.product_category || '',
                 seo_url: product.url || product.seo_url || product.product_id,
-                image_source: 'storefront_api' // Debug info
+                image_source: 'storefront_api'
               };
             }
             
-            // Fallback to Store API images if Storefront fails
             return {
               ...product,
               product_name: product.name || product.product_name,
-<<<<<<< HEAD
-                product_price: product.min_rate || product.max_rate || product.product_price || 0,
-                product_images: this.extractImages(product),
-                inventory_count: this.parseStock(product.overall_stock),
-                product_category: product.category_name || product.product_category || '',
-                seo_url: product.url || product.seo_url || product.product_id,
-                image_source: 'store_api_fallback'
-              };
-              
-            } catch (error) {
-              console.warn(`⚠️ Storefront API failed for product ${product.product_id}: ${(error as Error).message}`);
-              
-              return {
-                ...product,
-                product_name: product.name || product.product_name,
-                product_price: product.min_rate || product.max_rate || product.product_price || 0,
-                product_images: this.extractImages(product),
-                inventory_count: this.parseStock(product.overall_stock),
-                product_category: product.category_name || product.product_category || '',
-                seo_url: product.url || product.seo_url || product.product_id,
-                image_source: 'store_api_only'
-              };
-            }
-          })
-        );
-=======
               product_price: product.min_rate || product.max_rate || product.product_price || 0,
-              product_images: this.extractImages(product), // Fallback to Store API
+              product_images: this.extractImages(product),
               inventory_count: this.parseStock(product.overall_stock),
               product_category: product.category_name || product.product_category || '',
               seo_url: product.url || product.seo_url || product.product_id,
-              image_source: 'store_api_fallback' // Debug info
+              image_source: 'store_api_fallback'
             };
             
           } catch (error) {
-            console.warn(`⚠️ Storefront API failed for product ${product.product_id}, using Store API data:`, error.message);
+            console.warn(`⚠️ Storefront API failed for product ${product.product_id}: ${(error as Error).message}`);
             
-            // Fallback to Store API data only
             return {
               ...product,
               product_name: product.name || product.product_name,
               product_price: product.min_rate || product.max_rate || product.product_price || 0,
-              product_images: this.extractImages(product), // Store API images as fallback
+              product_images: this.extractImages(product),
               inventory_count: this.parseStock(product.overall_stock),
               product_category: product.category_name || product.product_category || '',
               seo_url: product.url || product.seo_url || product.product_id,
-              image_source: 'store_api_only' // Debug info
+              image_source: 'store_api_only'
             };
           }
         })
       );
->>>>>>> parent of 9a97612 (ts)
 
       console.log('✅ Successfully merged Store API + Storefront API data');
       return productsWithImages;
       
     } catch (error) {
-      console.error('❌ Failed to get products:', error);
+      console.error('❌ Failed to get products:', (error as Error).message);
       throw error;
     }
   }
 
-  // NEW: Extract images from Storefront API response
+  // Extract images from Storefront API response
   extractStorefrontImages(product: any): string[] {
-    const images: string[] = [];
+    const imageSet = new Set<string>();
 
-    // Method 1: Direct images array (from Storefront API)
-    if (product.images && Array.isArray(product.images)) {
-      product.images.forEach(img => {
-        if (typeof img === 'string') {
-          images.push(`https://commerce.zoho.com${img}`);
-        } else if (img.url) {
-          images.push(`https://commerce.zoho.com${img.url}`);
+    // Helper to add images from arrays
+    const addImages = (items: any[]) => {
+      items.forEach(item => {
+        if (typeof item === 'string') {
+          imageSet.add(`https://commerce.zoho.com${item}`);
+        } else if (item?.url) {
+          imageSet.add(`https://commerce.zoho.com${item.url}`);
         }
       });
-    }
+    };
 
-    // Method 2: Documents array (primary image source in Storefront API)
-    if (product.documents && Array.isArray(product.documents)) {
-      console.log(`Found ${product.documents.length} documents for storefront extraction`);
-      product.documents.forEach(doc => {
-        if (doc.file_name && this.isImageFile(doc.file_name) && doc.document_id) {
-          // Construct full-size Zoho CDN URL (remove size restrictions)
+    // Helper to add images from documents
+    const addDocumentImages = (docs: any[]) => {
+      docs.forEach(doc => {
+        if (doc?.file_name && this.isImageFile(doc.file_name) && doc.document_id) {
           const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}?storefront_domain=www.traveldatawifi.com`;
-          images.push(imageUrl);
-          console.log(`✓ Constructed Storefront CDN image: ${imageUrl}`);
+          imageSet.add(imageUrl);
+        }
+      });
+    };
+
+    // Product-level images
+    if (Array.isArray(product.images)) {
+      addImages(product.images);
+    }
+    
+    // Product-level documents
+    if (Array.isArray(product.documents)) {
+      addDocumentImages(product.documents);
+    }
+
+    // Variant-level images and documents
+    if (Array.isArray(product.variants)) {
+      product.variants.forEach((variant: any) => {
+        if (Array.isArray(variant.images)) {
+          addImages(variant.images);
+        }
+        if (Array.isArray(variant.documents)) {
+          addDocumentImages(variant.documents);
         }
       });
     }
 
-    // Method 3: Variant images (from Storefront API)
-    if (product.variants && Array.isArray(product.variants)) {
-      product.variants.forEach(variant => {
-        if (variant.images && Array.isArray(variant.images)) {
-          variant.images.forEach(img => {
-            if (typeof img === 'string') {
-              images.push(`https://commerce.zoho.com${img}`);
-            } else if (img.url) {
-              images.push(`https://commerce.zoho.com${img.url}`);
-            }
-          });
-        }
-        
-        // Variant documents
-        if (variant.documents && Array.isArray(variant.documents)) {
-          variant.documents.forEach(doc => {
-            if (doc.file_name && this.isImageFile(doc.file_name) && doc.document_id) {
-              const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}?storefront_domain=www.traveldatawifi.com`;
-              images.push(imageUrl);
-              console.log(`✓ Constructed variant CDN image: ${imageUrl}`);
-            }
-          });
-        }
-      });
-    }
-
-    // Remove duplicates and return
-    const uniqueImages = [...new Set(images)];
-    console.log(`🖼️ Extracted ${uniqueImages.length} unique images from Storefront API`);
-    return uniqueImages;
+    return Array.from(imageSet);
   }
 
   // Legacy Store API image extraction (fallback)
   extractImages(product: any): string[] {
     const images: string[] = [];
 
-    // Try various Store API image sources
-    if (product.documents && Array.isArray(product.documents)) {
-      product.documents.forEach(doc => {
-        if (doc.file_name && this.isImageFile(doc.file_name) && doc.document_id) {
-          // Use basic CDN URL for Store API
-          const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`;
-          images.push(imageUrl);
+    if (Array.isArray(product.documents)) {
+      product.documents.forEach((doc: any) => {
+        if (doc?.file_name && this.isImageFile(doc.file_name) && doc.document_id) {
+          images.push(
+            `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`
+          );
         }
       });
     }
 
-    return [...new Set(images)];
+    return images;
   }
 
   isImageFile(filename: string): boolean {
-    if (!filename || typeof filename !== 'string') return false;
+    if (!filename) return false;
     
-    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
-    const lowerFilename = filename.toLowerCase();
-    
-    return imageExtensions.some(ext => lowerFilename.endsWith(ext));
+    return /\.(jpg|jpeg|png|gif|webp|bmp|svg)$/i.test(filename);
   }
 
   parseStock(stockValue: any): number {
@@ -291,7 +271,8 @@ class ZohoCommerceAPI {
     
     const parsed = typeof stockValue === 'string' ? 
       parseFloat(stockValue) : Number(stockValue);
-    return isNaN(parsed) ? 0 : parsed;
+      
+    return isNaN(parsed) ? 0 : Math.max(0, parsed);
   }
 
   async getProduct(productId: string): Promise<any | null> {
@@ -302,7 +283,7 @@ class ZohoCommerceAPI {
         const storefrontData = await this.storefrontRequest(`/products/${productId}?format=json`);
         const storefrontProduct = storefrontData?.payload?.product || storefrontData?.product || storefrontData;
         
-        if (storefrontProduct && storefrontProduct.product_id) {
+        if (storefrontProduct?.product_id) {
           const images = this.extractStorefrontImages(storefrontProduct);
           
           return {
@@ -317,7 +298,7 @@ class ZohoCommerceAPI {
           };
         }
       } catch (storefrontError) {
-        console.warn(`⚠️ Storefront API failed for product ${productId}:`, storefrontError.message);
+        console.warn(`⚠️ Storefront API failed for product ${productId}: ${(storefrontError as Error).message}`);
       }
       
       // Fallback to Store API
@@ -338,8 +319,7 @@ class ZohoCommerceAPI {
         image_source: 'store_api_fallback'
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error(`❌ Failed to get product ${productId}:`, errorMessage);
+      console.error(`❌ Failed to get product ${productId}: ${(error as Error).message}`);
       return null;
     }
   }
