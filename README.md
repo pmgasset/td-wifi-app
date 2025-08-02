@@ -29,6 +29,7 @@ ZOHO_CLIENT_ID=your_zoho_client_id
 ZOHO_CLIENT_SECRET=your_zoho_client_secret  
 ZOHO_REFRESH_TOKEN=your_zoho_refresh_token
 ZOHO_STORE_ID=your_zoho_store_id
+CACHE_DIR=/tmp # optional cache directory (use /tmp on serverless)
 ```
 
 ## Deployment
@@ -39,6 +40,7 @@ This project is optimized for Cloudflare Pages:
 2. Set build command: `npm run build`
 3. Set output directory: `out`
 4. Add environment variables in Cloudflare Pages dashboard
+   - Set `CACHE_DIR` to `/tmp` or another writable path on serverless platforms
 
 ## Project Structure
 
