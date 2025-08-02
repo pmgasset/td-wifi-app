@@ -486,3 +486,90 @@ function handleCheckoutError(res, error, requestId, context = {}) {
         cause: 'Too many requests to Zoho Inventory API',
         solution: 'The system uses centralized token management to minimize this issue'
       }
+    }),
+    
+    progress: {
+      contact_created: !!context.contact_id,
+      sales_order_created: !!context.sales_order_id,
+      invoice_created: !!context.invoice_id,
+      step_failed: context.step || 'unknown'
+    },
+    
+    debug_info: {
+      contact_id: context.contact_id,
+      sales_order_id: context.sales_order_id,
+      invoice_id: context.invoice_id,
+      cart_items_count: context.cart_items_count,
+      calculated_total: context.total,
+      token_manager_status: tokenManager.getStatus()
+    },
+    
+    suggestion: getInventoryErrorSuggestion(error.message)
+  };
+
+  const status = isRateLimited ? 429 : 500;
+  return res.status(status).json(errorResponse);
+}
+
+/**
+ * Get helpful error suggestions
+ */
+function getInventoryErrorSuggestion(errorMessage) {
+  if (errorMessage?.includes('rate limited') || errorMessage?.includes('too many requests')) {
+    return 'FIXED: Centralized token management implemented to prevent rate limiting. If you continue to see this error, please wait 60 seconds before retrying.';
+  } else if (errorMessage?.includes('billing_address') && errorMessage?.includes('100 characters')) {
+    return 'FIXED: Now using address_id instead of full billing_address object to avoid 100-character limit';
+  } else if (errorMessage?.includes('item_id') || errorMessage?.includes('item not found')) {
+    return 'FIXED: Now using SKU/name lookup to map Commerce products to Inventory items. Check that products exist in both systems.';
+  } else if (errorMessage?.includes('Product not found in inventory')) {
+    return 'Products from Commerce are not synced to Inventory. Consider enabling Zoho Commerce-Inventory sync or manually create inventory items.';
+  } else if (errorMessage?.includes('address_id')) {
+    return 'Check that contact was created successfully and address_id was extracted properly';
+  } else if (errorMessage?.includes('organization_id')) {
+    return 'Check ZOHO_INVENTORY_ORGANIZATION_ID environment variable';
+  } else if (errorMessage?.includes('contact')) {
+    return 'Contact creation failed - check customer information format';
+  } else if (errorMessage?.includes('sales_order') || errorMessage?.includes('salesorder')) {
+    return 'Sales order creation failed - check line items and pricing';
+  } else if (errorMessage?.includes('invoice')) {
+    return 'Invoice creation failed - check sales order exists and is valid';
+  } else if (errorMessage?.includes('authentication') || errorMessage?.includes('token')) {
+    return 'Check Zoho OAuth credentials and refresh token';
+  } else if (errorMessage?.includes('Token manager error')) {
+    return 'Centralized token management error - check enhanced-token-manager configuration';
+  } else {
+    return 'Check Zoho Inventory API configuration and organization settings';
+  }
+}
+
+/**
+ * Health check for the guest checkout service
+ */
+export async function healthCheck() {
+  try {
+    const tokenStatus = tokenManager.getStatus();
+    
+    return {
+      service: 'guest_checkout_inventory',
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      token_manager: tokenStatus,
+      configuration: {
+        organization_id_configured: !!process.env.ZOHO_INVENTORY_ORGANIZATION_ID,
+        base_url_configured: !!process.env.NEXT_PUBLIC_BASE_URL,
+        oauth_credentials_configured: !!(
+          process.env.ZOHO_CLIENT_ID && 
+          process.env.ZOHO_CLIENT_SECRET && 
+          process.env.ZOHO_REFRESH_TOKEN
+        )
+      }
+    };
+  } catch (error) {
+    return {
+      service: 'guest_checkout_inventory',
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
