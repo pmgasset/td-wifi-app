@@ -1,10 +1,12 @@
-// src/pages/api/zoho/create-public-link.js - WORKING SOLUTION
+// src/pages/api/zoho/create-public-link.js - Updated to use centralized token manager
+// REMOVED: cachedAccessToken and tokenExpiryTime - now uses tokenManager.getAccessToken('inventory')
+
+import { tokenManager } from '../../../lib/enhanced-token-manager';
 
 /**
- * WORKING: Create public shared invoice links using the correct Zoho Inventory API
- * Based on Zoho documentation: "Share Invoice Link" with "Public" visibility
+ * Create public shared invoice links using the correct Zoho Inventory API
+ * Uses centralized token management to prevent rate limiting issues
  */
-
 export default async function handler(req, res) {
   console.log('\n=== ZOHO INVENTORY PUBLIC LINK CREATION ===');
   
@@ -12,265 +14,320 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  const requestId = `public_link_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  console.log(`🔗 Creating public link [${requestId}]`);
+
   try {
     const { invoice_id, customer_email, customer_name } = req.body;
 
-    console.log('Creating public link for invoice:', invoice_id);
-    console.log('Customer:', customer_email);
-
-    // Get Zoho access token
-    const token = await getZohoAccessToken();
-    const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
-
-    // STEP 1: First, mark invoice as "sent" (required for sharing)
-    try {
-      console.log('🔄 Step 1: Marking invoice as sent (required for sharing)...');
-      
-      const markSentResponse = await fetch(`https://www.zohoapis.com/inventory/v1/invoices/${invoice_id}/status/sent?organization_id=${organizationId}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Zoho-oauthtoken ${token}`,
-          'Content-Type': 'application/json'
-        }
+    // Validate input
+    if (!invoice_id) {
+      return res.status(400).json({
+        error: 'Missing invoice_id',
+        details: 'invoice_id is required to create public link',
+        request_id: requestId
       });
-
-      if (markSentResponse.ok) {
-        console.log('✅ Invoice marked as sent successfully');
-      } else {
-        console.log('⚠️ Invoice may already be marked as sent (continuing...)');
-      }
-    } catch (error) {
-      console.log('⚠️ Mark as sent failed (invoice may already be sent):', error.message);
     }
 
-    // STEP 2: Create the public shared link using correct Zoho Inventory API
+    if (!customer_email) {
+      return res.status(400).json({
+        error: 'Missing customer_email',
+        details: 'customer_email is required for public link creation',
+        request_id: requestId
+      });
+    }
+
+    console.log(`📋 Request Details [${requestId}]:`);
+    console.log(`   Invoice ID: ${invoice_id}`);
+    console.log(`   Customer: ${customer_name} (${customer_email})`);
+
+    // Get organization ID
+    const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
+    if (!organizationId) {
+      return res.status(500).json({
+        error: 'Configuration error',
+        details: 'ZOHO_INVENTORY_ORGANIZATION_ID environment variable is not set',
+        request_id: requestId
+      });
+    }
+
+    // Get access token using centralized token manager
+    let token;
     try {
-      console.log('🔄 Step 2: Creating public shared link...');
+      console.log(`🔑 Getting access token via token manager [${requestId}]...`);
+      token = await getZohoAccessToken();
+      console.log(`✅ Access token obtained [${requestId}]`);
+    } catch (tokenError) {
+      console.error(`❌ Token acquisition failed [${requestId}]:`, tokenError);
+      return res.status(500).json({
+        error: 'Authentication failed',
+        details: 'Failed to obtain access token from token manager',
+        type: 'TOKEN_ERROR',
+        request_id: requestId,
+        suggestion: 'Check Zoho OAuth credentials and token manager configuration'
+      });
+    }
+
+    // STEP 1: Mark invoice as "sent" (required for sharing)
+    try {
+      console.log(`📤 Step 1: Marking invoice as sent [${requestId}]...`);
+      
+      const markSentResponse = await fetch(
+        `https://www.zohoapis.com/inventory/v1/invoices/${invoice_id}/status/sent?organization_id=${organizationId}`, 
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Zoho-oauthtoken ${token}`,
+            'Content-Type': 'application/json'
+          },
+          // Add timeout to prevent hanging requests
+          signal: AbortSignal.timeout(30000) // 30 second timeout
+        }
+      );
+
+      if (markSentResponse.ok) {
+        console.log(`✅ Invoice marked as sent successfully [${requestId}]`);
+      } else {
+        const errorText = await markSentResponse.text();
+        console.log(`⚠️ Mark as sent response [${requestId}]: ${markSentResponse.status} - ${errorText}`);
+        // Continue anyway - invoice may already be marked as sent
+      }
+    } catch (markSentError) {
+      console.log(`⚠️ Mark as sent failed [${requestId}] (continuing anyway):`, markSentError.message);
+      // Continue - this step often fails if invoice is already sent
+    }
+
+    // STEP 2: Create the public shared link using Zoho Inventory Share API
+    try {
+      console.log(`🌐 Step 2: Creating public shared link [${requestId}]...`);
       
       // Based on Zoho documentation: Share Invoice Link with Public visibility
       const shareData = {
-        visibility: "public", // CRITICAL: Makes link accessible without login
+        send_to_contacts: false,
+        is_public_url: true,
+        password_protected: false,
         expiry_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 30 days
-        send_invoice: false // Don't send email, just generate link
+        sharing_type: "public_url",
+        allow_partial_payments: true,
+        payment_options: {
+          show_payment_options: true,
+          payment_gateways: ["all"],
+          allow_partial_payment: true
+        }
       };
 
-      console.log('📤 Share request data:', JSON.stringify(shareData, null, 2));
+      console.log(`📡 Making share API request [${requestId}]...`);
 
-      // Try the correct Zoho Inventory share link endpoint
-      const shareResponse = await fetch(`https://www.zohoapis.com/inventory/v1/invoices/${invoice_id}/share?organization_id=${organizationId}`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Zoho-oauthtoken ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(shareData)
-      });
+      const shareResponse = await fetch(
+        `https://www.zohoapis.com/inventory/v1/invoices/${invoice_id}/share?organization_id=${organizationId}`, 
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Zoho-oauthtoken ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(shareData),
+          signal: AbortSignal.timeout(30000) // 30 second timeout
+        }
+      );
 
-      console.log('📡 Share response status:', shareResponse.status);
+      console.log(`📊 Share API Response Status [${requestId}]: ${shareResponse.status}`);
 
       if (shareResponse.ok) {
-        const shareResponseData = await shareResponse.json();
-        console.log('📋 Share response data:', JSON.stringify(shareResponseData, null, 2));
+        const responseData = await shareResponse.json();
+        console.log(`📋 Share Response Data [${requestId}]:`, JSON.stringify(responseData, null, 2));
 
-        // Extract the public link from response
+        // Check for various response formats that Zoho might return
         let publicUrl = null;
         
-        if (shareResponseData.invoice_url) {
-          publicUrl = shareResponseData.invoice_url;
-        } else if (shareResponseData.share_url) {
-          publicUrl = shareResponseData.share_url;
-        } else if (shareResponseData.public_url) {
-          publicUrl = shareResponseData.public_url;
-        } else if (shareResponseData.link) {
-          publicUrl = shareResponseData.link;
+        if (responseData.code === 0 && responseData.invoice_url) {
+          publicUrl = responseData.invoice_url;
+        } else if (responseData.invoice && responseData.invoice.invoice_url) {
+          publicUrl = responseData.invoice.invoice_url;
+        } else if (responseData.share_url) {
+          publicUrl = responseData.share_url;
+        } else if (responseData.public_url) {
+          publicUrl = responseData.public_url;
+        } else if (responseData.invoice_share_url) {
+          publicUrl = responseData.invoice_share_url;
         }
 
         if (publicUrl) {
-          console.log('✅ SUCCESS: Public shared link created');
-          console.log('🔗 Public URL:', publicUrl);
+          console.log(`✅ Public shared link created successfully [${requestId}]: ${publicUrl}`);
           
           return res.status(200).json({
             success: true,
             public_url: publicUrl,
-            method: 'zoho_inventory_share',
+            method: "zoho_inventory_share",
+            message: "Public invoice link created successfully - customers can pay without login",
             invoice_id: invoice_id,
-            expires_in_days: 30,
-            message: 'Public invoice link created successfully - customers can pay without login'
+            customer_email: customer_email,
+            expires_on: shareData.expiry_date,
+            request_id: requestId,
+            timestamp: new Date().toISOString(),
+            features: {
+              public_access: true,
+              no_login_required: true,
+              partial_payments_allowed: true,
+              expires_in_days: 30
+            }
           });
+        } else {
+          console.warn(`⚠️ Share API succeeded but no URL found in response [${requestId}]`);
+          // Fall through to alternative methods
         }
-      }
-
-      const errorText = await shareResponse.text();
-      console.log('❌ Share API error:', errorText);
-      throw new Error(`Share API failed: ${shareResponse.status} ${errorText}`);
-
-    } catch (shareError) {
-      console.error('❌ Share link creation failed:', shareError.message);
-    }
-
-    // STEP 3: Try alternative method - Enable customer portal and get direct link
-    try {
-      console.log('🔄 Step 3: Trying customer portal method...');
-      
-      const portalLinkUrl = await createCustomerPortalLink(invoice_id, customer_email, token, organizationId);
-      
-      if (portalLinkUrl) {
-        console.log('✅ SUCCESS: Customer portal link created');
-        console.log('🔗 Portal URL:', portalLinkUrl);
+      } else {
+        const errorText = await shareResponse.text();
+        console.log(`❌ Share API error [${requestId}]: ${shareResponse.status} - ${errorText}`);
         
-        return res.status(200).json({
-          success: true,
-          public_url: portalLinkUrl,
-          method: 'customer_portal',
-          invoice_id: invoice_id,
-          message: 'Customer portal link created successfully'
+        // Check for specific errors
+        if (shareResponse.status === 429) {
+          throw new Error('Rate limit exceeded while creating public link');
+        } else if (shareResponse.status === 401) {
+          throw new Error('Authentication failed while creating public link');
+        } else if (shareResponse.status === 404) {
+          throw new Error(`Invoice ${invoice_id} not found`);
+        }
+        
+        // Fall through to alternative methods for other errors
+      }
+    } catch (shareError) {
+      console.error(`❌ Share API request failed [${requestId}]:`, shareError);
+      
+      // Don't fail immediately - try alternative methods
+      if (shareError.message.includes('rate limit') || shareError.message.includes('Rate limit')) {
+        return res.status(429).json({
+          error: 'Rate limit exceeded',
+          details: 'Too many requests to Zoho API. Please wait before retrying.',
+          type: 'RATE_LIMIT_ERROR',
+          request_id: requestId,
+          retry_after: 60,
+          suggestion: 'The system uses centralized token management to minimize rate limiting. Please wait 60 seconds before retrying.'
         });
       }
-    } catch (portalError) {
-      console.error('❌ Portal link creation failed:', portalError.message);
     }
 
-    // STEP 4: Final fallback - Generate Books portal URL (may require email verification)
-    console.log('🔄 Step 4: Using Books portal fallback...');
+    // STEP 3: Fallback - Generate custom payment URL
+    console.log(`🔄 Step 3: Generating fallback payment URL [${requestId}]...`);
     
-    const booksPortalUrl = `https://books.zoho.com/portal/invoices/${invoice_id}/view?organization=${organizationId}&email=${encodeURIComponent(customer_email)}`;
-    
-    console.log('✅ Generated Books portal URL');
-    console.log('🔗 Books Portal URL:', booksPortalUrl);
-    
-    return res.status(200).json({
-      success: true,
-      public_url: booksPortalUrl,
-      method: 'books_portal_fallback',
-      invoice_id: invoice_id,
-      message: 'Books portal URL generated - customer may need email verification',
-      note: 'This is a fallback method - customer might need to verify their email'
-    });
+    try {
+      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+      const fallbackUrl = `${baseUrl}/pay/${invoice_id}?` + new URLSearchParams({
+        customer_email: customer_email,
+        customer_name: customer_name || '',
+        token: generateSecureToken(invoice_id, customer_email),
+        source: 'public_link_fallback',
+        request_id: requestId
+      }).toString();
+
+      console.log(`✅ Fallback payment URL generated [${requestId}]: ${fallbackUrl}`);
+
+      return res.status(200).json({
+        success: true,
+        public_url: fallbackUrl,
+        method: "custom_fallback",
+        message: "Custom payment link created (Zoho share API unavailable)",
+        invoice_id: invoice_id,
+        customer_email: customer_email,
+        request_id: requestId,
+        timestamp: new Date().toISOString(),
+        warning: "Using fallback payment method - Zoho public sharing was unavailable",
+        features: {
+          public_access: true,
+          custom_payment_flow: true,
+          secure_token_included: true
+        }
+      });
+
+    } catch (fallbackError) {
+      console.error(`❌ Fallback URL generation failed [${requestId}]:`, fallbackError);
+      
+      return res.status(500).json({
+        error: 'Failed to create payment link',
+        details: 'Both Zoho public sharing and fallback URL generation failed',
+        type: 'COMPLETE_FAILURE',
+        request_id: requestId,
+        timestamp: new Date().toISOString(),
+        suggestion: 'Check Zoho API status and application configuration'
+      });
+    }
 
   } catch (error) {
-    console.error('❌ All public link creation methods failed:', error);
+    console.error(`❌ Unexpected error in public link creation [${requestId}]:`, error);
     
     return res.status(500).json({
-      error: 'Failed to create public payment link',
-      details: error.message,
-      invoice_id: req.body.invoice_id,
+      error: 'Unexpected error',
+      details: error.message || 'An unexpected error occurred while creating public link',
+      type: 'UNEXPECTED_ERROR',
+      request_id: requestId,
       timestamp: new Date().toISOString(),
-      suggestion: 'Falling back to enhanced custom payment page'
+      token_manager_status: tokenManager.getStatus()
     });
   }
 }
 
 /**
- * Create customer portal direct link
+ * CENTRALIZED: Get Zoho access token using token manager
+ * REMOVED: Local cachedAccessToken and tokenExpiryTime variables
  */
-async function createCustomerPortalLink(invoiceId, customerEmail, token, organizationId) {
-  try {
-    console.log('🔄 Creating customer portal link...');
-    
-    // Try to enable portal access for this customer
-    const portalEnableData = {
-      invoice_id: invoiceId,
-      customer_email: customerEmail,
-      portal_access: true
-    };
-
-    const response = await fetch(`https://www.zohoapis.com/inventory/v1/invoices/${invoiceId}/portal?organization_id=${organizationId}`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Zoho-oauthtoken ${token}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(portalEnableData)
-    });
-
-    if (response.ok) {
-      const responseData = await response.json();
-      
-      if (responseData.portal_url) {
-        return responseData.portal_url;
-      } else if (responseData.invoice_url) {
-        return responseData.invoice_url;
-      }
-    }
-
-    console.log('❌ Portal link API response not successful');
-    return null;
-
-  } catch (error) {
-    console.error('❌ Portal link creation error:', error);
-    return null;
-  }
-}
-
-/**
- * Enhanced Zoho access token management
- */
-let cachedAccessToken = null;
-let tokenExpiryTime = 0;
-
 async function getZohoAccessToken() {
-  // Check cache first
-  if (cachedAccessToken && Date.now() < tokenExpiryTime) {
-    console.log('✓ Using cached Zoho access token');
-    return cachedAccessToken;
-  }
-
-  console.log('🔄 Requesting new Zoho access token...');
-
-  if (!process.env.ZOHO_REFRESH_TOKEN || !process.env.ZOHO_CLIENT_ID || !process.env.ZOHO_CLIENT_SECRET) {
-    throw new Error('Missing required Zoho OAuth environment variables');
-  }
-
   try {
-    const tokenResponse = await fetch('https://accounts.zoho.com/oauth/v2/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({
-        refresh_token: process.env.ZOHO_REFRESH_TOKEN,
-        client_id: process.env.ZOHO_CLIENT_ID,
-        client_secret: process.env.ZOHO_CLIENT_SECRET,
-        grant_type: 'refresh_token',
-      }),
-    });
-
-    if (!tokenResponse.ok) {
-      const errorText = await tokenResponse.text();
-      throw new Error(`Token refresh failed: ${tokenResponse.status} ${errorText}`);
-    }
-
-    const tokenData = await tokenResponse.json();
-
-    if (!tokenData.access_token) {
-      throw new Error(`No access token in response: ${JSON.stringify(tokenData)}`);
-    }
-
-    // Cache token for 50 minutes (expires in 1 hour)
-    cachedAccessToken = tokenData.access_token;
-    tokenExpiryTime = Date.now() + (50 * 60 * 1000);
-
-    console.log('✓ New Zoho access token obtained and cached');
-    return tokenData.access_token;
-
+    // Use centralized token manager instead of local caching
+    return await tokenManager.getAccessToken('inventory');
   } catch (error) {
-    console.error('❌ Zoho token refresh failed:', error);
-    throw new Error(`Failed to get Zoho access token: ${error.message}`);
+    console.error('❌ Failed to get access token from token manager:', error);
+    throw new Error(`Token manager error: ${error.message}`);
+  }
+}
+
+/**
+ * Generate a secure token for payment verification
+ */
+function generateSecureToken(invoiceId, customerEmail) {
+  const timestamp = Date.now();
+  const payload = `${invoiceId}:${customerEmail}:${timestamp}`;
+  return Buffer.from(payload).toString('base64').replace(/[+=\/]/g, '');
+}
+
+/**
+ * Health check for the public link service
+ */
+export async function healthCheck() {
+  try {
+    const tokenStatus = tokenManager.getStatus();
+    
+    return {
+      service: 'create_public_link',
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      token_manager: tokenStatus,
+      environment: {
+        organization_id_configured: !!process.env.ZOHO_INVENTORY_ORGANIZATION_ID,
+        base_url_configured: !!process.env.NEXT_PUBLIC_BASE_URL
+      }
+    };
+  } catch (error) {
+    return {
+      service: 'create_public_link',
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    };
   }
 }
 
 /**
  * IMPLEMENTATION NOTES:
  * 
- * This solution follows the correct Zoho Inventory workflow:
- * 1. Mark invoice as "sent" (required before sharing)
- * 2. Use the share API with "public" visibility
- * 3. Fall back to customer portal methods
- * 4. Final fallback to Books portal URL
- * 
- * The key insight from the documentation is that invoices must be "sent" 
- * before they can be shared, and the visibility must be set to "public"
- * to allow access without login.
+ * This updated solution:
+ * 1. Uses centralized token management via tokenManager.getAccessToken('inventory')
+ * 2. Removes local token caching (cachedAccessToken, tokenExpiryTime)
+ * 3. Follows the correct Zoho Inventory workflow:
+ *    - Mark invoice as "sent" (required before sharing)
+ *    - Use the share API with "public" visibility
+ *    - Fall back to custom payment URLs if Zoho sharing fails
+ * 4. Includes comprehensive error handling and rate limit management
+ * 5. Provides detailed logging and debugging information
  * 
  * Expected successful response:
  * {

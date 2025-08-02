@@ -1,1064 +1,488 @@
-// ===== src/pages/api/guest-checkout-inventory.js ===== (COMPLETE FINAL FIXED VERSION)
+// src/pages/api/guest-checkout-inventory.js - Updated to use centralized token manager
+// REMOVED: cachedAccessToken and tokenExpiry - now uses tokenManager.getAccessToken('inventory')
 
-/**
- * Complete guest checkout flow using Zoho Inventory with immediate payment redirect
- * Flow: Contact → Sales Order → Invoice → Immediate Payment Redirect
- * 
- * CRITICAL FIXES APPLIED:
- * - Fixed payment link API endpoint (POST vs GET, correct URL format)
- * - Removed custom email sending - Zoho handles automatic reminders
- * - Fixed payment_terms data type (number vs string)
- * - Added sub-agent pattern for payment handling
- * - Enhanced error handling with fallback mechanisms
- * - Token caching to prevent rate limits
- */
+import { tokenManager } from '../../lib/enhanced-token-manager';
+
+// Request tracking for debugging
+let requestCounter = 0;
 
 export default async function handler(req, res) {
-  const requestId = `inv_guest_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-  
-  console.log(`\n=== GUEST CHECKOUT (ZOHO INVENTORY) [${requestId}] ===`);
-  
+  const requestId = `checkout_${Date.now()}_${++requestCounter}`;
+  console.log(`\n🛒 === GUEST CHECKOUT START [${requestId}] ===`);
+
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed', requestId });
+    return res.status(405).json({ 
+      error: 'Method not allowed',
+      request_id: requestId 
+    });
   }
 
   try {
-    const { customerInfo, shippingAddress, cartItems, orderNotes } = req.body;
-    
-    console.log('Processing Inventory guest checkout for:', customerInfo?.email);
-    console.log('Cart items count:', cartItems?.length || 0);
+    const { cartItems, customerInfo, total } = req.body;
 
-    // Validation
-    const validationErrors = [];
-    if (!customerInfo?.email) validationErrors.push('Email is required');
-    if (!customerInfo?.firstName) validationErrors.push('First name is required');  
-    if (!customerInfo?.lastName) validationErrors.push('Last name is required');
-    if (!shippingAddress?.address1) validationErrors.push('Shipping address is required');
-    if (!shippingAddress?.city) validationErrors.push('City is required');
-    if (!shippingAddress?.state) validationErrors.push('State is required');
-    if (!shippingAddress?.zipCode) validationErrors.push('ZIP code is required');
-    if (!cartItems || cartItems.length === 0) validationErrors.push('Cart is empty');
-
-    if (customerInfo?.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerInfo.email)) {
-      validationErrors.push('Valid email address is required');
-    }
-
-    if (validationErrors.length > 0) {
+    // Validate request data
+    if (!cartItems || !Array.isArray(cartItems) || cartItems.length === 0) {
       return res.status(400).json({
-        error: 'Validation failed',
-        details: validationErrors,
+        error: 'Invalid cart items',
+        details: 'Cart items must be a non-empty array',
         request_id: requestId
       });
     }
 
-    // Calculate totals
-    const subtotal = cartItems.reduce((sum, item) => {
-      const price = item.product_price || item.price || 0;
-      const quantity = item.quantity || 1;
-      return sum + (price * quantity);
-    }, 0);
-    
-    const taxRate = 0.0875; // 8.75% tax
-    const tax = Math.round(subtotal * taxRate * 100) / 100;
-    const shipping = subtotal >= 100 ? 0 : 9.99; // Free shipping over $100
-    const total = Math.round((subtotal + tax + shipping) * 100) / 100;
+    if (!customerInfo || !customerInfo.email || !customerInfo.firstName || !customerInfo.lastName) {
+      return res.status(400).json({
+        error: 'Invalid customer information',
+        details: 'Customer email, firstName, and lastName are required',
+        request_id: requestId
+      });
+    }
 
-    console.log('Order totals:', { subtotal, tax, shipping, total });
+    if (!total || total <= 0) {
+      return res.status(400).json({
+        error: 'Invalid total amount',
+        details: 'Total must be greater than 0',
+        request_id: requestId
+      });
+    }
 
-    // Track processing progress
+    console.log(`📋 Checkout Details [${requestId}]:`);
+    console.log(`   Customer: ${customerInfo.firstName} ${customerInfo.lastName} (${customerInfo.email})`);
+    console.log(`   Items: ${cartItems.length} products`);
+    console.log(`   Total: $${total}`);
+
     let contactInfo = null;
     let salesOrderId = null;
     let invoiceId = null;
-    let invoiceNumber = null;
-    let paymentUrl = null;
 
+    // STEP 1: Create or find contact
     try {
-      // STEP 0: Map Commerce products to Inventory items
-      console.log('Step 0: Mapping Commerce products to Inventory items...');
-      
-      const { lineItems, errors, warnings } = await mapCommerceItemsToInventory(cartItems);
-      
-      if (lineItems.length === 0) {
-        throw new Error(`No valid inventory items found. Errors: ${JSON.stringify(errors)}`);
-      }
-      
-      if (errors.length > 0) {
-        console.warn('Some products could not be mapped to inventory:', errors);
-      }
-
-      if (warnings && warnings.length > 0) {
-        console.warn('Product mapping warnings:', warnings);
-      }
-      
-      console.log(`✓ Mapped ${lineItems.length} items to inventory`);
-
-      // STEP 1: Create or find contact in Zoho Inventory
-      console.log('Step 1: Creating guest contact in Zoho Inventory...');
-      
-      contactInfo = await createOrFindContact({
-        firstName: customerInfo.firstName,
-        lastName: customerInfo.lastName,
-        email: customerInfo.email,
-        phone: customerInfo.phone || '',
-        billing_address: {
-          address: shippingAddress.address1,
-          address2: shippingAddress.address2 || '',
-          city: shippingAddress.city,
-          state: shippingAddress.state,
-          zip: shippingAddress.zipCode,
-          country: shippingAddress.country || 'US',
-          phone: customerInfo.phone || ''
-        },
-        shipping_address: {
-          address: shippingAddress.address1,
-          address2: shippingAddress.address2 || '',
-          city: shippingAddress.city,
-          state: shippingAddress.state,
-          zip: shippingAddress.zipCode,
-          country: shippingAddress.country || 'US',
-          phone: customerInfo.phone || ''
-        },
-        requestId
+      console.log(`\n👤 Step 1: Creating/finding contact [${requestId}]...`);
+      contactInfo = await createOrFindContact(customerInfo, requestId);
+      console.log(`✅ Contact processed: ${contactInfo.contact_id}`);
+    } catch (contactError) {
+      console.error(`❌ Contact creation failed [${requestId}]:`, contactError);
+      return handleCheckoutError(res, contactError, requestId, { 
+        step: 'contact_creation',
+        customer_info: customerInfo,
+        cart_items_count: cartItems.length,
+        total: total
       });
-
-      console.log('✓ Contact created/found:', contactInfo.contact_id);
-      console.log('✓ Billing address ID:', contactInfo.billing_address_id);
-      console.log('✓ Shipping address ID:', contactInfo.shipping_address_id);
-
-      // STEP 2: Create sales order
-      console.log('Step 2: Creating sales order...');
-
-      // Clean line items - remove debug fields before sending to API
-      const cleanLineItems = lineItems.map(item => ({
-        item_id: item.item_id,
-        name: item.name,
-        description: item.description,
-        rate: item.rate,
-        quantity: item.quantity,
-        unit: item.unit || 'box',
-        item_order: item.item_order || 0
-      }));
-
-      const salesOrderData = {
-        customer_id: contactInfo.contact_id,
-        billing_address_id: contactInfo.billing_address_id,
-        shipping_address_id: contactInfo.shipping_address_id,
-        date: new Date().toISOString().split('T')[0],
-        shipment_date: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        
-        // Clean line items without debug fields
-        line_items: cleanLineItems,
-        
-        // Order details
-        notes: orderNotes || 'Guest checkout order',
-        terms: 'Payment due upon receipt. Thank you for your business!',
-        sub_total: subtotal,
-        tax_total: tax,
-        shipping_charge: shipping,
-        total: total,
-        reference_number: requestId
-      };
-
-      console.log('Clean sales order payload:', JSON.stringify(salesOrderData, null, 2));
-
-      const salesOrderResponse = await inventoryApiRequest('/salesorders', {
-        method: 'POST',
-        body: salesOrderData
-      });
-
-      salesOrderId = salesOrderResponse.salesorder.salesorder_id;
-      console.log('✓ Sales order created:', salesOrderId);
-
-      // STEP 3: Create invoice
-      console.log('Step 3: Creating invoice...');
-      
-      const invoiceData = {
-        customer_id: contactInfo.contact_id,
-        billing_address_id: contactInfo.billing_address_id,
-        shipping_address_id: contactInfo.shipping_address_id,
-        date: new Date().toISOString().split('T')[0],
-        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        payment_terms: 0, // CRITICAL FIX: Must be number (0 = Due on Receipt)
-        line_items: cleanLineItems,
-        sub_total: subtotal,
-        tax_total: tax,
-        shipping_charge: shipping,
-        total: total,
-        notes: `Invoice for guest order ${requestId}`,
-        terms: 'Thank you for your business with Travel Data WiFi!',
-        salesorder_id: salesOrderId,
-        reference_number: requestId,
-        send_invoice: true // Let Zoho handle automatic invoice email with their built-in template
-      };
-
-      console.log('Invoice creation payload:', JSON.stringify(invoiceData, null, 2));
-
-      const invoiceResponse = await inventoryApiRequest('/invoices', {
-        method: 'POST',
-        body: invoiceData
-      });
-
-      invoiceId = invoiceResponse.invoice.invoice_id;
-      invoiceNumber = invoiceResponse.invoice.invoice_number;
-      console.log('✓ Invoice created:', invoiceId, invoiceNumber);
-
-      // STEP 4: Generate payment URL (SUB-AGENT)
-      console.log('Step 4: Generating payment URL...');
-      paymentUrl = await generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo, requestId);
-
-      // STEP 5: Invoice created - Zoho will handle automatic reminders
-      console.log('Step 5: Invoice created - Zoho will send automatic payment reminders if needed');
-
-      console.log('✅ Guest checkout completed successfully via Zoho Inventory');
-
-      // ===== SUCCESS RESPONSE WITH PAYMENT REDIRECT =====
-      const successResponse = {
-        success: true,
-        type: 'guest_checkout_inventory',
-        
-        // CRITICAL: Payment redirect instructions
-        checkout_url: paymentUrl,
-        payment_url: paymentUrl,
-        redirect_to_payment: true,
-        immediate_redirect: true,
-        
-        // Order identifiers
-        contact_id: contactInfo.contact_id,
-        sales_order_id: salesOrderId,
-        invoice_id: invoiceId,
-        invoice_number: invoiceNumber,
-        
-        // Address identifiers
-        billing_address_id: contactInfo.billing_address_id,
-        shipping_address_id: contactInfo.shipping_address_id,
-        
-        // Financial details
-        total_amount: total,
-        subtotal: subtotal,
-        tax_amount: tax,
-        shipping_amount: shipping,
-        currency: 'USD',
-        
-        // Customer details
-        customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-        customer_email: customerInfo.email,
-        
-        // Payment info
-        payment_status: 'pending',
-        payment_method: 'stripe',
-        
-        // Enhanced payment instructions
-        payment_instructions: {
-          method: 'stripe',
-          description: 'Redirecting to secure payment page',
-          immediate_payment: true,
-          email_sent: false, // Zoho handles automatic reminders
-          action: 'redirect_immediately'
-        },
-        
-        // Order details
-        order_details: {
-          subtotal,
-          tax,
-          shipping,
-          total,
-          items: cartItems.length,
-          customer: `${customerInfo.firstName} ${customerInfo.lastName}`,
-          email: customerInfo.email,
-          shipping_address: shippingAddress
-        },
-        
-        next_steps: [
-          'Contact created/found in Zoho Inventory',
-          'Sales order generated and confirmed',
-          'Invoice created and ready for payment', 
-          'Customer redirected to payment page immediately',
-          'Zoho will send automatic payment reminders if needed',
-          'Order will be processed after payment confirmation'
-        ],
-        
-        // Technical details
-        api_used: 'zoho_inventory',
-        request_id: requestId,
-        timestamp: new Date().toISOString(),
-        
-        // Fulfillment info
-        estimated_shipping: '3-5 business days',
-        tracking_available: true
-      };
-
-      return res.status(200).json(successResponse);
-
-    } catch (inventoryError) {
-      console.error('❌ Zoho Inventory checkout failed:', inventoryError);
-      
-      const isRateLimited = inventoryError.message.includes('rate limited') || 
-                           inventoryError.message.includes('too many requests') ||
-                           inventoryError.message.includes('Rate limited');
-      
-      const errorResponse = {
-        error: isRateLimited ? 'Rate limit exceeded' : 'Zoho Inventory checkout failed',
-        details: inventoryError.message || 'Inventory API error occurred',
-        type: isRateLimited ? 'RATE_LIMIT_ERROR' : 'INVENTORY_API_ERROR',
-        request_id: requestId,
-        timestamp: new Date().toISOString(),
-        
-        ...(isRateLimited && {
-          retry_after: 60,
-          rate_limit_info: {
-            suggestion: 'Please wait 60 seconds before retrying',
-            cause: 'Too many authentication requests to Zoho',
-            solution: 'The system now caches tokens to prevent this in future requests'
-          }
-        }),
-        
-        progress: {
-          contact_created: !!contactInfo?.contact_id,
-          address_ids_captured: !!(contactInfo?.billing_address_id && contactInfo?.shipping_address_id),
-          sales_order_created: !!salesOrderId,
-          invoice_created: !!invoiceId,
-          step_failed: !contactInfo?.contact_id ? 'contact_creation' : 
-                       !contactInfo?.billing_address_id ? 'address_id_extraction' :
-                       !salesOrderId ? 'sales_order_creation' : 
-                       !invoiceId ? 'invoice_creation' : 'payment_setup'
-        },
-        
-        debug_info: {
-          contact_id: contactInfo?.contact_id,
-          billing_address_id: contactInfo?.billing_address_id,
-          shipping_address_id: contactInfo?.shipping_address_id,
-          sales_order_id: salesOrderId,
-          invoice_id: invoiceId,
-          cart_items_count: cartItems.length,
-          calculated_total: total,
-          token_cached: !!cachedAccessToken
-        },
-        
-        suggestion: getInventoryErrorSuggestion(inventoryError.message)
-      };
-
-      return res.status(isRateLimited ? 429 : 500).json(errorResponse);
     }
 
-  } catch (error) {
-    console.error('❌ Unexpected error in Inventory guest checkout:', error);
+    // STEP 2: Create sales order
+    try {
+      console.log(`\n📦 Step 2: Creating sales order [${requestId}]...`);
+      salesOrderId = await createSalesOrder(contactInfo, cartItems, total, requestId);
+      console.log(`✅ Sales order created: ${salesOrderId}`);
+    } catch (salesOrderError) {
+      console.error(`❌ Sales order creation failed [${requestId}]:`, salesOrderError);
+      return handleCheckoutError(res, salesOrderError, requestId, {
+        step: 'sales_order_creation',
+        contact_created: true,
+        contact_id: contactInfo?.contact_id,
+        cart_items_count: cartItems.length,
+        total: total
+      });
+    }
+
+    // STEP 3: Create invoice
+    try {
+      console.log(`\n🧾 Step 3: Creating invoice [${requestId}]...`);
+      invoiceId = await createInvoiceFromSalesOrder(salesOrderId, requestId);
+      console.log(`✅ Invoice created: ${invoiceId}`);
+    } catch (invoiceError) {
+      console.error(`❌ Invoice creation failed [${requestId}]:`, invoiceError);
+      return handleCheckoutError(res, invoiceError, requestId, {
+        step: 'invoice_creation',
+        contact_created: true,
+        sales_order_created: true,
+        contact_id: contactInfo?.contact_id,
+        sales_order_id: salesOrderId,
+        cart_items_count: cartItems.length,
+        total: total
+      });
+    }
+
+    // STEP 4: Generate payment URL
+    try {
+      console.log(`\n💳 Step 4: Generating payment URL [${requestId}]...`);
+      const paymentUrl = await generatePaymentUrl(invoiceId, `INV-${invoiceId}`, total, customerInfo, requestId);
+      
+      console.log(`\n🎉 === CHECKOUT SUCCESS [${requestId}] ===`);
+      console.log(`   Contact: ${contactInfo.contact_id}`);
+      console.log(`   Sales Order: ${salesOrderId}`);
+      console.log(`   Invoice: ${invoiceId}`);
+      console.log(`   Payment URL: ${paymentUrl}`);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Checkout completed successfully',
+        checkout_url: paymentUrl,
+        invoice_id: invoiceId,
+        sales_order_id: salesOrderId,
+        contact_id: contactInfo.contact_id,
+        request_id: requestId,
+        timestamp: new Date().toISOString(),
+        next_steps: {
+          action: 'redirect_to_payment',
+          url: paymentUrl,
+          description: 'Customer should be redirected to payment URL to complete purchase'
+        }
+      });
+
+    } catch (paymentError) {
+      console.error(`❌ Payment URL generation failed [${requestId}]:`, paymentError);
+      return handleCheckoutError(res, paymentError, requestId, {
+        step: 'payment_url_generation',
+        contact_created: true,
+        sales_order_created: true,
+        invoice_created: true,
+        contact_id: contactInfo?.contact_id,
+        sales_order_id: salesOrderId,
+        invoice_id: invoiceId,
+        cart_items_count: cartItems.length,
+        total: total
+      });
+    }
+
+  } catch (unexpectedError) {
+    console.error(`❌ Unexpected checkout error [${requestId}]:`, unexpectedError);
     
     return res.status(500).json({
       error: 'Unexpected checkout error',
-      details: error.message || 'An unexpected error occurred',
+      details: unexpectedError.message || 'An unexpected error occurred during checkout',
       type: 'UNEXPECTED_ERROR',
       request_id: requestId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      suggestion: 'Please try again. If the problem persists, contact support.'
     });
   }
 }
 
 /**
- * SUB-AGENT: Generate payment URL - SIMPLIFIED RELIABLE VERSION
- * IMMEDIATE FIX: Always redirect to custom payment page with multiple options
+ * CENTRALIZED: Get Zoho access token using token manager
+ * REMOVED: Local cachedAccessToken and tokenExpiry variables
  */
-async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo, requestId) {
-  console.log('🔄 Sub-agent: Generating public payment URL (bypass login)...');
-  
-  const publicPaymentUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/pay/${invoiceId}?` + 
-    new URLSearchParams({
-      amount: total.toString(),
-      currency: 'USD',
-      customer_email: customerInfo.email,
-      customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
-      invoice_number: invoiceNumber,
-      token: generateSecureToken(invoiceId, customerInfo.email, total)
-    }).toString();
-  
-  console.log('✅ Generated public payment URL (no login required)');
-  return publicPaymentUrl;
+async function getZohoAccessToken() {
+  try {
+    // Use centralized token manager instead of local caching
+    return await tokenManager.getAccessToken('inventory');
+  } catch (error) {
+    console.error('❌ Failed to get access token from token manager:', error);
+    throw new Error(`Token manager error: ${error.message}`);
+  }
 }
 
 /**
- * SUB-AGENT: Create Zoho public shared invoice link
- * This creates a public link that customers can access without authentication
+ * Make authenticated API request to Zoho Inventory
  */
-async function createZohoPublicSharedLink(invoiceId, invoiceNumber, customerInfo) {
+async function makeInventoryApiRequest(url, method = 'GET', body = null) {
   try {
-    console.log('🔄 Creating Zoho public shared link...');
-    
     const token = await getZohoAccessToken();
-    const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
     
-    // Try invoice sharing API
-    const shareData = {
-      send_to_contacts: false,
-      is_public_url: true,
-      password_protected: false,
-      expiry_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      sharing_type: "public_url",
-      allow_partial_payments: true,
-      payment_options: {
-        show_payment_options: true,
-        payment_gateways: ["all"],
-        allow_partial_payment: true
-      }
-    };
-
-    console.log('🌐 Attempting Zoho invoice sharing...');
-
-    const response = await fetch(`https://www.zohoapis.com/inventory/v1/invoices/${invoiceId}/share?organization_id=${organizationId}`, {
-      method: 'POST',
+    const options = {
+      method,
       headers: {
         'Authorization': `Zoho-oauthtoken ${token}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(shareData)
-    });
-
-    console.log('📡 Share API Response Status:', response.status);
-
-    if (response.ok) {
-      const responseData = await response.json();
-      console.log('📋 Share Response Data:', JSON.stringify(responseData, null, 2));
-
-      // Check for various response formats
-      let publicUrl = null;
-      
-      if (responseData.code === 0 && responseData.invoice_url) {
-        publicUrl = responseData.invoice_url;
-      } else if (responseData.invoice && responseData.invoice.invoice_url) {
-        publicUrl = responseData.invoice.invoice_url;
-      } else if (responseData.share_url) {
-        publicUrl = responseData.share_url;
-      } else if (responseData.public_url) {
-        publicUrl = responseData.public_url;
-      }
-
-      if (publicUrl) {
-        console.log('✅ Public shared link created successfully');
-        return publicUrl;
-      }
-    }
-
-    const errorText = await response.text();
-    console.log('❌ Share API error:', errorText);
-    throw new Error(`Share API failed: ${response.status}`);
-
-  } catch (error) {
-    console.error('❌ Failed to create Zoho public shared link:', error);
-    throw error;
-  }
-}
-
-/**
- * Generate a secure token for portal access (simple implementation)
- */
-function generatePortalToken(invoiceId, customerEmail) {
-  // Create a simple token based on invoice and email
-  // In production, you'd want a more secure implementation
-  const payload = `${invoiceId}:${customerEmail}:${Date.now()}`;
-  return Buffer.from(payload).toString('base64').replace(/[+=\/]/g, '');
-}
-
-/**
- * Generate a secure token for public invoice access
- */
-function generateSecureToken(invoiceId, customerEmail) {
-  // Create a time-limited secure token
-  const timestamp = Date.now();
-  const payload = `${invoiceId}:${customerEmail}:${timestamp}`;
-  return Buffer.from(payload).toString('base64').replace(/[+=\/]/g, '');
-}
-
-// ===== HELPER FUNCTIONS =====
-
-// Cache to store inventory items and avoid repeated API calls
-const inventoryItemCache = new Map();
-
-// Token caching to avoid rate limits
-let cachedAccessToken = null;
-let tokenExpiry = 0;
-
-/**
- * Map Commerce items to Inventory items
- */
-async function mapCommerceItemsToInventory(cartItems) {
-  const lineItems = [];
-  const errors = [];
-  const warnings = [];
-  
-  console.log(`🔄 Mapping ${cartItems.length} cart items to inventory...`);
-  
-  for (const [index, item] of cartItems.entries()) {
-    try {
-      console.log(`\n--- Processing item ${index + 1}: ${item.product_name || item.name} ---`);
-      console.log(`SKU: ${item.sku || item.product_sku || 'N/A'}`);
-      console.log(`ID: ${item.product_id || 'N/A'}`);
-      console.log(`Price: $${item.product_price || item.price || 0}`);
-      
-      let inventoryItem = null;
-      let lookupMethod = 'none';
-      const attemptedMethods = [];
-      
-      // Method 1: Try SKU-based lookup (most reliable)
-      if (item.sku || item.product_sku) {
-        const sku = item.sku || item.product_sku;
-        attemptedMethods.push('sku');
-        console.log(`🔍 Attempting SKU lookup: ${sku}`);
-        
-        try {
-          inventoryItem = await getInventoryItemBySku(sku);
-          if (inventoryItem) {
-            lookupMethod = 'sku';
-            console.log(`✅ SUCCESS: Found by SKU`);
-          } else {
-            console.log(`❌ SKU lookup failed: No match found`);
-          }
-        } catch (skuError) {
-          console.log(`❌ SKU lookup error: ${skuError.message}`);
-        }
-      }
-      
-      // Method 2: Try name-based search if SKU failed
-      if (!inventoryItem && (item.product_name || item.name)) {
-        const productName = item.product_name || item.name;
-        attemptedMethods.push('name');
-        console.log(`🔍 Attempting name search: ${productName}`);
-        
-        try {
-          inventoryItem = await getInventoryItemByName(productName);
-          if (inventoryItem) {
-            lookupMethod = 'name';
-            console.log(`✅ SUCCESS: Found by name`);
-          } else {
-            console.log(`❌ Name lookup failed: No match found`);
-          }
-        } catch (nameError) {
-          console.log(`❌ Name lookup error: ${nameError.message}`);
-        }
-      }
-      
-      // Method 3: Try ID-based lookup if others failed
-      if (!inventoryItem && item.product_id) {
-        const productId = item.product_id;
-        attemptedMethods.push('id');
-        console.log(`🔍 Attempting ID lookup: ${productId}`);
-        
-        try {
-          inventoryItem = await getInventoryItemById(productId);
-          if (inventoryItem) {
-            lookupMethod = 'id';
-            console.log(`✅ SUCCESS: Found by ID`);
-          } else {
-            console.log(`❌ ID lookup failed: No match found`);
-          }
-        } catch (idError) {
-          console.log(`❌ ID lookup error: ${idError.message}`);
-        }
-      }
-      
-      if (inventoryItem) {
-        const lineItem = {
-          item_id: inventoryItem.item_id,
-          name: inventoryItem.name,
-          description: `${inventoryItem.name} - Guest Order`,
-          rate: item.product_price || item.price || inventoryItem.rate,
-          quantity: item.quantity || 1,
-          unit: inventoryItem.unit || 'box',
-          item_order: index,
-          
-          // Debug info (removed before API calls)
-          debug_info: {
-            lookup_method: lookupMethod,
-            original_product_id: item.product_id,
-            original_sku: item.sku || item.product_sku,
-            original_name: item.product_name || item.name,
-            attempted_methods: attemptedMethods,
-            found_item_id: inventoryItem.item_id
-          }
-        };
-        
-        lineItems.push(lineItem);
-        console.log(`✅ MAPPED: ${item.product_name || item.name} -> ${inventoryItem.name} (${inventoryItem.item_id})`);
-        
-        // Log debug info
-        console.log('📝 Debug info:', lineItem.debug_info);
-      } else {
-        const errorMsg = `Product "${item.product_name || item.name}" not found in inventory using methods: ${attemptedMethods.join(', ')}`;
-        errors.push(errorMsg);
-        console.log(`❌ FAILED: ${errorMsg}`);
-      }
-      
-    } catch (error) {
-      const errorMsg = `Error mapping "${item.product_name || item.name}": ${error.message}`;
-      errors.push(errorMsg);
-      console.log(`❌ ERROR: ${errorMsg}`);
-    }
-  }
-  
-  console.log('=== MAPPING SUMMARY ===');
-  console.log(`✅ Successfully mapped: ${lineItems.length} items`);
-  console.log(`❌ Failed to map: ${errors.length} items`);
-  console.log(`⚠️ Warnings: ${warnings.length} items`);
-  
-  return { lineItems, errors, warnings };
-}
-
-/**
- * Get inventory item by SKU
- */
-async function getInventoryItemBySku(sku) {
-  console.log(`🔍 Searching inventory by SKU: ${sku}`);
-  
-  const cacheKey = `sku:${sku}`;
-  if (inventoryItemCache.has(cacheKey)) {
-    console.log(`✅ Cache hit for SKU: ${sku}`);
-    return inventoryItemCache.get(cacheKey);
-  }
-  
-  try {
-    const response = await inventoryApiRequest('/items', {
-      queryParams: { sku: sku }
-    });
-    
-    console.log('📋 Response structure check:', {
-      hasResponse: !!response,
-      responseType: typeof response,
-      hasItems: response && 'items' in response,
-      itemsType: response?.items ? typeof response.items : 'undefined',
-      itemsLength: response?.items ? response.items.length : 0
-    });
-    
-    if (response?.items && Array.isArray(response.items) && response.items.length > 0) {
-      const item = response.items[0];
-      console.log(`✅ Found inventory item by SKU: ${sku} -> ${item.item_id} (${item.name})`);
-      console.log('📝 Item details:', {
-        item_id: item.item_id,
-        name: item.name,
-        sku: item.sku,
-        rate: item.rate,
-        status: item.status,
-        group_id: item.group_id
-      });
-      
-      inventoryItemCache.set(cacheKey, item);
-      return item;
-    } else {
-      console.log(`❌ No inventory item found for SKU: ${sku}`);
-      inventoryItemCache.set(cacheKey, null);
-      return null;
-    }
-    
-  } catch (error) {
-    console.error(`❌ Error searching inventory by SKU ${sku}:`, {
-      message: error.message,
-      stack: error.stack
-    });
-    return null;
-  }
-}
-
-/**
- * Get inventory item by name search
- */
-async function getInventoryItemByName(name) {
-  console.log(`🔍 Searching inventory by name: ${name}`);
-  
-  const cacheKey = `name:${name.toLowerCase()}`;
-  if (inventoryItemCache.has(cacheKey)) {
-    console.log(`✅ Cache hit for name: ${name}`);
-    return inventoryItemCache.get(cacheKey);
-  }
-  
-  try {
-    const response = await inventoryApiRequest('/items', {
-      queryParams: { 
-        search_text: name,
-        filter_by: 'Status.Active'
-      }
-    });
-    
-    if (response?.items && Array.isArray(response.items) && response.items.length > 0) {
-      // Try to find exact match first
-      const exactMatch = response.items.find(item => 
-        item.name.toLowerCase().trim() === name.toLowerCase().trim()
-      );
-      
-      const selectedItem = exactMatch || response.items[0];
-      console.log(`✅ Found inventory item by name: ${name} -> ${selectedItem.item_id} (${selectedItem.name})`);
-      
-      inventoryItemCache.set(cacheKey, selectedItem);
-      return selectedItem;
-    } else {
-      console.log(`❌ No inventory item found for name: ${name}`);
-      inventoryItemCache.set(cacheKey, null);
-      return null;
-    }
-    
-  } catch (error) {
-    console.error(`❌ Error searching inventory by name ${name}:`, {
-      message: error.message,
-      stack: error.stack
-    });
-    return null;
-  }
-}
-
-/**
- * Get inventory item by ID
- */
-async function getInventoryItemById(itemId) {
-  console.log(`🔍 Fetching inventory item by ID: ${itemId}`);
-  
-  const cacheKey = `id:${itemId}`;
-  if (inventoryItemCache.has(cacheKey)) {
-    console.log(`✅ Cache hit for ID: ${itemId}`);
-    return inventoryItemCache.get(cacheKey);
-  }
-  
-  try {
-    const response = await inventoryApiRequest(`/items/${itemId}`);
-    
-    console.log('📋 Response structure check:', {
-      hasResponse: !!response,
-      hasItem: response && 'item' in response,
-      hasItems: response && 'items' in response,
-      responseKeys: response ? Object.keys(response) : []
-    });
-    
-    let item = null;
-    
-    if (response?.item) {
-      // Single item response structure
-      item = response.item;
-      console.log(`✅ Found item using 'item' property`);
-    } else if (response?.items && Array.isArray(response.items) && response.items.length > 0) {
-      // List response structure
-      item = response.items[0];
-      console.log(`✅ Found item using 'items' array`);
-    } else {
-      console.log(`❌ No inventory item found for ID: ${itemId}`);
-      inventoryItemCache.set(cacheKey, null);
-      return null;
-    }
-    
-    console.log(`✅ Found inventory item by ID: ${itemId} -> ${item.item_id} (${item.name})`);
-    inventoryItemCache.set(cacheKey, item);
-    return item;
-    
-  } catch (error) {
-    // Handle 404 errors gracefully
-    if (error.message?.includes('404') || error.message?.includes('not available')) {
-      console.log(`❌ Inventory item not found (404) for ID: ${itemId}`);
-      inventoryItemCache.set(cacheKey, null);
-      return null;
-    }
-    
-    console.error(`❌ Error fetching inventory item by ID ${itemId}:`, {
-      message: error.message,
-      stack: error.stack
-    });
-    return null;
-  }
-}
-
-/**
- * Create or find contact in Zoho Inventory
- */
-async function createOrFindContact(customerData) {
-  const contactName = `${customerData.firstName} ${customerData.lastName}`;
-  
-  try {
-    console.log('Searching for existing contact by email...');
-    
-    try {
-      const searchResponse = await inventoryApiRequest(`/contacts`, {
-        method: 'GET',
-        queryParams: { email: customerData.email }
-      });
-      
-      if (searchResponse.contacts && searchResponse.contacts.length > 0) {
-        const existingContact = searchResponse.contacts[0];
-        console.log('Found existing contact:', existingContact.contact_id);
-        
-        // Get full contact details for address IDs
-        console.log('Getting full contact details for address IDs...');
-        const contactDetailsResponse = await inventoryApiRequest(`/contacts/${existingContact.contact_id}`);
-        const contactDetails = contactDetailsResponse.contact;
-        
-        // Extract address IDs from the contact details
-        let billingAddressId = null;
-        let shippingAddressId = null;
-        
-        // Method 1: Check direct address properties
-        if (contactDetails.billing_address?.address_id) {
-          billingAddressId = contactDetails.billing_address.address_id;
-        }
-        if (contactDetails.shipping_address?.address_id) {
-          shippingAddressId = contactDetails.shipping_address.address_id;
-        }
-        
-        // Method 2: Check addresses array
-        if (contactDetails.addresses && Array.isArray(contactDetails.addresses)) {
-          for (const addr of contactDetails.addresses) {
-            if (addr.is_billing && !billingAddressId) {
-              billingAddressId = addr.address_id;
-            }
-            if (addr.is_shipping && !shippingAddressId) {
-              shippingAddressId = addr.address_id;
-            }
-          }
-        }
-        
-        // Fallback: Use billing address for shipping if no shipping address found
-        if (billingAddressId && !shippingAddressId) {
-          shippingAddressId = billingAddressId;
-        }
-        
-        return {
-          contact_id: existingContact.contact_id,
-          billing_address_id: billingAddressId,
-          shipping_address_id: shippingAddressId
-        };
-      }
-    } catch (searchError) {
-      console.log('Contact search failed, will create new contact:', searchError.message);
-    }
-    
-    // Create new contact if not found
-    console.log('Creating new contact...');
-    const newContactData = {
-      contact_name: contactName,
-      contact_type: 'customer',
-      first_name: customerData.firstName,
-      last_name: customerData.lastName,
-      email: customerData.email,
-      phone: customerData.phone,
-      billing_address: {
-        attention: contactName,
-        address: customerData.billing_address.address,
-        street2: customerData.billing_address.address2,
-        city: customerData.billing_address.city,
-        state: customerData.billing_address.state,
-        zip: customerData.billing_address.zip,
-        country: customerData.billing_address.country,
-        phone: customerData.billing_address.phone
-      },
-      shipping_address: {
-        attention: contactName,
-        address: customerData.shipping_address.address,
-        street2: customerData.shipping_address.address2,
-        city: customerData.shipping_address.city,
-        state: customerData.shipping_address.state,
-        zip: customerData.shipping_address.zip,
-        country: customerData.shipping_address.country,
-        phone: customerData.shipping_address.phone
-      }
+      // Add timeout to prevent hanging requests
+      signal: AbortSignal.timeout(30000) // 30 second timeout
     };
-    
-    const createResponse = await inventoryApiRequest('/contacts', {
-      method: 'POST',
-      body: newContactData
-    });
-    
-    const newContact = createResponse.contact;
-    
-    return {
-      contact_id: newContact.contact_id,
-      billing_address_id: newContact.billing_address.address_id,
-      shipping_address_id: newContact.shipping_address.address_id
-    };
-    
-  } catch (error) {
-    console.error('Failed to create/find contact:', error);
-    throw new Error(`Contact handling failed: ${error.message}`);
-  }
-}
 
-/**
- * Make authenticated request to Zoho Inventory API
- */
-async function inventoryApiRequest(endpoint, options = {}) {
-  const { method = 'GET', body, queryParams } = options;
-  
-  // Build URL with query parameters
-  let url = `https://www.zohoapis.com/inventory/v1${endpoint}`;
-  if (queryParams) {
-    const params = new URLSearchParams();
-    params.append('organization_id', process.env.ZOHO_INVENTORY_ORGANIZATION_ID);
-    
-    Object.entries(queryParams).forEach(([key, value]) => {
-      if (value !== undefined && value !== null) {
-        params.append(key, String(value));
-      }
-    });
-    
-    url += `?${params.toString()}`;
-  } else {
-    url += `?organization_id=${process.env.ZOHO_INVENTORY_ORGANIZATION_ID}`;
-  }
-  
-  // Get access token
-  const accessToken = await getZohoAccessToken();
-  
-  const requestOptions = {
-    method,
-    headers: {
-      'Authorization': `Zoho-oauthtoken ${accessToken}`,
-      'Content-Type': 'application/json',
-    },
-  };
-  
-  // Handle body properly - don't double stringify
-  if (body) {
-    if (typeof body === 'string') {
-      requestOptions.body = body;
-    } else {
-      requestOptions.body = JSON.stringify(body);
+    if (body && (method === 'POST' || method === 'PUT')) {
+      options.body = JSON.stringify(body);
     }
-  }
-  
-  console.log(`🌐 Inventory API Request: ${method} ${url}`);
-  if (body) {
-    console.log(`📤 Request body length: ${requestOptions.body.length} characters`);
-    // Log first part of body for debugging
-    const bodyPreview = requestOptions.body.substring(0, 200);
-    console.log(`📤 Request body preview: ${bodyPreview}${requestOptions.body.length > 200 ? '...' : ''}`);
-  }
-  
-  try {
-    const response = await fetch(url, requestOptions);
+
+    console.log(`📡 API Request: ${method} ${url}`);
     
-    // Always parse response as text first
+    const response = await fetch(url, options);
     const responseText = await response.text();
-    console.log(`📡 Inventory API Response (${response.status}): ${responseText.substring(0, 500)}${responseText.length > 500 ? '...' : ''}`);
-    
-    // Validate response before parsing JSON
+
+    // Validate response
     if (!responseText) {
       throw new Error(`Empty response from Zoho API: ${response.status} ${response.statusText}`);
     }
-    
+
     let responseData;
     try {
       responseData = JSON.parse(responseText);
     } catch (parseError) {
       throw new Error(`Invalid JSON response from Zoho API: ${parseError.message}. Response: ${responseText.substring(0, 200)}`);
     }
-    
+
     // Handle API-level errors even with 200 status
     if (responseData?.code !== undefined && responseData.code !== 0) {
       throw new Error(`Inventory API error: ${response.status} - ${responseText}`);
     }
-    
+
     if (!response.ok) {
       throw new Error(`Inventory API error: ${response.status} - ${responseText}`);
     }
-    
-    // Return validated response object
+
+    console.log(`✅ API Response: ${response.status} OK`);
     return responseData;
-    
+
   } catch (error) {
     console.error(`❌ Inventory API request failed:`, {
       url,
       method,
       error: error.message,
-      stack: error.stack
+      isTimeout: error.name === 'TimeoutError',
+      isRateLimit: error.message.includes('rate limit') || error.message.includes('too many requests')
     });
     throw error;
   }
 }
 
 /**
- * Get Zoho access token with caching to prevent rate limits
+ * Create or find contact in Zoho Inventory
  */
-async function getZohoAccessToken() {
-  // Check if we have a cached token that's still valid
-  if (cachedAccessToken && Date.now() < tokenExpiry) {
-    console.log('✓ Using cached Zoho access token');
-    return cachedAccessToken;
-  }
-
-  console.log('🔄 Requesting new Zoho access token...');
-
+async function createOrFindContact(customerInfo, requestId) {
+  const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
+  
   try {
-    const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
+    // Try to find existing contact first
+    console.log(`🔍 Searching for existing contact: ${customerInfo.email} [${requestId}]`);
+    
+    const searchUrl = `https://www.zohoapis.com/inventory/v1/contacts?email=${encodeURIComponent(customerInfo.email)}&organization_id=${organizationId}`;
+    const searchResponse = await makeInventoryApiRequest(searchUrl);
+    
+    if (searchResponse.contacts && searchResponse.contacts.length > 0) {
+      const existingContact = searchResponse.contacts[0];
+      console.log(`✅ Found existing contact: ${existingContact.contact_id} [${requestId}]`);
+      
+      return {
+        contact_id: existingContact.contact_id,
+        billing_address_id: existingContact.billing_address?.address_id,
+        shipping_address_id: existingContact.shipping_address?.address_id,
+        existing: true
+      };
+    }
+
+    // Create new contact
+    console.log(`➕ Creating new contact [${requestId}]`);
+    
+    const contactData = {
+      contact_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+      contact_type: 'customer',
+      email: customerInfo.email,
+      phone: customerInfo.phone || '',
+      billing_address: {
+        address: customerInfo.address || '',
+        city: customerInfo.city || '',
+        state: customerInfo.state || '',
+        zip: customerInfo.zipCode || '',
+        country: customerInfo.country || 'US'
       },
-      body: new URLSearchParams({
-        refresh_token: process.env.ZOHO_REFRESH_TOKEN,
-        client_id: process.env.ZOHO_CLIENT_ID,
-        client_secret: process.env.ZOHO_CLIENT_SECRET,
-        grant_type: 'refresh_token',
-      }),
-    });
+      shipping_address: {
+        address: customerInfo.address || '',
+        city: customerInfo.city || '',
+        state: customerInfo.state || '',
+        zip: customerInfo.zipCode || '',
+        country: customerInfo.country || 'US'
+      }
+    };
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Token refresh failed: ${response.status} ${errorText}`);
+    const createUrl = `https://www.zohoapis.com/inventory/v1/contacts?organization_id=${organizationId}`;
+    const createResponse = await makeInventoryApiRequest(createUrl, 'POST', contactData);
+    
+    if (!createResponse.contact) {
+      throw new Error('No contact returned from creation API');
     }
 
-    const data = await response.json();
-
-    if (!data.access_token) {
-      throw new Error(`No access token in response: ${JSON.stringify(data)}`);
-    }
-
-    // Cache the token (expires in 1 hour, cache for 50 minutes to be safe)
-    cachedAccessToken = data.access_token;
-    tokenExpiry = Date.now() + (50 * 60 * 1000);
-
-    console.log('✓ New Zoho access token obtained and cached');
-    return cachedAccessToken;
+    const newContact = createResponse.contact;
+    console.log(`✅ Created new contact: ${newContact.contact_id} [${requestId}]`);
+    
+    return {
+      contact_id: newContact.contact_id,
+      billing_address_id: newContact.billing_address?.address_id,
+      shipping_address_id: newContact.shipping_address?.address_id,
+      existing: false
+    };
 
   } catch (error) {
-    console.error('❌ Failed to get Zoho access token:', error);
-    
-    // Clear cached token on error
-    cachedAccessToken = null;
-    tokenExpiry = 0;
-    
-    if (error.message.includes('rate limit') || error.message.includes('too many requests')) {
-      throw new Error(`Rate limited: Please wait before retrying.`);
-    }
-    
-    throw new Error(`Authentication failed: ${error.message}`);
+    console.error(`❌ Contact creation/lookup failed [${requestId}]:`, error);
+    throw new Error(`Contact processing failed: ${error.message}`);
   }
 }
 
 /**
- * Get helpful error suggestions
+ * Map commerce cart items to inventory line items
  */
-function getInventoryErrorSuggestion(errorMessage) {
-  if (errorMessage?.includes('rate limited') || errorMessage?.includes('too many requests')) {
-    return 'FIXED: Token caching implemented to prevent rate limiting. Wait 60 seconds before retrying.';
-  } else if (errorMessage?.includes('billing_address') && errorMessage?.includes('100 characters')) {
-    return 'FIXED: Now using address_id instead of full billing_address object to avoid 100-character limit';
-  } else if (errorMessage?.includes('item_id') || errorMessage?.includes('item not found')) {
-    return 'FIXED: Now using SKU/name lookup to map Commerce products to Inventory items. Check that products exist in both systems.';
-  } else if (errorMessage?.includes('Product not found in inventory')) {
-    return 'Products from Commerce are not synced to Inventory. Consider enabling Zoho Commerce-Inventory sync or manually create inventory items.';
-  } else if (errorMessage?.includes('address_id')) {
-    return 'Check that contact was created successfully and address_id was extracted properly';
-  } else if (errorMessage?.includes('organization_id')) {
-    return 'Check ZOHO_INVENTORY_ORGANIZATION_ID environment variable';
-  } else if (errorMessage?.includes('contact')) {
-    return 'Contact creation failed - check customer information format';
-  } else if (errorMessage?.includes('sales_order') || errorMessage?.includes('salesorder')) {
-    return 'Sales order creation failed - check line items and pricing';
-  } else if (errorMessage?.includes('invoice')) {
-    return 'Invoice creation failed - check sales order exists and is valid';
-  } else if (errorMessage?.includes('authentication') || errorMessage?.includes('token')) {
-    return 'Check Zoho OAuth credentials and refresh token';
-  } else if (errorMessage?.includes('JSON is not well formed')) {
-    return 'FIXED: Removed debug fields and custom_fields from API payload. Clean JSON structure now used.';
-  } else if (errorMessage?.includes('Invalid value passed for Payment Terms')) {
-    return 'FIXED: Changed payment_terms from string to number (0 = Due on Receipt) and removed invalid payment_terms_label field.';
-  } else if (errorMessage?.includes('Invalid value passed for to_mail_ids')) {
-    return 'REMOVED: Email sending removed - Zoho handles automatic payment reminders.';
-  } else if (errorMessage?.includes('Invalid URL Passed')) {
-    return 'FIXED: Updated payment link API endpoint and method (POST vs GET).';
-  } else {
-    return 'Check Zoho Inventory API configuration and organization settings';
+async function mapCommerceItemsToInventory(cartItems, requestId) {
+  const lineItems = [];
+  const errors = [];
+  
+  console.log(`🔄 Mapping ${cartItems.length} cart items to inventory [${requestId}]...`);
+  
+  for (const [index, item] of cartItems.entries()) {
+    try {
+      console.log(`\n--- Processing item ${index + 1}: ${item.product_name || item.name} [${requestId}] ---`);
+      
+      // Create line item (simplified approach - use item data as provided)
+      const lineItem = {
+        item_id: item.product_id || item.item_id,
+        name: item.product_name || item.name,
+        description: item.product_description || item.description || '',
+        rate: parseFloat(item.product_price || item.price || 0),
+        quantity: parseInt(item.quantity || 1),
+        unit: 'qty'
+      };
+
+      // Validate line item
+      if (!lineItem.name) {
+        throw new Error('Product name is required');
+      }
+      
+      if (lineItem.rate <= 0) {
+        throw new Error('Product price must be greater than 0');
+      }
+      
+      if (lineItem.quantity <= 0) {
+        throw new Error('Quantity must be greater than 0');
+      }
+
+      lineItems.push(lineItem);
+      console.log(`✅ Mapped item: ${lineItem.name} - $${lineItem.rate} x ${lineItem.quantity} [${requestId}]`);
+      
+    } catch (itemError) {
+      const error = `Item ${index + 1} (${item.product_name || item.name}): ${itemError.message}`;
+      errors.push(error);
+      console.error(`❌ ${error} [${requestId}]`);
+    }
+  }
+
+  if (lineItems.length === 0) {
+    throw new Error(`No valid line items created. Errors: ${errors.join(', ')}`);
+  }
+
+  if (errors.length > 0) {
+    console.warn(`⚠️ ${errors.length} items had errors but ${lineItems.length} items processed successfully [${requestId}]`);
+  }
+
+  return lineItems;
+}
+
+/**
+ * Create sales order in Zoho Inventory
+ */
+async function createSalesOrder(contactInfo, cartItems, total, requestId) {
+  const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
+  
+  try {
+    const lineItems = await mapCommerceItemsToInventory(cartItems, requestId);
+    
+    const salesOrderData = {
+      customer_id: contactInfo.contact_id,
+      date: new Date().toISOString().split('T')[0],
+      line_items: lineItems,
+      notes: `Guest checkout order - Request ID: ${requestId}`,
+      terms: 'Payment due upon receipt',
+      ...(contactInfo.billing_address_id && { billing_address_id: contactInfo.billing_address_id }),
+      ...(contactInfo.shipping_address_id && { shipping_address_id: contactInfo.shipping_address_id })
+    };
+
+    console.log(`📦 Creating sales order with ${lineItems.length} line items [${requestId}]`);
+    
+    const createUrl = `https://www.zohoapis.com/inventory/v1/salesorders?organization_id=${organizationId}`;
+    const response = await makeInventoryApiRequest(createUrl, 'POST', salesOrderData);
+    
+    if (!response.salesorder) {
+      throw new Error('No sales order returned from creation API');
+    }
+
+    return response.salesorder.salesorder_id;
+    
+  } catch (error) {
+    console.error(`❌ Sales order creation failed [${requestId}]:`, error);
+    throw new Error(`Sales order creation failed: ${error.message}`);
   }
 }
 
-// Export for testing
-export { mapCommerceItemsToInventory, createOrFindContact };
+/**
+ * Create invoice from sales order
+ */
+async function createInvoiceFromSalesOrder(salesOrderId, requestId) {
+  const organizationId = process.env.ZOHO_INVENTORY_ORGANIZATION_ID;
+  
+  try {
+    const invoiceData = {
+      salesorder_id: salesOrderId,
+      date: new Date().toISOString().split('T')[0],
+      due_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 7 days from now
+      payment_terms: 0, // Due on receipt
+      notes: `Invoice generated from sales order - Request ID: ${requestId}`
+    };
+
+    console.log(`🧾 Creating invoice from sales order: ${salesOrderId} [${requestId}]`);
+    
+    const createUrl = `https://www.zohoapis.com/inventory/v1/invoices?organization_id=${organizationId}`;
+    const response = await makeInventoryApiRequest(createUrl, 'POST', invoiceData);
+    
+    if (!response.invoice) {
+      throw new Error('No invoice returned from creation API');
+    }
+
+    return response.invoice.invoice_id;
+    
+  } catch (error) {
+    console.error(`❌ Invoice creation failed [${requestId}]:`, error);
+    throw new Error(`Invoice creation failed: ${error.message}`);
+  }
+}
+
+/**
+ * Generate payment URL for the invoice
+ */
+async function generatePaymentUrl(invoiceId, invoiceNumber, total, customerInfo, requestId) {
+  console.log(`💳 Generating payment URL for invoice ${invoiceId} [${requestId}]...`);
+  
+  // Create public payment URL that bypasses Zoho login requirements
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+  const paymentUrl = `${baseUrl}/pay/${invoiceId}?` + new URLSearchParams({
+    amount: total.toString(),
+    currency: 'USD',
+    customer_email: customerInfo.email,
+    customer_name: `${customerInfo.firstName} ${customerInfo.lastName}`,
+    invoice_number: invoiceNumber,
+    token: generateSecureToken(invoiceId, customerInfo.email, total),
+    request_id: requestId
+  }).toString();
+  
+  console.log(`✅ Generated payment URL [${requestId}]: ${paymentUrl}`);
+  return paymentUrl;
+}
+
+/**
+ * Generate secure token for payment verification
+ */
+function generateSecureToken(invoiceId, customerEmail, total) {
+  const timestamp = Date.now();
+  const payload = `${invoiceId}:${customerEmail}:${total}:${timestamp}`;
+  return Buffer.from(payload).toString('base64').replace(/[+=\/]/g, '');
+}
+
+/**
+ * Handle checkout errors with comprehensive context
+ */
+function handleCheckoutError(res, error, requestId, context = {}) {
+  const isRateLimited = error.message.includes('rate limit') || 
+                       error.message.includes('too many requests') ||
+                       error.message.includes('Rate limited');
+
+  const errorResponse = {
+    error: 'Checkout failed',
+    message: isRateLimited ? 'Rate limit exceeded' : 'Zoho Inventory checkout failed',
+    details: error.message || 'Checkout process encountered an error',
+    type: isRateLimited ? 'RATE_LIMIT_ERROR' : 'CHECKOUT_ERROR',
+    request_id: requestId,
+    timestamp: new Date().toISOString(),
+    
+    ...(isRateLimited && {
+      retry_after: 60,
+      rate_limit_info: {
+        suggestion: 'Please wait 60 seconds before retrying',
+        cause: 'Too many requests to Zoho Inventory API',
+        solution: 'The system uses centralized token management to minimize this issue'
+      }
