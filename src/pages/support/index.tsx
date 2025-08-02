@@ -108,36 +108,77 @@ const SupportPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Support Options */}
+        {/* Main Content */}
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          
+          {/* Quick Help Section - Moved Above */}
+          <div className="mb-12 bg-white rounded-lg shadow-sm border p-8">
+            <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">Quick Help</h2>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <button
+                onClick={() => openHelpWidget("kb.category.detail")}
+                className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all group"
+              >
+                <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-logo-teal">Setup Guides</h3>
+                <p className="text-sm text-gray-600">Getting started tutorials</p>
+              </button>
+              
+              <button
+                onClick={() => openHelpWidget("kb.category.detail")}
+                className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all group"
+              >
+                <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-logo-teal">Troubleshooting</h3>
+                <p className="text-sm text-gray-600">Fix connectivity issues</p>
+              </button>
+              
+              <button
+                onClick={() => openHelpWidget("community.category.list")}
+                className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all group"
+              >
+                <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-logo-teal">Community</h3>
+                <p className="text-sm text-gray-600">User discussions</p>
+              </button>
+              
+              <button
+                onClick={() => openHelpWidget("ticket.form")}
+                className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all group"
+              >
+                <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-logo-teal">Contact Us</h3>
+                <p className="text-sm text-gray-600">Get personalized help</p>
+              </button>
+            </div>
+          </div>
+
+          {/* Support Options - Main Action Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             
             {/* Browse Help Articles */}
-            <div className="bg-white rounded-xl border-2 border-gray-200 p-6 hover:border-logo-teal hover:shadow-lg transition-all duration-300 cursor-pointer">
+            <div className="bg-white rounded-xl border-2 border-gray-200 p-6 hover:border-logo-teal hover:shadow-lg transition-all duration-300 cursor-pointer flex flex-col h-full">
               <div className="flex items-center justify-between mb-4">
                 <div className="p-3 rounded-full bg-blue-100">
                   <HelpCircle className="h-6 w-6 text-blue-600" />
                 </div>
               </div>
               
-              <h3 className="text-xl font-bold text-gray-900 mb-2">
+              <h3 className="text-xl font-bold text-gray-900 mb-3">
                 Browse Help Articles
               </h3>
               
-              <p className="text-gray-600 mb-4">
-                Search our knowledge base for setup guides, troubleshooting tips, and how-to articles
+              <p className="text-gray-600 mb-6 flex-grow leading-relaxed">
+                Search our knowledge base for setup guides, troubleshooting tips, and step-by-step tutorials
               </p>
               
               <button
                 onClick={() => openHelpWidget("kb.category.list")}
-                className="w-full py-3 px-4 rounded-lg font-medium transition-colors bg-blue-600 hover:bg-blue-700 text-white"
+                className="w-full py-3 px-4 rounded-lg font-medium transition-colors bg-blue-600 hover:bg-blue-700 text-white mt-auto"
               >
                 Browse Articles
               </button>
             </div>
 
             {/* Contact Support */}
-            <div className="bg-white rounded-xl border-2 border-gray-200 p-6 hover:border-logo-teal hover:shadow-lg transition-all duration-300 cursor-pointer">
+            <div className="bg-white rounded-xl border-2 border-gray-200 p-6 hover:border-logo-teal hover:shadow-lg transition-all duration-300 cursor-pointer flex flex-col h-full">
               <div className="flex items-center justify-between mb-4">
                 <div className="p-3 rounded-full bg-logo-ocean/10">
                   <Mail className="h-6 w-6 text-logo-ocean" />
@@ -145,28 +186,28 @@ const SupportPage: React.FC = () => {
                 <span className="text-sm text-green-600 font-medium">Available</span>
               </div>
               
-              <h3 className="text-xl font-bold text-gray-900 mb-2">
+              <h3 className="text-xl font-bold text-gray-900 mb-3">
                 Contact Support
               </h3>
               
-              <p className="text-gray-600 mb-4">
+              <p className="text-gray-600 mb-4 flex-grow leading-relaxed">
                 Submit a support ticket and get personalized help from our RV internet experts
               </p>
               
-              <div className="text-sm text-gray-500 mb-4">
+              <div className="text-sm text-gray-500 mb-6">
                 <p className="font-medium">Response within 2 hours</p>
               </div>
               
               <button
                 onClick={() => openHelpWidget("ticket.form")}
-                className="w-full py-3 px-4 rounded-lg font-medium transition-colors bg-logo-ocean hover:bg-logo-teal text-white"
+                className="w-full py-3 px-4 rounded-lg font-medium transition-colors bg-logo-ocean hover:bg-logo-teal text-white mt-auto"
               >
                 Submit Ticket
               </button>
             </div>
 
             {/* Live Chat */}
-            <div className="bg-white rounded-xl border-2 border-gray-200 p-6 hover:border-logo-teal hover:shadow-lg transition-all duration-300 cursor-pointer">
+            <div className="bg-white rounded-xl border-2 border-gray-200 p-6 hover:border-logo-teal hover:shadow-lg transition-all duration-300 cursor-pointer flex flex-col h-full">
               <div className="flex items-center justify-between mb-4">
                 <div className="p-3 rounded-full bg-logo-signal/10">
                   <MessageCircle className="h-6 w-6 text-logo-signal" />
@@ -174,62 +215,23 @@ const SupportPage: React.FC = () => {
                 <span className="text-sm text-green-600 font-medium">Available Now</span>
               </div>
               
-              <h3 className="text-xl font-bold text-gray-900 mb-2">
+              <h3 className="text-xl font-bold text-gray-900 mb-3">
                 Live Chat
               </h3>
               
-              <p className="text-gray-600 mb-4">
+              <p className="text-gray-600 mb-4 flex-grow leading-relaxed">
                 Get instant help from our support team via live chat
               </p>
               
-              <div className="text-sm text-gray-500 mb-4">
+              <div className="text-sm text-gray-500 mb-6">
                 <p className="font-medium">Daily 10AM-10PM EST</p>
               </div>
               
               <button
                 onClick={() => openHelpWidget()}
-                className="w-full py-3 px-4 rounded-lg font-medium transition-colors bg-logo-signal hover:bg-logo-forest text-white"
+                className="w-full py-3 px-4 rounded-lg font-medium transition-colors bg-logo-signal hover:bg-logo-forest text-white mt-auto"
               >
                 Start Chat
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Access Section */}
-          <div className="mt-12 bg-white rounded-lg shadow-sm border p-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">Quick Help</h2>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <button
-                onClick={() => openHelpWidget("kb.category.detail")}
-                className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all"
-              >
-                <h3 className="font-semibold text-gray-900">Setup Guides</h3>
-                <p className="text-sm text-gray-600">Getting started tutorials</p>
-              </button>
-              
-              <button
-                onClick={() => openHelpWidget("kb.category.detail")}
-                className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all"
-              >
-                <h3 className="font-semibold text-gray-900">Troubleshooting</h3>
-                <p className="text-sm text-gray-600">Fix connectivity issues</p>
-              </button>
-              
-              <button
-                onClick={() => openHelpWidget("community.category.list")}
-                className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all"
-              >
-                <h3 className="font-semibold text-gray-900">Community</h3>
-                <p className="text-sm text-gray-600">User discussions</p>
-              </button>
-              
-              <button
-                onClick={() => openHelpWidget("ticket.form")}
-                className="p-4 text-left border rounded-lg hover:border-logo-teal hover:bg-gray-50 transition-all"
-              >
-                <h3 className="font-semibold text-gray-900">Contact Us</h3>
-                <p className="text-sm text-gray-600">Get personalized help</p>
               </button>
             </div>
           </div>
