@@ -1,358 +1,329 @@
-// src/lib/zoho-api.ts - Updated to use centralized token manager
-// REMOVED: Local token caching - now uses tokenManager.getAccessToken('commerce')
-
-import { tokenManager } from './enhanced-token-manager';
-
-interface ZohoProduct {
-  product_id: string;
-  product_name: string;
-  product_description: string;
-  product_price: number;
-  product_images: string[];
-  inventory_count: number;
-  product_category: string;
-  seo_url: string;
-  sku?: string;
-  documents?: Array<{
-    document_id: string;
-    file_name: string;
-    document_name?: string;
-  }>;
-  variants?: Array<{
-    documents?: Array<{
-      document_id: string;
-      file_name: string;
-    }>;
-  }>;
-}
-
-interface ZohoOrder {
-  order_id: string;
-  customer_email: string;
-  order_items: Array<{
-    product_id: string;
-    quantity: number;
-    price: number;
-  }>;
-  order_total: number;
-  shipping_address: any;
-}
-
+// ===== src/lib/zoho-api.ts ===== (UPDATED TO USE STOREFRONT API FOR IMAGES)
 class ZohoCommerceAPI {
-  private baseURL: string;
-  private storeId: string;
+  private baseURL = 'https://commerce.zoho.com/store/api/v1';
+  private storefrontURL = 'https://commerce.zoho.com/storefront/api/v1';
 
-  constructor() {
-    // Use the working API base URL pattern from your debug files
-    // Your project knowledge shows this endpoint works: https://commerce.zoho.com/api/v1
-    this.baseURL = 'https://commerce.zoho.com/api/v1';
-    
-    this.storeId = process.env.ZOHO_STORE_ID || '';
-    if (!this.storeId) {
-      console.warn('ZOHO_STORE_ID not set - Commerce API calls may fail');
-    }
-  }
-
-  /**
-   * Get access token using centralized token manager
-   * REMOVED: Local token caching and refresh logic
-   */
   async getAccessToken(): Promise<string> {
-    try {
-      // Use centralized token manager instead of local caching
-      return await tokenManager.getAccessToken('commerce');
-    } catch (error) {
-      console.error('Failed to get access token from token manager:', error);
-      throw new Error(`Token manager error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  /**
-   * Make authenticated request to Zoho Commerce API
-   */
-  async apiRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
-    if (!this.storeId) {
-      throw new Error('ZOHO_STORE_ID is required for Commerce API calls');
-    }
-
-    try {
-      const token = await this.getAccessToken();
-      
-      // Construct full URL with store ID
-      const url = `${this.baseURL}${endpoint}`;
-
-      console.log(`📡 Making Commerce API request: ${endpoint}`);
-
-      const response = await fetch(url, {
-        ...options,
-        headers: {
-          'Authorization': `Zoho-oauthtoken ${token}`,
-          'Content-Type': 'application/json',
-          'X-com-zoho-store-organizationid': this.storeId,
-          ...options.headers,
-        },
-        // Add timeout to prevent hanging requests
-        signal: options.signal || AbortSignal.timeout(30000) // 30 second timeout
-      });
-
-      const responseText = await response.text();
-
-      if (!response.ok) {
-        // Check if it's a rate limit error
-        if (response.status === 429) {
-          throw new Error(`Rate limit exceeded. Please wait before making more requests.`);
-        }
-        
-        // Check for authentication errors
-        if (response.status === 401) {
-          console.warn('Commerce API authentication failed - token may be expired');
-          // Clear token cache and retry once
-          tokenManager.clearCache('commerce');
-          throw new Error(`Authentication failed: ${response.status} - ${responseText}`);
-        }
-        
-        throw new Error(`Commerce API error: ${response.status} - ${responseText}`);
-      }
-
-      let jsonResponse;
-      try {
-        jsonResponse = JSON.parse(responseText);
-      } catch (parseError) {
-        throw new Error(`Invalid JSON response from Commerce API: ${responseText.substring(0, 200)}...`);
-      }
-
-      // Handle API-level errors (some APIs return 200 with error codes)
-      if (jsonResponse.error_code && jsonResponse.error_code !== 0) {
-        throw new Error(`Commerce API error: ${jsonResponse.error_message} (Code: ${jsonResponse.error_code})`);
-      }
-
-      console.log(`✅ Commerce API request successful: ${endpoint}`);
-      return jsonResponse;
-
-    } catch (error) {
-      console.error(`❌ Commerce API request failed: ${endpoint}`, {
-        error: error instanceof Error ? error.message : 'Unknown error',
-        storeId: this.storeId ? 'set' : 'missing'
-      });
-      throw error;
-    }
-  }
-
-  /**
-   * Get all products from Commerce API
-   */
-  async getProducts(): Promise<ZohoProduct[]> {
-    try {
-      console.log('🛒 Fetching products from Zoho Commerce API...');
-      
-      // FIXED: Use the working endpoint pattern from your test results
-      // Your test shows these work: /products (NOT /stores/{id}/products)
-      const endpoints = [
-        // Primary working endpoint from your test
-        `/products`,
-        // Alternative working endpoint (backup)
-        `/products?status=active`
-      ];
-      
-      let products = [];
-      let lastError: Error | null = null;
-      let workingEndpoint = null;
-      
-      for (const endpoint of endpoints) {
-        try {
-          console.log(`🧪 Trying Commerce API endpoint: ${endpoint}`);
-          const response = await this.apiRequest(endpoint);
-          
-          // Handle response structure (your test shows products array)
-          if (response.products && Array.isArray(response.products)) {
-            products = response.products;
-            workingEndpoint = endpoint;
-            console.log(`✅ Success with endpoint: ${endpoint} - Found ${products.length} products`);
-            break;
-          } else {
-            console.log(`⚠️ Unexpected response structure from ${endpoint}:`, Object.keys(response));
-          }
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-          console.log(`❌ Endpoint failed: ${endpoint} - ${errorMessage}`);
-          lastError = error instanceof Error ? error : new Error(String(error));
-          continue;
-        }
-      }
-      
-      if (products.length === 0 && lastError) {
-        throw lastError;
-      }
-      
-      console.log(`📊 Retrieved ${products.length} products from Commerce API using: ${workingEndpoint}`);
-      
-      // Log products with documents/images for debugging
-      const productsWithDocuments = products.filter((product: ZohoProduct) => 
-        product.documents && product.documents.length > 0
-      );
-      console.log(`🖼️  ${productsWithDocuments.length} products have documents/images`);
-      
-      // Log a sample of document structure for debugging
-      if (productsWithDocuments.length > 0) {
-        const sampleProduct = productsWithDocuments[0];
-        console.log(`📋 Sample product with images: ${sampleProduct.product_name}`);
-        console.log(`📋 Sample document structure:`, sampleProduct.documents?.[0]);
-      }
-      
-      return products;
-    } catch (error) {
-      console.error('❌ Failed to get commerce products:', error);
-      
-      // Provide helpful error context
-      if (error instanceof Error) {
-        if (error.message.includes('rate limit')) {
-          throw new Error('Commerce API rate limited. Please wait before retrying.');
-        }
-        if (error.message.includes('Invalid URL')) {
-          throw new Error(`Invalid Commerce API URL. Current base URL: ${this.baseURL}. The working endpoints are /products (not /stores/{id}/products).`);
-        }
-        if (error.message.includes('Authentication failed')) {
-          throw new Error('Zoho Commerce authentication failed. Check OAuth credentials.');
-        }
-      }
-      
-      throw error;
-    }
-  }
-
-  /**
-   * Get a specific product by ID
-   */
-  async getProduct(productId: string): Promise<ZohoProduct | null> {
-    try {
-      console.log(`🔍 Fetching commerce product: ${productId}`);
-      const response = await this.apiRequest(`/stores/${this.storeId}/products/${productId}`);
-      const product = response.product || response.data || null;
-      
-      if (product) {
-        console.log(`✅ Found commerce product: ${product.product_name} (${product.sku})`);
-      } else {
-        console.log(`❌ Commerce product not found: ${productId}`);
-      }
-      
-      return product;
-    } catch (error) {
-      console.error(`❌ Failed to get commerce product ${productId}:`, error);
-      throw error;
-    }
-  }
-
-  /**
-   * Create an order (for future use)
-   */
-  async createOrder(orderData: Partial<ZohoOrder>): Promise<string> {
-    try {
-      console.log('📝 Creating order in Commerce API...');
-      const response = await this.apiRequest(`/stores/${this.storeId}/orders`, {
-        method: 'POST',
-        body: JSON.stringify(orderData)
-      });
-      
-      const orderId = response.order?.order_id || response.order_id;
-      console.log(`✅ Order created: ${orderId}`);
-      return orderId;
-    } catch (error) {
-      console.error('❌ Failed to create order:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get store information
-   */
-  async getStoreInfo(): Promise<any> {
-    try {
-      console.log('🏪 Fetching store information...');
-      const response = await this.apiRequest(`/stores/${this.storeId}`);
-      const store = response.store || response.data;
-      
-      if (store) {
-        console.log(`✅ Store info: ${store.store_name || 'Unknown'}`);
-      }
-      
-      return store;
-    } catch (error) {
-      console.error('❌ Failed to get store info:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Health check for the Commerce API
-   */
-  async healthCheck(): Promise<{ status: string; message: string; timestamp: string }> {
-    try {
-      // Simple API call to check connectivity
-      await this.apiRequest(`/stores/${this.storeId}?fields=store_id,store_name`);
-      
-      return {
-        status: 'healthy',
-        message: 'Commerce API is accessible',
-        timestamp: new Date().toISOString()
-      };
-    } catch (error) {
-      return {
-        status: 'unhealthy',
-        message: error instanceof Error ? error.message : 'Unknown error',
-        timestamp: new Date().toISOString()
-      };
-    }
-  }
-
-  /**
-   * Get API usage statistics from token manager
-   */
-  getUsageStats() {
-    const tokenStats = tokenManager.getStatus();
-    
-    return {
-      service: 'commerce',
-      token_manager_stats: tokenStats,
-      store_id: this.storeId ? 'configured' : 'missing',
-      base_url: this.baseURL
+    const credentials = {
+      client_id: process.env.ZOHO_CLIENT_ID!,
+      client_secret: process.env.ZOHO_CLIENT_SECRET!,
+      refresh_token: process.env.ZOHO_REFRESH_TOKEN!,
+      grant_type: 'refresh_token',
     };
-  }
 
-  /**
-   * Alternative endpoint test (for debugging)
-   */
-  async testAlternativeEndpoints(): Promise<Record<string, any>> {
-    const endpoints = [
-      `/stores/${this.storeId}/products`,
-      `/products`,
-      `/stores`
-    ];
+    const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(credentials),
+    });
 
-    const results: Record<string, any> = {};
-
-    for (const endpoint of endpoints) {
-      try {
-        console.log(`🧪 Testing endpoint: ${endpoint}`);
-        const response = await this.apiRequest(endpoint);
-        results[endpoint] = {
-          success: true,
-          dataCount: response.products?.length || response.stores?.length || 0,
-          hasData: !!(response.products || response.stores || response.data)
-        };
-      } catch (error) {
-        results[endpoint] = {
-          success: false,
-          error: error instanceof Error ? error.message : 'Unknown error'
-        };
-      }
+    if (!response.ok) {
+      throw new Error(`Auth error: ${response.status} - ${await response.text()}`);
     }
 
-    return results;
+    const data = await response.json();
+    if (!data.access_token) {
+      throw new Error(`No access token received: ${JSON.stringify(data)}`);
+    }
+
+    return data.access_token;
+  }
+
+  async apiRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
+    const token = await this.getAccessToken();
+    const url = `${this.baseURL}${endpoint}`;
+
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json',
+        'X-com-zoho-store-organizationid': process.env.ZOHO_STORE_ID,
+        ...options.headers,
+      },
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`API error: ${response.status} - ${responseText}`);
+    }
+
+    try {
+      const jsonResponse = JSON.parse(responseText);
+      
+      if (jsonResponse.code && jsonResponse.code !== 0) {
+        throw new Error(`API error: ${jsonResponse.message} (Code: ${jsonResponse.code})`);
+      }
+      
+      return jsonResponse;
+    } catch (parseError) {
+      if (parseError instanceof Error && parseError.message.includes('API error:')) {
+        throw parseError;
+      }
+      throw new Error(`Invalid JSON: ${responseText}`);
+    }
+  }
+
+  // NEW: Storefront API request method for getting products with images
+  async storefrontRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
+    const token = await this.getAccessToken();
+    const url = `${this.storefrontURL}${endpoint}`;
+
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        'Authorization': `Zoho-oauthtoken ${token}`,
+        'Content-Type': 'application/json',
+        'domain-name': 'www.traveldatawifi.com', // Your store domain
+        ...options.headers,
+      },
+    });
+
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`Storefront API error: ${response.status} - ${responseText}`);
+    }
+
+    try {
+      const jsonResponse = JSON.parse(responseText);
+      return jsonResponse;
+    } catch (parseError) {
+      throw new Error(`Invalid JSON from storefront: ${responseText}`);
+    }
+  }
+
+  async getProducts(): Promise<any[]> {
+    try {
+      console.log('🛍️ Getting products from Store API for basic data...');
+      // Get basic product data from Store API
+      const storeResponse = await this.apiRequest('/products');
+      const storeProducts = storeResponse.products || [];
+      console.log(`✅ Retrieved ${storeProducts.length} products from Store API`);
+
+      console.log('🖼️ Getting product images from Storefront API...');
+      // Get product images from Storefront API for each product
+      const productsWithImages = await Promise.all(
+        storeProducts.map(async (product) => {
+          try {
+            // Get images from Storefront API
+            const storefrontData = await this.storefrontRequest(`/products/${product.product_id}?format=json`);
+            const storefrontProduct = storefrontData?.payload?.product || storefrontData?.product || storefrontData;
+            
+            if (storefrontProduct) {
+              // Extract images from Storefront API response
+              const images = this.extractStorefrontImages(storefrontProduct);
+              
+              if (images.length > 0) {
+                console.log(`✅ Found ${images.length} images for ${product.name} via Storefront API`);
+              }
+              
+              return {
+                ...product,
+                product_name: product.name || product.product_name,
+                product_price: product.min_rate || product.max_rate || product.product_price || 0,
+                product_images: images, // Use Storefront API images
+                inventory_count: this.parseStock(product.overall_stock),
+                product_category: product.category_name || product.product_category || '',
+                seo_url: product.url || product.seo_url || product.product_id,
+                image_source: 'storefront_api' // Debug info
+              };
+            }
+            
+            // Fallback to Store API images if Storefront fails
+            return {
+              ...product,
+              product_name: product.name || product.product_name,
+              product_price: product.min_rate || product.max_rate || product.product_price || 0,
+              product_images: this.extractImages(product), // Fallback to Store API
+              inventory_count: this.parseStock(product.overall_stock),
+              product_category: product.category_name || product.product_category || '',
+              seo_url: product.url || product.seo_url || product.product_id,
+              image_source: 'store_api_fallback' // Debug info
+            };
+            
+          } catch (error) {
+            console.warn(`⚠️ Storefront API failed for product ${product.product_id}, using Store API data:`, error.message);
+            
+            // Fallback to Store API data only
+            return {
+              ...product,
+              product_name: product.name || product.product_name,
+              product_price: product.min_rate || product.max_rate || product.product_price || 0,
+              product_images: this.extractImages(product), // Store API images as fallback
+              inventory_count: this.parseStock(product.overall_stock),
+              product_category: product.category_name || product.product_category || '',
+              seo_url: product.url || product.seo_url || product.product_id,
+              image_source: 'store_api_only' // Debug info
+            };
+          }
+        })
+      );
+
+      console.log('✅ Successfully merged Store API + Storefront API data');
+      return productsWithImages;
+      
+    } catch (error) {
+      console.error('❌ Failed to get products:', error);
+      throw error;
+    }
+  }
+
+  // NEW: Extract images from Storefront API response
+  extractStorefrontImages(product: any): string[] {
+    const images: string[] = [];
+
+    // Method 1: Direct images array (from Storefront API)
+    if (product.images && Array.isArray(product.images)) {
+      product.images.forEach(img => {
+        if (typeof img === 'string') {
+          images.push(`https://commerce.zoho.com${img}`);
+        } else if (img.url) {
+          images.push(`https://commerce.zoho.com${img.url}`);
+        }
+      });
+    }
+
+    // Method 2: Documents array (primary image source in Storefront API)
+    if (product.documents && Array.isArray(product.documents)) {
+      console.log(`Found ${product.documents.length} documents for storefront extraction`);
+      product.documents.forEach(doc => {
+        if (doc.file_name && this.isImageFile(doc.file_name) && doc.document_id) {
+          // Construct full-size Zoho CDN URL (remove size restrictions)
+          const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}?storefront_domain=www.traveldatawifi.com`;
+          images.push(imageUrl);
+          console.log(`✓ Constructed Storefront CDN image: ${imageUrl}`);
+        }
+      });
+    }
+
+    // Method 3: Variant images (from Storefront API)
+    if (product.variants && Array.isArray(product.variants)) {
+      product.variants.forEach(variant => {
+        if (variant.images && Array.isArray(variant.images)) {
+          variant.images.forEach(img => {
+            if (typeof img === 'string') {
+              images.push(`https://commerce.zoho.com${img}`);
+            } else if (img.url) {
+              images.push(`https://commerce.zoho.com${img.url}`);
+            }
+          });
+        }
+        
+        // Variant documents
+        if (variant.documents && Array.isArray(variant.documents)) {
+          variant.documents.forEach(doc => {
+            if (doc.file_name && this.isImageFile(doc.file_name) && doc.document_id) {
+              const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}?storefront_domain=www.traveldatawifi.com`;
+              images.push(imageUrl);
+              console.log(`✓ Constructed variant CDN image: ${imageUrl}`);
+            }
+          });
+        }
+      });
+    }
+
+    // Remove duplicates and return
+    const uniqueImages = [...new Set(images)];
+    console.log(`🖼️ Extracted ${uniqueImages.length} unique images from Storefront API`);
+    return uniqueImages;
+  }
+
+  // Legacy Store API image extraction (fallback)
+  extractImages(product: any): string[] {
+    const images: string[] = [];
+
+    // Try various Store API image sources
+    if (product.documents && Array.isArray(product.documents)) {
+      product.documents.forEach(doc => {
+        if (doc.file_name && this.isImageFile(doc.file_name) && doc.document_id) {
+          // Use basic CDN URL for Store API
+          const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`;
+          images.push(imageUrl);
+        }
+      });
+    }
+
+    return [...new Set(images)];
+  }
+
+  isImageFile(filename: string): boolean {
+    if (!filename || typeof filename !== 'string') return false;
+    
+    const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+    const lowerFilename = filename.toLowerCase();
+    
+    return imageExtensions.some(ext => lowerFilename.endsWith(ext));
+  }
+
+  parseStock(stockValue: any): number {
+    if (stockValue === null || stockValue === undefined || stockValue === '') {
+      return 0;
+    }
+    
+    const parsed = typeof stockValue === 'string' ? 
+      parseFloat(stockValue) : Number(stockValue);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+
+  async getProduct(productId: string): Promise<any | null> {
+    try {
+      // Try Storefront API first for complete image data
+      try {
+        console.log(`🖼️ Getting product ${productId} from Storefront API...`);
+        const storefrontData = await this.storefrontRequest(`/products/${productId}?format=json`);
+        const storefrontProduct = storefrontData?.payload?.product || storefrontData?.product || storefrontData;
+        
+        if (storefrontProduct && storefrontProduct.product_id) {
+          const images = this.extractStorefrontImages(storefrontProduct);
+          
+          return {
+            ...storefrontProduct,
+            product_name: storefrontProduct.name || storefrontProduct.product_name,
+            product_price: storefrontProduct.min_rate || storefrontProduct.max_rate || storefrontProduct.product_price || 0,
+            product_images: images,
+            inventory_count: this.parseStock(storefrontProduct.overall_stock),
+            product_category: storefrontProduct.category_name || storefrontProduct.product_category || '',
+            seo_url: storefrontProduct.url || storefrontProduct.seo_url || storefrontProduct.product_id,
+            image_source: 'storefront_api'
+          };
+        }
+      } catch (storefrontError) {
+        console.warn(`⚠️ Storefront API failed for product ${productId}:`, storefrontError.message);
+      }
+      
+      // Fallback to Store API
+      console.log(`📦 Getting product ${productId} from Store API as fallback...`);
+      const response = await this.apiRequest(`/products/${productId}`);
+      const product = response.product || null;
+      
+      if (!product) return null;
+      
+      return {
+        ...product,
+        product_name: product.name || product.product_name,
+        product_price: product.min_rate || product.max_rate || product.product_price || 0,
+        product_images: this.extractImages(product),
+        inventory_count: this.parseStock(product.overall_stock),
+        product_category: product.category_name || product.product_category || '',
+        seo_url: product.url || product.seo_url || product.product_id,
+        image_source: 'store_api_fallback'
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error(`❌ Failed to get product ${productId}:`, errorMessage);
+      return null;
+    }
+  }
+
+  async createOrder(orderData: any): Promise<any> {
+    const response = await this.apiRequest('/orders', {
+      method: 'POST',
+      body: JSON.stringify(orderData),
+    });
+    return response.order || response.data || response;
   }
 }
 
-// Export singleton instance
 export const zohoAPI = new ZohoCommerceAPI();
-
-// Export types for other modules
-export type { ZohoProduct, ZohoOrder };
