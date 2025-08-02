@@ -121,12 +121,12 @@ class ZohoCommerceAPI {
     try {
       console.log('🛍️ Getting products from Store API for basic data...');
       const storeResponse = await this.apiRequest('/products');
-      const storeProducts = storeResponse.products || [];
+      const storeProducts: any[] = storeResponse.products || []; // Explicitly type as any[]
       console.log(`✅ Retrieved ${storeProducts.length} products from Store API`);
 
       console.log('🖼️ Getting product images from Storefront API...');
       const productsWithImages = await Promise.all(
-        storeProducts.map(async (product) => {
+        storeProducts.map(async (product: any) => { // Explicitly type product as any
           try {
             const storefrontData = await this.storefrontRequest(`/products/${product.product_id}?format=json`);
             const storefrontProduct = storefrontData?.payload?.product || storefrontData?.product || storefrontData;
@@ -153,30 +153,30 @@ class ZohoCommerceAPI {
             return {
               ...product,
               product_name: product.name || product.product_name,
-              product_price: product.min_rate || product.max_rate || product.product_price || 0,
-              product_images: this.extractImages(product),
-              inventory_count: this.parseStock(product.overall_stock),
-              product_category: product.category_name || product.product_category || '',
-              seo_url: product.url || product.seo_url || product.product_id,
-              image_source: 'store_api_fallback'
-            };
-            
-          } catch (error) {
-            console.warn(`⚠️ Storefront API failed for product ${product.product_id}: ${(error as Error).message}`);
-            
-            return {
-              ...product,
-              product_name: product.name || product.product_name,
-              product_price: product.min_rate || product.max_rate || product.product_price || 0,
-              product_images: this.extractImages(product),
-              inventory_count: this.parseStock(product.overall_stock),
-              product_category: product.category_name || product.product_category || '',
-              seo_url: product.url || product.seo_url || product.product_id,
-              image_source: 'store_api_only'
-            };
-          }
-        })
-      );
+                product_price: product.min_rate || product.max_rate || product.product_price || 0,
+                product_images: this.extractImages(product),
+                inventory_count: this.parseStock(product.overall_stock),
+                product_category: product.category_name || product.product_category || '',
+                seo_url: product.url || product.seo_url || product.product_id,
+                image_source: 'store_api_fallback'
+              };
+              
+            } catch (error) {
+              console.warn(`⚠️ Storefront API failed for product ${product.product_id}: ${(error as Error).message}`);
+              
+              return {
+                ...product,
+                product_name: product.name || product.product_name,
+                product_price: product.min_rate || product.max_rate || product.product_price || 0,
+                product_images: this.extractImages(product),
+                inventory_count: this.parseStock(product.overall_stock),
+                product_category: product.category_name || product.product_category || '',
+                seo_url: product.url || product.seo_url || product.product_id,
+                image_source: 'store_api_only'
+              };
+            }
+          })
+        );
 
       console.log('✅ Successfully merged Store API + Storefront API data');
       return productsWithImages;
