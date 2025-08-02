@@ -1,602 +1,266 @@
-// src/pages/api/products.js - Enhanced with improved caching and rate limiting
-// CRITICAL IMPROVEMENTS: Centralized token management, intelligent caching, circuit breaker pattern
+// src/pages/api/products.js - RESTORED: Working image URL construction with centralized token management
+// CRITICAL: This restores the working image logic while keeping centralized token management
 
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
 import { zohoAPI } from '../../lib/zoho-api';
-import { tokenManager } from '../../lib/enhanced-token-manager';
 
-// Multi-level cache system
-const cacheSystem = {
-  // Level 1: Fast in-memory cache for immediate responses
-  hotCache: {
-    data: null,
-    timestamp: 0,
-    version: 0
-  },
-  
-  // Level 2: Warm cache for background refresh
-  warmCache: {
-    inventoryData: null,
-    commerceData: null,
-    timestamp: 0,
-    version: 0
-  },
-  
-  // Level 3: Cold cache for emergency fallback
-  coldCache: {
-    data: null,
-    timestamp: 0,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours max age
-  }
+// In-memory cache for products API responses
+let productsCache = {
+  data: null,
+  timestamp: 0,
+  inventoryData: null,
+  commerceData: null
 };
 
-// Cache configuration
-const cacheConfig = {
-  hotCacheDuration: process.env.NODE_ENV === 'development' ? 2 * 60 * 1000 : 10 * 60 * 1000, // 2min dev, 10min prod
-  warmCacheDuration: 30 * 60 * 1000, // 30 minutes
-  backgroundRefreshThreshold: 0.7, // Refresh when 70% of cache duration has passed
-  maxStaleAge: 2 * 60 * 60 * 1000, // 2 hours maximum stale data
-  enableBackgroundRefresh: true
+// Cache duration: 5 minutes for development, 15 minutes for production
+const CACHE_DURATION = process.env.NODE_ENV === 'development' ? 5 * 60 * 1000 : 15 * 60 * 1000;
+
+// Rate limiting: Track API calls
+let apiCallTracker = {
+  lastCall: 0,
+  callCount: 0,
+  windowStart: 0
 };
 
-// Circuit breaker for API reliability
-const circuitBreaker = {
-  isOpen: false,
-  failureCount: 0,
-  lastFailureTime: 0,
-  threshold: 5, // Open after 5 consecutive failures
-  timeout: 60000, // 1 minute timeout
-  halfOpenMaxAttempts: 3
-};
-
-// Request tracking for intelligent rate limiting
-const requestTracker = {
-  activeRequests: 0,
-  maxConcurrentRequests: 3,
-  requestQueue: [],
-  processingQueue: false
-};
+const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute window
+const MAX_CALLS_PER_WINDOW = 10; // Max 10 calls per minute
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  console.log(`🚀 Products API request started [${requestId}]`);
-
   try {
-    // Check circuit breaker
-    if (circuitBreaker.isOpen) {
-      if (Date.now() - circuitBreaker.lastFailureTime > circuitBreaker.timeout) {
-        circuitBreaker.isOpen = false;
-        circuitBreaker.failureCount = 0;
-        console.log('🔄 Circuit breaker reset');
+    console.log('🚀 Starting products API with RESTORED working image URLs...');
+    
+    // Check rate limiting
+    const now = Date.now();
+    if (now - apiCallTracker.windowStart > RATE_LIMIT_WINDOW) {
+      // Reset window
+      apiCallTracker.windowStart = now;
+      apiCallTracker.callCount = 0;
+    }
+    
+    apiCallTracker.callCount++;
+    apiCallTracker.lastCall = now;
+    
+    if (apiCallTracker.callCount > MAX_CALLS_PER_WINDOW) {
+      console.log('⚠️ Rate limit exceeded, using cache if available');
+      if (productsCache.data && now - productsCache.timestamp < CACHE_DURATION * 2) {
+        console.log('✅ Returning extended cached data due to rate limit');
+        return res.status(200).json({
+          ...productsCache.data,
+          meta: {
+            ...productsCache.data.meta,
+            cached: true,
+            cache_extended_due_to_rate_limit: true,
+            cache_age_minutes: Math.round((now - productsCache.timestamp) / (60 * 1000))
+          }
+        });
       } else {
-        return await handleCircuitBreakerOpen(res, requestId);
+        return res.status(429).json({
+          error: 'Rate limit exceeded',
+          message: 'Too many API calls. Please wait before retrying.',
+          retryAfter: Math.ceil((RATE_LIMIT_WINDOW - (now - apiCallTracker.windowStart)) / 1000)
+        });
       }
     }
 
-    // Step 1: Try hot cache first (fastest response)
-    const hotCacheResult = checkHotCache();
-    if (hotCacheResult) {
-      console.log(`⚡ Hot cache hit [${requestId}]`);
-      return res.status(200).json(hotCacheResult);
-    }
-
-    // Step 2: Check if we should queue the request to avoid overwhelming APIs
-    if (requestTracker.activeRequests >= requestTracker.maxConcurrentRequests) {
-      console.log(`⏳ Request queued [${requestId}] - ${requestTracker.activeRequests} active requests`);
-      return await queueRequest(req, res, requestId);
-    }
-
-    // Step 3: Increment active request counter
-    requestTracker.activeRequests++;
-
-    try {
-      // Step 4: Try warm cache (may trigger background refresh)
-      const warmCacheResult = await checkWarmCache(requestId);
-      if (warmCacheResult) {
-        console.log(`🔥 Warm cache hit [${requestId}]`);
-        return res.status(200).json(warmCacheResult);
-      }
-
-      // Step 5: Full API fetch (last resort)
-      console.log(`📡 Performing full API fetch [${requestId}]`);
-      const freshData = await fetchFreshData(requestId);
-      
-      // Update all cache levels
-      updateCacheSystem(freshData);
-      
-      // Reset circuit breaker on success
-      circuitBreaker.failureCount = 0;
-      
-      console.log(`✅ Fresh data fetched and cached [${requestId}]`);
-      return res.status(200).json(freshData);
-
-    } finally {
-      // Always decrement active request counter
-      requestTracker.activeRequests--;
-      processQueue();
-    }
-
-  } catch (error) {
-    console.error(`❌ Products API Error [${requestId}]:`, {
-      message: error.message,
-      name: error.name,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-
-    // Update circuit breaker
-    updateCircuitBreaker(error);
-
-    // Try to return cached data if available
-    const fallbackData = getFallbackData();
-    if (fallbackData) {
-      console.log(`🔄 Returning fallback data [${requestId}]`);
+    // Check cache first
+    if (productsCache.data && now - productsCache.timestamp < CACHE_DURATION) {
+      console.log('✅ Returning cached products data');
       return res.status(200).json({
-        ...fallbackData,
+        ...productsCache.data,
         meta: {
-          ...fallbackData.meta,
-          fallback: true,
-          fallback_reason: error.message,
-          fallback_age_minutes: Math.round((Date.now() - cacheSystem.coldCache.timestamp) / (60 * 1000)),
-          request_id: requestId
+          ...productsCache.data.meta,
+          cached: true,
+          cache_age_minutes: Math.round((now - productsCache.timestamp) / (60 * 1000))
         }
       });
     }
 
-    // Determine error response based on error type
-    const isRateLimit = error.message.includes('rate limit') || error.message.includes('too many requests');
-    const status = isRateLimit ? 429 : 500;
+    const startTime = Date.now();
+
+    // Fetch data from both APIs (with improved token management)
+    console.log('📦 Fetching products from Zoho Inventory API...');
+    const [inventoryProducts, commerceProducts] = await Promise.allSettled([
+      fetchInventoryProductsWithRetry(),
+      fetchCommerceProductsWithRetry()
+    ]);
+
+    // Handle results
+    let inventoryData = [];
+    let commerceData = [];
+
+    if (inventoryProducts.status === 'fulfilled') {
+      inventoryData = inventoryProducts.value;
+      console.log(`✅ Retrieved ${inventoryData.length} inventory products`);
+    } else {
+      console.error('❌ Inventory API failed:', inventoryProducts.reason);
+    }
+
+    if (commerceProducts.status === 'fulfilled') {
+      commerceData = commerceProducts.value;
+      console.log(`✅ Retrieved ${commerceData.length} commerce products`);
+    } else {
+      console.error('❌ Commerce API failed:', commerceProducts.reason);
+    }
+
+    if (inventoryData.length === 0) {
+      throw new Error('No inventory products found - check Zoho Inventory API configuration');
+    }
+
+    // Filter products based on cf_display_in_app custom field
+    const filteredProducts = filterProductsByDisplayInApp(inventoryData);
+    console.log(`🔍 Filtered to ${filteredProducts.length} products with display_in_app=true`);
+
+    // Filter active products only
+    const activeProducts = filterActiveProducts(filteredProducts);
+    console.log(`✅ ${activeProducts.length} active products for display`);
+
+    // CRITICAL: Use the WORKING image merger that was tested and confirmed
+    const mergedProducts = mergeInventoryWithCommerceImagesBySKU(activeProducts, commerceData);
+    console.log(`🔗 Merged ${mergedProducts.length} products with commerce data`);
+
+    const processingTime = Date.now() - startTime;
+
+    console.log(`Final result: ${activeProducts.length} active products with display_in_app=true`);
     
-    return res.status(status).json({
+    const responseData = {
+      products: mergedProducts,
+      meta: {
+        total_inventory_products: inventoryData.length,
+        display_in_app_products: filteredProducts.length,
+        active_display_products: activeProducts.length,
+        commerce_products_fetched: commerceData.length,
+        products_with_images: mergedProducts.filter(p => p.product_images?.length > 0).length,
+        timestamp: new Date().toISOString(),
+        api_approach: 'inventory_commerce_hybrid_restored',
+        custom_field_filter: 'cf_display_in_app = true',
+        matching_strategy: 'SKU',
+        image_mode: 'fixed_document_ids_restored',
+        processing_time_ms: processingTime,
+        cached: false,
+        rate_limit_status: {
+          calls_this_window: apiCallTracker.callCount,
+          window_resets_in_seconds: Math.ceil((RATE_LIMIT_WINDOW - (now - apiCallTracker.windowStart)) / 1000)
+        }
+      }
+    };
+
+    // Cache the final response
+    productsCache.data = responseData;
+    productsCache.timestamp = now;
+    
+    // Add debug info for the first few products
+    if (mergedProducts.length > 0) {
+      console.log('Sample product structure:', {
+        id: mergedProducts[0].product_id,
+        name: mergedProducts[0].product_name,
+        sku: mergedProducts[0].sku,
+        price: mergedProducts[0].product_price,
+        hasImages: (mergedProducts[0].product_images?.length || 0) > 0,
+        imageCount: mergedProducts[0].product_images?.length || 0,
+        sampleImageUrl: mergedProducts[0].product_images?.[0],
+        cf_display_in_app: mergedProducts[0].cf_display_in_app,
+        status: mergedProducts[0].status
+      });
+    }
+    
+    res.status(200).json(responseData);
+  } catch (error) {
+    console.error('Products API Error:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    
+    // If we have cached data and this is a rate limit error, return cached data
+    if (error.message.includes('rate limit') || error.message.includes('too many requests')) {
+      if (productsCache.data) {
+        console.log('⚠️ Rate limited, returning cached data');
+        return res.status(200).json({
+          ...productsCache.data,
+          meta: {
+            ...productsCache.data.meta,
+            cached: true,
+            cache_fallback_reason: 'rate_limited',
+            cache_age_minutes: Math.round((Date.now() - productsCache.timestamp) / (60 * 1000))
+          }
+        });
+      }
+    }
+    
+    res.status(500).json({ 
       error: 'Failed to fetch products',
-      details: isRateLimit ? 'Rate limit exceeded. Using cached data when available.' : error.message,
-      type: isRateLimit ? 'RATE_LIMIT_ERROR' : 'API_ERROR',
-      request_id: requestId,
+      details: error.message,
       timestamp: new Date().toISOString(),
-      circuit_breaker_status: {
-        is_open: circuitBreaker.isOpen,
-        failure_count: circuitBreaker.failureCount
-      },
-      token_manager_status: tokenManager.getStatus()
+      errorType: error.name,
+      isRateLimited: error.message.includes('rate limit') || error.message.includes('too many requests'),
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 }
 
 /**
- * Check hot cache for immediate response
+ * Fetch inventory products with retry logic and centralized token management
  */
-function checkHotCache() {
-  const now = Date.now();
-  if (cacheSystem.hotCache.data && 
-      (now - cacheSystem.hotCache.timestamp) < cacheConfig.hotCacheDuration) {
-    return {
-      ...cacheSystem.hotCache.data,
-      meta: {
-        ...cacheSystem.hotCache.data.meta,
-        cached: true,
-        cache_level: 'hot',
-        cache_age_seconds: Math.round((now - cacheSystem.hotCache.timestamp) / 1000)
-      }
-    };
-  }
-  return null;
-}
-
-/**
- * Check warm cache and potentially trigger background refresh
- */
-async function checkWarmCache(requestId) {
-  const now = Date.now();
-  const cacheAge = now - cacheSystem.warmCache.timestamp;
-  
-  if (cacheSystem.warmCache.inventoryData && cacheAge < cacheConfig.warmCacheDuration) {
-    // Check if we should trigger background refresh
-    if (cacheConfig.enableBackgroundRefresh && 
-        cacheAge > (cacheConfig.warmCacheDuration * cacheConfig.backgroundRefreshThreshold)) {
-      console.log(`🔄 Triggering background refresh [${requestId}]`);
-      triggerBackgroundRefresh();
-    }
-
-    // Return merged data from warm cache
-    const mergedData = mergeWarmCacheData();
-    if (mergedData) {
-      return {
-        ...mergedData,
-        meta: {
-          ...mergedData.meta,
-          cached: true,
-          cache_level: 'warm',
-          cache_age_minutes: Math.round(cacheAge / (60 * 1000)),
-          background_refresh_triggered: cacheAge > (cacheConfig.warmCacheDuration * cacheConfig.backgroundRefreshThreshold)
-        }
-      };
-    }
-  }
-  
-  return null;
-}
-
-/**
- * Fetch fresh data from APIs with enhanced error handling
- */
-async function fetchFreshData(requestId) {
-  const startTime = Date.now();
-  
-  console.log(`📦 Fetching fresh data from APIs [${requestId}]...`);
-  
-  // Fetch inventory and commerce data with token manager
-  const [inventoryData, commerceData] = await Promise.allSettled([
-    fetchInventoryProductsWithRetry(requestId),
-    fetchCommerceProductsWithRetry(requestId)
-  ]);
-
-  // Handle partial failures gracefully
-  let inventoryProducts = [];
-  let commerceProducts = [];
-
-  if (inventoryData.status === 'fulfilled') {
-    inventoryProducts = inventoryData.value;
-    console.log(`✅ Inventory data fetched: ${inventoryProducts.length} products [${requestId}]`);
-  } else {
-    console.warn(`⚠️ Inventory fetch failed [${requestId}]:`, inventoryData.reason.message);
-    // Try to use cached inventory data
-    if (cacheSystem.warmCache.inventoryData) {
-      inventoryProducts = cacheSystem.warmCache.inventoryData;
-      console.log(`🔄 Using cached inventory data: ${inventoryProducts.length} products [${requestId}]`);
-    }
-  }
-
-  if (commerceData.status === 'fulfilled') {
-    commerceProducts = commerceData.value;
-    console.log(`✅ Commerce data fetched: ${commerceProducts.length} products [${requestId}]`);
-  } else {
-    console.warn(`⚠️ Commerce fetch failed [${requestId}]:`, commerceData.reason.message);
-    // Try to use cached commerce data
-    if (cacheSystem.warmCache.commerceData) {
-      commerceProducts = cacheSystem.warmCache.commerceData;
-      console.log(`🔄 Using cached commerce data: ${commerceProducts.length} products [${requestId}]`);
-    }
-  }
-
-  // Process and merge data
-  const filteredProducts = filterProductsByDisplayInApp(inventoryProducts);
-  const activeProducts = filterActiveProducts(filteredProducts);
-  const mergedProducts = mergeInventoryWithCommerceImagesBySKU(activeProducts, commerceProducts);
-
-  const processingTime = Date.now() - startTime;
-
-  return {
-    products: mergedProducts,
-    meta: {
-      total_inventory_products: inventoryProducts.length,
-      display_in_app_products: filteredProducts.length,
-      active_display_products: activeProducts.length,
-      commerce_products_fetched: commerceProducts.length,
-      products_with_images: mergedProducts.filter(p => p.product_images?.length > 0).length,
-      timestamp: new Date().toISOString(),
-      processing_time_ms: processingTime,
-      api_approach: 'enhanced_multi_level_cache',
-      partial_failure: inventoryData.status === 'rejected' || commerceData.status === 'rejected',
-      data_sources: {
-        inventory: inventoryData.status === 'fulfilled' ? 'fresh' : 'cached',
-        commerce: commerceData.status === 'fulfilled' ? 'fresh' : 'cached'
-      },
-      request_id: requestId,
-      cache_version: cacheSystem.hotCache.version + 1
-    }
-  };
-}
-
-/**
- * Enhanced inventory fetch with token manager
- */
-async function fetchInventoryProductsWithRetry(requestId, maxRetries = 2) {
+async function fetchInventoryProductsWithRetry(maxRetries = 2) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`📦 Inventory API attempt ${attempt}/${maxRetries} [${requestId}]`);
-      
-      // Use the enhanced token manager
-      await tokenManager.getAccessToken('inventory');
-      
       if (zohoInventoryAPI) {
+        // The updated zohoInventoryAPI now uses centralized token management
         return await zohoInventoryAPI.getInventoryProducts();
       } else {
         throw new Error('Zoho Inventory API not available');
       }
     } catch (error) {
-      console.log(`❌ Inventory API attempt ${attempt} failed [${requestId}]:`, error.message);
+      console.log(`❌ Inventory API attempt ${attempt} failed:`, error.message);
       
-      if (attempt === maxRetries || 
-          error.message.includes('rate limit') || 
-          error.message.includes('too many requests')) {
+      if (attempt === maxRetries || error.message.includes('rate limit')) {
         throw error;
       }
       
-      // Wait before retry with jitter to avoid thundering herd
-      const baseDelay = Math.pow(2, attempt) * 1000;
-      const jitter = Math.random() * 1000;
-      const delay = baseDelay + jitter;
-      
-      console.log(`⏳ Waiting ${Math.round(delay)}ms before retry [${requestId}]...`);
+      // Wait before retry (exponential backoff)
+      const delay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s...
+      console.log(`⏳ Waiting ${delay}ms before retry...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 }
 
 /**
- * Enhanced commerce fetch with token manager
+ * Fetch commerce products with retry logic and centralized token management
  */
-async function fetchCommerceProductsWithRetry(requestId, maxRetries = 2) {
+async function fetchCommerceProductsWithRetry(maxRetries = 2) {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      console.log(`🛒 Commerce API attempt ${attempt}/${maxRetries} [${requestId}]`);
-      
-      // Use the enhanced token manager
-      await tokenManager.getAccessToken('commerce');
-      
       if (zohoAPI) {
+        // The zohoAPI should also use centralized token management
         return await zohoAPI.getProducts();
       } else {
         throw new Error('Zoho Commerce API not available');
       }
     } catch (error) {
-      console.log(`❌ Commerce API attempt ${attempt} failed [${requestId}]:`, error.message);
+      console.log(`❌ Commerce API attempt ${attempt} failed:`, error.message);
       
-      if (attempt === maxRetries || 
-          error.message.includes('rate limit') || 
-          error.message.includes('too many requests')) {
+      if (attempt === maxRetries || error.message.includes('rate limit') || error.message.includes('too many requests')) {
         throw error;
       }
       
-      // Wait before retry with jitter
-      const baseDelay = Math.pow(2, attempt) * 1000;
-      const jitter = Math.random() * 1000;
-      const delay = baseDelay + jitter;
-      
-      console.log(`⏳ Waiting ${Math.round(delay)}ms before retry [${requestId}]...`);
+      // Wait before retry with longer delays for rate limits
+      const isRateLimit = error.message.includes('rate limit') || error.message.includes('too many requests');
+      const delay = isRateLimit ? 30000 + (attempt * 10000) : Math.pow(2, attempt) * 1000;
+      console.log(`⏳ Waiting ${delay}ms before retry (rate limit: ${isRateLimit})...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
-}
-
-/**
- * Update all cache levels with fresh data
- */
-function updateCacheSystem(freshData) {
-  const now = Date.now();
-  const version = cacheSystem.hotCache.version + 1;
-  
-  // Update hot cache
-  cacheSystem.hotCache = {
-    data: freshData,
-    timestamp: now,
-    version: version
-  };
-  
-  // Update warm cache (extract raw data for background processing)
-  if (freshData.meta.data_sources?.inventory === 'fresh') {
-    cacheSystem.warmCache.inventoryData = freshData.products; // Store the processed products
-    cacheSystem.warmCache.timestamp = now;
-    cacheSystem.warmCache.version = version;
-  }
-  
-  if (freshData.meta.data_sources?.commerce === 'fresh') {
-    cacheSystem.warmCache.commerceData = []; // We don't store raw commerce data in this implementation
-  }
-  
-  // Update cold cache (emergency fallback)
-  cacheSystem.coldCache = {
-    data: freshData,
-    timestamp: now
-  };
-  
-  console.log(`💾 Cache system updated - version ${version}`);
-}
-
-/**
- * Background refresh to keep warm cache fresh
- */
-function triggerBackgroundRefresh() {
-  // Don't trigger multiple background refreshes
-  if (requestTracker.processingQueue) return;
-  
-  // Use setTimeout to avoid blocking the current request
-  setTimeout(async () => {
-    try {
-      console.log('🔄 Background refresh started');
-      const requestId = `bg_${Date.now()}`;
-      
-      // Only refresh if we're not hitting rate limits
-      const status = tokenManager.getStatus();
-      if (status.activeRateLimits.some(limit => limit.backoffActive)) {
-        console.log('⏸️ Background refresh skipped - rate limits active');
-        return;
-      }
-      
-      requestTracker.activeRequests++;
-      
-      try {
-        const freshData = await fetchFreshData(requestId);
-        updateCacheSystem(freshData);
-        console.log('✅ Background refresh completed');
-      } catch (error) {
-        console.warn('⚠️ Background refresh failed:', error.message);
-      } finally {
-        requestTracker.activeRequests--;
-      }
-    } catch (error) {
-      console.error('❌ Background refresh error:', error);
-    }
-  }, 100); // Small delay to not block current request
-}
-
-/**
- * Merge warm cache data if available
- */
-function mergeWarmCacheData() {
-  if (!cacheSystem.warmCache.inventoryData) return null;
-  
-  const inventoryProducts = cacheSystem.warmCache.inventoryData;
-  const commerceProducts = cacheSystem.warmCache.commerceData || [];
-  
-  const filteredProducts = filterProductsByDisplayInApp(inventoryProducts);
-  const activeProducts = filterActiveProducts(filteredProducts);
-  const mergedProducts = mergeInventoryWithCommerceImagesBySKU(activeProducts, commerceProducts);
-  
-  return {
-    products: mergedProducts,
-    meta: {
-      total_inventory_products: inventoryProducts.length,
-      display_in_app_products: filteredProducts.length,
-      active_display_products: activeProducts.length,
-      commerce_products_fetched: commerceProducts.length,
-      products_with_images: mergedProducts.filter(p => p.product_images?.length > 0).length,
-      timestamp: new Date().toISOString(),
-      api_approach: 'warm_cache_merge',
-      cache_version: cacheSystem.warmCache.version
-    }
-  };
-}
-
-/**
- * Handle circuit breaker open state
- */
-async function handleCircuitBreakerOpen(res, requestId) {
-  console.log(`🚫 Circuit breaker OPEN [${requestId}] - using fallback data`);
-  
-  const fallbackData = getFallbackData();
-  if (fallbackData) {
-    return res.status(200).json({
-      ...fallbackData,
-      meta: {
-        ...fallbackData.meta,
-        circuit_breaker_fallback: true,
-        circuit_breaker_status: 'open',
-        request_id: requestId
-      }
-    });
-  }
-  
-  return res.status(503).json({
-    error: 'Service temporarily unavailable',
-    message: 'APIs are experiencing issues. Please try again in a few minutes.',
-    circuit_breaker_status: 'open',
-    retry_after: Math.ceil(circuitBreaker.timeout / 1000),
-    request_id: requestId
-  });
-}
-
-/**
- * Queue request when too many concurrent requests
- */
-async function queueRequest(req, res, requestId) {
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error('Request timeout in queue'));
-    }, 30000); // 30 second timeout
-    
-    requestTracker.requestQueue.push({
-      req,
-      res,
-      requestId,
-      resolve,
-      reject,
-      timeout,
-      timestamp: Date.now()
-    });
-    
-    processQueue();
-  });
-}
-
-/**
- * Process queued requests
- */
-function processQueue() {
-  if (requestTracker.processingQueue || 
-      requestTracker.activeRequests >= requestTracker.maxConcurrentRequests ||
-      requestTracker.requestQueue.length === 0) {
-    return;
-  }
-  
-  requestTracker.processingQueue = true;
-  
-  // Process next request in queue
-  const queuedRequest = requestTracker.requestQueue.shift();
-  if (queuedRequest) {
-    clearTimeout(queuedRequest.timeout);
-    
-    // Check if request is too old (stale)
-    if (Date.now() - queuedRequest.timestamp > 20000) { // 20 seconds max queue time
-      queuedRequest.reject(new Error('Request too old in queue'));
-      requestTracker.processingQueue = false;
-      setImmediate(processQueue); // Process next item
-      return;
-    }
-    
-    // Execute the queued request
-    handler(queuedRequest.req, queuedRequest.res)
-      .then(queuedRequest.resolve)
-      .catch(queuedRequest.reject)
-      .finally(() => {
-        requestTracker.processingQueue = false;
-        setImmediate(processQueue); // Process next item
-      });
-  } else {
-    requestTracker.processingQueue = false;
-  }
-}
-
-/**
- * Update circuit breaker state based on error
- */
-function updateCircuitBreaker(error) {
-  // Only count certain types of failures
-  if (error.message.includes('rate limit') || 
-      error.message.includes('too many requests') ||
-      error.message.includes('Authentication failed') ||
-      error.message.includes('Token refresh failed')) {
-    
-    circuitBreaker.failureCount++;
-    circuitBreaker.lastFailureTime = Date.now();
-    
-    if (circuitBreaker.failureCount >= circuitBreaker.threshold) {
-      circuitBreaker.isOpen = true;
-      console.warn(`🚫 Circuit breaker OPENED after ${circuitBreaker.failureCount} failures`);
-    }
-  }
-}
-
-/**
- * Get fallback data from any available cache
- */
-function getFallbackData() {
-  const now = Date.now();
-  
-  // Try hot cache first (even if expired)
-  if (cacheSystem.hotCache.data && 
-      (now - cacheSystem.hotCache.timestamp) < cacheConfig.maxStaleAge) {
-    return cacheSystem.hotCache.data;
-  }
-  
-  // Try cold cache (up to 24 hours old)
-  if (cacheSystem.coldCache.data && 
-      (now - cacheSystem.coldCache.timestamp) < cacheSystem.coldCache.maxAge) {
-    return cacheSystem.coldCache.data;
-  }
-  
-  return null;
 }
 
 /**
  * Filter products based on cf_display_in_app custom field
  */
 function filterProductsByDisplayInApp(products) {
-  if (!Array.isArray(products)) return [];
-  
   console.log(`🔍 Filtering ${products.length} products for display_in_app=true`);
   
   return products.filter(product => {
@@ -611,16 +275,18 @@ function filterProductsByDisplayInApp(products) {
       displayInAppString === '1' ||
       displayInAppString === 1;
     
+    if (isDisplayInApp) {
+      console.log(`✅ Including ${product.item_id} (${product.name}) - cf_display_in_app: ${displayInAppString || displayInAppBoolean}`);
+    }
+    
     return isDisplayInApp;
   });
 }
 
 /**
- * Filter active products
+ * Filter active products only
  */
 function filterActiveProducts(products) {
-  if (!Array.isArray(products)) return [];
-  
   return products.filter(product => 
     product.status === 'active' || 
     product.status === 'Active' ||
@@ -629,69 +295,265 @@ function filterActiveProducts(products) {
 }
 
 /**
- * Merge inventory products with commerce images using SKU matching
+ * CRITICAL: RESTORED working image merger that was confirmed working
+ * This merges inventory products with commerce images using multiple matching strategies
  */
 function mergeInventoryWithCommerceImagesBySKU(inventoryProducts, commerceProducts) {
-  if (!Array.isArray(inventoryProducts)) return [];
-  if (!Array.isArray(commerceProducts)) commerceProducts = [];
-  
   console.log(`🔗 Merging ${inventoryProducts.length} inventory products with ${commerceProducts.length} commerce products`);
   
-  // Create SKU lookup map for commerce products
-  const commerceMap = new Map();
-  commerceProducts.forEach(product => {
-    if (product.sku) {
-      commerceMap.set(product.sku, product);
+  // Create lookup maps for different matching strategies
+  const commerceByProductId = new Map();
+  const commerceByName = new Map();
+  const commerceBySku = new Map();
+  let totalCommerceImagesFound = 0;
+  
+  commerceProducts.forEach(commerceProduct => {
+    // Strategy 1: Match by product ID (most reliable)
+    if (commerceProduct.product_id) {
+      commerceByProductId.set(commerceProduct.product_id, commerceProduct);
+    }
+    
+    // Strategy 2: Match by SKU
+    if (commerceProduct.sku && commerceProduct.sku.trim() !== '') {
+      commerceBySku.set(commerceProduct.sku.trim(), commerceProduct);
+    }
+    
+    // Strategy 3: Match by name (backup)
+    if (commerceProduct.product_name && commerceProduct.product_name.trim() !== '') {
+      const nameKey = commerceProduct.product_name.trim().toLowerCase();
+      commerceByName.set(nameKey, commerceProduct);
+    }
+    
+    // Count total images for debugging
+    const extractedImages = extractCommerceImages(commerceProduct);
+    if (extractedImages.length > 0) {
+      totalCommerceImagesFound += extractedImages.length;
     }
   });
   
-  return inventoryProducts.map(product => {
-    const commerceProduct = commerceMap.get(product.sku);
+  console.log(`Created lookup maps:`);
+  console.log(`- Commerce by Product ID: ${commerceByProductId.size} entries`);
+  console.log(`- Commerce by SKU: ${commerceBySku.size} entries`);
+  console.log(`- Commerce by Name: ${commerceByName.size} entries`);
+  console.log(`- Total commerce images found: ${totalCommerceImagesFound}`);
+  
+  // Merge inventory with commerce data using multiple strategies
+  let productIdMatches = 0;
+  let skuMatches = 0;
+  let nameMatches = 0;
+  let totalImagesAdded = 0;
+  
+  const mergedProducts = inventoryProducts.map(inventoryProduct => {
+    let commerceMatch = null;
+    let matchingStrategy = 'none';
     
+    // Strategy 1: Try matching by product ID first (most reliable)
+    if (inventoryProduct.item_id && commerceByProductId.has(inventoryProduct.item_id)) {
+      commerceMatch = commerceByProductId.get(inventoryProduct.item_id);
+      matchingStrategy = 'product_id';
+      productIdMatches++;
+    }
+    
+    // Strategy 2: Try matching by SKU if no product ID match
+    if (!commerceMatch && inventoryProduct.sku && commerceBySku.has(inventoryProduct.sku.trim())) {
+      commerceMatch = commerceBySku.get(inventoryProduct.sku.trim());
+      matchingStrategy = 'sku';
+      skuMatches++;
+    }
+    
+    // Strategy 3: Fall back to name matching
+    if (!commerceMatch && inventoryProduct.name) {
+      const nameKey = inventoryProduct.name.trim().toLowerCase();
+      if (commerceByName.has(nameKey)) {
+        commerceMatch = commerceByName.get(nameKey);
+        matchingStrategy = 'name';
+        nameMatches++;
+      }
+    }
+    
+    // Extract images from commerce match using the WORKING pattern
+    let productImages = [];
+    if (commerceMatch) {
+      const extractedImages = extractCommerceImages(commerceMatch);
+      if (extractedImages.length > 0) {
+        // Transform to full-size images (remove size restrictions)
+        productImages = transformCommerceImages(extractedImages);
+        totalImagesAdded += productImages.length;
+        console.log(`✅ ${matchingStrategy} match for ${inventoryProduct.item_id}: ${productImages.length} images`);
+      } else {
+        console.log(`⚠️ No images extracted for ${inventoryProduct.item_id} despite commerce match`);
+      }
+    }
+    
+    // Transform to frontend format
     return {
-      product_id: product.item_id,
-      product_name: product.name,
-      sku: product.sku,
-      product_price: parseFloat(product.rate || 0),
-      product_description: product.description || '',
-      status: product.status,
-      cf_display_in_app: product.cf_display_in_app,
-      cf_display_in_app_unformatted: product.cf_display_in_app_unformatted,
-      product_images: commerceProduct?.product_images || [],
-      inventory_data: {
-        stock_on_hand: product.stock_on_hand || 0,
-        available_stock: product.available_stock || 0,
-        reserved_stock: product.reserved_stock || 0
-      },
-      custom_fields: product.custom_fields || [],
-      last_updated: product.last_modified_time || new Date().toISOString()
+      // Use Inventory API field names as primary
+      product_id: inventoryProduct.item_id,
+      product_name: inventoryProduct.name,
+      product_price: parseFloat(inventoryProduct.rate || 0),
+      product_description: inventoryProduct.description || '',
+      
+      // Use the extracted and transformed images
+      product_images: productImages,
+      
+      // Stock/inventory information from Inventory API
+      inventory_count: parseStock(inventoryProduct.stock_on_hand || inventoryProduct.available_stock),
+      
+      // Category information
+      product_category: inventoryProduct.category_name || inventoryProduct.group_name || '',
+      category_id: inventoryProduct.category_id || inventoryProduct.group_id,
+      
+      // Product status and visibility
+      status: inventoryProduct.status,
+      
+      // SEO and URL
+      seo_url: inventoryProduct.sku || inventoryProduct.item_id,
+      
+      // Custom fields (the whole reason we're using Inventory API)
+      cf_display_in_app: inventoryProduct.cf_display_in_app_unformatted || inventoryProduct.cf_display_in_app,
+      
+      // Additional fields
+      sku: inventoryProduct.sku,
+      item_type: inventoryProduct.item_type,
+      product_type: inventoryProduct.product_type || 'physical',
+      
+      // Pricing details
+      rate: inventoryProduct.rate,
+      purchase_rate: inventoryProduct.purchase_rate,
+      
+      // Stock details
+      stock_on_hand: inventoryProduct.stock_on_hand,
+      available_stock: inventoryProduct.available_stock,
+      reorder_level: inventoryProduct.reorder_level,
+      
+      // Timestamps
+      created_time: inventoryProduct.created_time,
+      last_modified_time: inventoryProduct.last_modified_time,
+      
+      // Debug info (helpful for troubleshooting)
+      has_commerce_images: productImages.length > 0,
+      has_commerce_match: !!commerceMatch,
+      commerce_product_id: commerceMatch?.product_id || null,
+      matching_strategy: matchingStrategy,
+      image_source: 'commerce_documents_restored'
     };
+  });
+  
+  console.log(`\n=== MATCHING SUMMARY ===`);
+  console.log(`Product ID matches: ${productIdMatches}`);
+  console.log(`SKU matches: ${skuMatches}`);
+  console.log(`Name matches: ${nameMatches}`);
+  console.log(`Total images added: ${totalImagesAdded}`);
+  console.log(`Products with images: ${mergedProducts.filter(p => p.product_images.length > 0).length}`);
+  
+  return mergedProducts;
+}
+
+/**
+ * CRITICAL: RESTORED working image extraction from commerce products
+ * Based on your project knowledge - images are in documents array, NOT product_images
+ */
+function extractCommerceImages(product) {
+  const images = [];
+  
+  console.log(`🔍 Extracting images for commerce product ${product.product_id} (${product.product_name || product.name})`);
+  
+  // CRITICAL: Check documents array which contains the ACTUAL document IDs for CDN
+  if (product.documents && Array.isArray(product.documents)) {
+    console.log(`Found ${product.documents.length} documents`);
+    product.documents.forEach(doc => {
+      // Use "file_name" not "document_name" as confirmed in project knowledge
+      if (doc.file_name && isImageFile(doc.file_name)) {
+        const documentId = doc.document_id || doc.id;
+        if (documentId) {
+          // Use the WORKING CDN pattern from your project
+          const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${documentId}/1200x1200?storefront_domain=www.traveldatawifi.com`;
+          images.push(imageUrl);
+          console.log(`✅ Constructed CDN image: ${imageUrl}`);
+        } else {
+          console.log(`⚠️ Document ${doc.file_name} missing document_id:`, doc);
+        }
+      }
+    });
+  }
+  
+  // Check variants with documents (additional images)
+  if (product.variants && Array.isArray(product.variants)) {
+    product.variants.forEach(variant => {
+      if (variant.documents && Array.isArray(variant.documents)) {
+        variant.documents.forEach(doc => {
+          if (doc.file_name && isImageFile(doc.file_name)) {
+            const documentId = doc.document_id || doc.id;
+            if (documentId) {
+              const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${documentId}/1200x1200?storefront_domain=www.traveldatawifi.com`;
+              images.push(imageUrl);
+              console.log(`✅ Constructed variant CDN image: ${imageUrl}`);
+            }
+          }
+        });
+      }
+    });
+  }
+  
+  // If no images found, provide detailed debugging info
+  if (images.length === 0 && product.product_id) {
+    console.log(`⚠️ No image files found for product ${product.product_id} (${product.product_name || product.name})`);
+    
+    const availableFields = Object.keys(product).filter(key => 
+      key.toLowerCase().includes('image') || 
+      key.toLowerCase().includes('document') || 
+      key.toLowerCase().includes('file')
+    );
+    console.log(`Available image/document fields: ${availableFields.join(', ')}`);
+    
+    if (product.documents && product.documents.length > 0) {
+      console.log(`Sample document fields:`, Object.keys(product.documents[0]));
+      console.log(`First document:`, product.documents[0]);
+    }
+  }
+  
+  return [...new Set(images)]; // Remove duplicates
+}
+
+/**
+ * Transform commerce images to remove size restrictions (get full-size images)
+ */
+function transformCommerceImages(images) {
+  return images.map(imageUrl => {
+    // Check if it's a Zoho CDN URL with size restrictions
+    if (imageUrl.includes('zohocommercecdn.com') && imageUrl.includes('/1200x1200')) {
+      // Remove the size restriction to get full-size image
+      const fullSizeUrl = imageUrl.replace(/\/\d+x\d+/, '');
+      console.log(`🎨 Converted to full-size: ${imageUrl} -> ${fullSizeUrl}`);
+      return fullSizeUrl;
+    } else {
+      // Return as-is if not a sized Zoho CDN URL
+      return imageUrl;
+    }
   });
 }
 
 /**
- * Health check endpoint for monitoring
+ * Parse stock information consistently
  */
-export async function healthCheck() {
-  const status = tokenManager.getStatus();
+function parseStock(stockValue) {
+  if (stockValue === null || stockValue === undefined || stockValue === '') {
+    return 0;
+  }
   
-  return {
-    status: 'ok',
-    timestamp: new Date().toISOString(),
-    cache_system: {
-      hot_cache_age: cacheSystem.hotCache.timestamp ? Date.now() - cacheSystem.hotCache.timestamp : null,
-      warm_cache_age: cacheSystem.warmCache.timestamp ? Date.now() - cacheSystem.warmCache.timestamp : null,
-      cold_cache_age: cacheSystem.coldCache.timestamp ? Date.now() - cacheSystem.coldCache.timestamp : null
-    },
-    circuit_breaker: {
-      is_open: circuitBreaker.isOpen,
-      failure_count: circuitBreaker.failureCount,
-      last_failure: circuitBreaker.lastFailureTime
-    },
-    request_tracker: {
-      active_requests: requestTracker.activeRequests,
-      queued_requests: requestTracker.requestQueue.length
-    },
-    token_manager: status
-  };
+  const parsed = typeof stockValue === 'string' ? 
+    parseFloat(stockValue) : Number(stockValue);
+  return isNaN(parsed) ? 0 : parsed;
+}
+
+/**
+ * Check if filename is an image file
+ */
+function isImageFile(filename) {
+  if (!filename || typeof filename !== 'string') return false;
+  
+  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+  const lowerFilename = filename.toLowerCase();
+  
+  return imageExtensions.some(ext => lowerFilename.endsWith(ext));
 }
