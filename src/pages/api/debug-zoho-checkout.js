@@ -29,7 +29,7 @@ export default async function handler(req, res) {
     console.log('2. Testing Zoho API import...');
     let zohoAPI;
     try {
-      const zohoModule = await import('../../lib/zoho-api');
+      const zohoModule = await import('../../lib/zoho-api.old');
       zohoAPI = zohoModule.zohoAPI;
       diagnostics.zohoAPIImport = { success: true };
       console.log('✓ Zoho API imported successfully');

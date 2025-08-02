@@ -1,6 +1,6 @@
 // ===== src/pages/api/products.js ===== (FIXED WITH STOREFRONT API IMAGES)
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
-import { zohoAPI } from '../../lib/zoho-api';
+import { zohoAPI } from '../../lib/zoho-api.old';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {

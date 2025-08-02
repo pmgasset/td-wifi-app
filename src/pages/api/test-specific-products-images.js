@@ -1,5 +1,5 @@
 // ===== src/pages/api/test-specific-products-images.js =====
-import { zohoAPI } from '../../lib/zoho-api';
+import { zohoAPI } from '../../lib/zoho-api.old';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {

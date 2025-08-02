@@ -1,5 +1,5 @@
 // ===== src/pages/api/products/[id].js =====
-import { zohoAPI } from '../../../lib/zoho-api';
+import { zohoAPI } from '../../../lib/zoho-api.old';
 
 export default async function handler(req, res) {
   const { id } = req.query;

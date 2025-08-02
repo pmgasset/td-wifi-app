@@ -1,5 +1,5 @@
 // ===== src/pages/api/debug-zoho-comprehensive.js =====
-import { zohoAPI } from '../../lib/zoho-api';
+import { zohoAPI } from '../../lib/zoho-api.old';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
