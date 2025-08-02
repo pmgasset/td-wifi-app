@@ -44,3 +44,14 @@ export async function loadToken(key: string): Promise<string | null> {
     return null;
   }
 }
+
+export async function deleteToken(key: string): Promise<void> {
+  memoryCache.delete(key);
+  await ensureDir();
+  if (!directoryUsable) return;
+  try {
+    await fs.unlink(path.join(DATA_DIR, key));
+  } catch {
+    // ignore errors removing token
+  }
+}
