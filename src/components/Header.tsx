@@ -1,14 +1,13 @@
 // src/components/Header.tsx
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ShoppingCart, Menu, X, Wifi, Phone, Search, HelpCircle } from 'lucide-react';
+import { ShoppingCart, Menu, X, HelpCircle } from 'lucide-react';
 import { useCartStore } from '../store/cart';
 import Cart from './Cart';
 
 const Header: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const { getTotalItems, openCart } = useCartStore();
   const cartItemCount = getTotalItems();
 
@@ -64,52 +63,131 @@ const Header: React.FC = () => {
         }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Mobile Layout */}
+          <div className="lg:hidden">
+            {/* Mobile Header Row */}
+            <div className="flex justify-between items-center mb-3">
+              {/* Mobile Menu Button */}
+              <button
+                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                className="menu-button flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-logo-teal"
+                aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
+              >
+                {isMenuOpen ? (
+                  <X className="h-5 w-5 text-gray-600" />
+                ) : (
+                  <Menu className="h-5 w-5 text-gray-600" />
+                )}
+              </button>
+
+              {/* Centered Mobile Logo */}
+              <Link href="/" className="focus:outline-none focus:ring-2 focus:ring-logo-teal rounded">
+                <div className={`transition-all duration-300 ${
+                  isScrolled ? 'h-8' : 'h-10'
+                }`}>
+                  <img 
+                    src="/logo.svg" 
+                    alt="Travel Data WiFi"
+                    className="h-full w-auto"
+                  />
+                </div>
+              </Link>
+
+              {/* Mobile Cart */}
+              <button
+                onClick={openCart}
+                className="relative flex items-center justify-center w-10 h-10 rounded-full bg-logo-teal hover:bg-logo-ocean transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-logo-teal focus:ring-offset-2"
+                aria-label={`Shopping cart with ${cartItemCount} items`}
+              >
+                <ShoppingCart className="h-5 w-5 text-white" />
+                {cartItemCount > 0 && (
+                  <span className="absolute -top-2 -right-2 bg-logo-signal text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-bounce-gentle">
+                    {cartItemCount > 99 ? '99+' : cartItemCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Mobile Navigation Menu */}
+            <div className={`mobile-menu transition-all duration-300 ease-in-out ${
+              isMenuOpen 
+                ? 'max-h-screen opacity-100' 
+                : 'max-h-0 opacity-0 overflow-hidden'
+            }`}>
+              <div className="border-t border-gray-200 bg-white/95 backdrop-blur-md rounded-b-lg">
+                <div className="px-4 py-6">
+                  {/* Navigation Links */}
+                  <nav className="space-y-4">
+                    {navigation.map((item) => (
+                      <Link
+                        key={item.name}
+                        href={item.href}
+                        className="block group"
+                        onClick={() => setIsMenuOpen(false)}
+                      >
+                        <div className={`flex items-center justify-between p-4 rounded-lg transition-colors ${
+                          item.name === 'Support Center'
+                            ? 'bg-teal-50 border border-teal-200 hover:bg-teal-100'
+                            : 'hover:bg-gray-50'
+                        }`}>
+                          <div className="flex items-center space-x-3">
+                            {item.icon && <item.icon className="h-5 w-5 text-logo-teal" />}
+                            <div>
+                              <div className={`text-lg font-semibold transition-colors ${
+                                item.name === 'Support Center'
+                                  ? 'text-logo-teal'
+                                  : 'text-gray-900 group-hover:text-logo-teal'
+                              }`}>
+                                {item.name}
+                              </div>
+                              <div className="text-sm text-gray-500">
+                                {item.description}
+                              </div>
+                            </div>
+                          </div>
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
+                            item.name === 'Support Center'
+                              ? 'bg-logo-teal text-white'
+                              : 'bg-logo-teal/10 group-hover:bg-logo-teal group-hover:text-white'
+                          }`}>
+                            <span className="text-xs">→</span>
+                          </div>
+                        </div>
+                      </Link>
+                    ))}
+                  </nav>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Desktop Layout */}
           <div className="hidden lg:block">
-            {/* Top Row - Centered Logo */}
-            <div className="flex justify-center items-center mb-3">
-              <Link href="/" className="group focus-visible">
-                <div className={`bg-gradient-to-r from-logo-teal to-logo-ocean rounded-lg p-3 transition-all duration-300 hover:scale-105 ${
-                  isScrolled ? 'w-48 h-12 p-2' : 'w-72 h-16 p-3'
+            {/* Centered Logo */}
+            <div className="flex justify-center items-center mb-4">
+              <Link href="/" className="focus:outline-none focus:ring-2 focus:ring-logo-teal rounded">
+                <div className={`transition-all duration-300 hover:scale-105 ${
+                  isScrolled ? 'h-12' : 'h-16'
                 }`}>
-                  <div className="flex items-center justify-center space-x-3 h-full">
-                    <Wifi className={`text-white transition-all duration-300 ${
-                      isScrolled ? 'h-5 w-5' : 'h-8 w-8'
-                    }`} />
-                    <span className={`font-bold text-white transition-all duration-300 ${
-                      isScrolled ? 'text-lg' : 'text-2xl'
-                    }`}>
-                      Travel Data WiFi
-                    </span>
-                  </div>
+                  <img 
+                    src="/logo.svg" 
+                    alt="Travel Data WiFi"
+                    className="h-full w-auto"
+                  />
                 </div>
               </Link>
             </div>
 
-            {/* Bottom Row - Navigation and Actions */}
-            <div className="flex justify-between items-center">
-              {/* Left - Contact Info */}
-              <div className="flex items-center space-x-4 text-sm text-gray-600">
-                <a 
-                  href="tel:+1-800-555-0123"
-                  className="flex items-center space-x-2 hover:text-logo-teal transition-colors focus-visible"
-                >
-                  <Phone className="h-4 w-4" />
-                  <span className="hidden xl:inline">1-800-555-0123</span>
-                </a>
-                <span className="text-gray-300">|</span>
-                <span className="text-logo-signal font-medium">Free Expert Consultation</span>
-              </div>
-
-              {/* Center - Navigation */}
+            {/* Navigation Menu Below Logo */}
+            <div className="flex justify-center items-center">
               <nav className="flex items-center space-x-8">
                 {navigation.map((item) => (
                   <Link
                     key={item.name}
                     href={item.href}
-                    className={`group relative font-medium transition-all duration-200 focus-visible flex items-center space-x-2 ${
+                    className={`group relative font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-logo-teal rounded-md px-3 py-2 flex items-center space-x-2 ${
                       item.name === 'Support Center'
-                        ? 'text-logo-teal hover:text-logo-ocean bg-teal-50 hover:bg-teal-100 px-3 py-2 rounded-lg'
+                        ? 'text-logo-teal hover:text-logo-ocean bg-teal-50 hover:bg-teal-100 rounded-lg'
                         : 'text-gray-700 hover:text-logo-teal'
                     }`}
                     title={item.description}
@@ -123,19 +201,11 @@ const Header: React.FC = () => {
                 ))}
               </nav>
 
-              {/* Right - Actions */}
-              <div className="flex items-center space-x-4">
-                <button
-                  onClick={() => setIsSearchOpen(!isSearchOpen)}
-                  className="flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 transition-all duration-200 focus-visible"
-                  aria-label="Search products"
-                >
-                  <Search className="h-5 w-5 text-gray-600" />
-                </button>
-
+              {/* Desktop Cart - Positioned to the right */}
+              <div className="ml-8">
                 <button
                   onClick={openCart}
-                  className="relative flex items-center justify-center w-10 h-10 rounded-full bg-logo-teal hover:bg-logo-ocean transition-all duration-200 focus-visible"
+                  className="relative flex items-center justify-center w-10 h-10 rounded-full bg-logo-teal hover:bg-logo-ocean transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-logo-teal focus:ring-offset-2"
                   aria-label={`Shopping cart with ${cartItemCount} items`}
                 >
                   <ShoppingCart className="h-5 w-5 text-white" />
@@ -145,161 +215,10 @@ const Header: React.FC = () => {
                     </span>
                   )}
                 </button>
-
-                <button
-                  onClick={() => setIsMenuOpen(!isMenuOpen)}
-                  className="menu-button flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 transition-all duration-200 focus-visible"
-                  aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
-                >
-                  {isMenuOpen ? (
-                    <X className="h-5 w-5 text-gray-600" />
-                  ) : (
-                    <Menu className="h-5 w-5 text-gray-600" />
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Mobile Layout */}
-          <div className="lg:hidden">
-            <div className="flex justify-between items-center">
-              {/* Mobile Logo */}
-              <Link href="/" className="focus-visible">
-                <div className="bg-gradient-to-r from-logo-teal to-logo-ocean rounded-lg p-2">
-                  <div className="flex items-center space-x-2">
-                    <Wifi className="h-6 w-6 text-white" />
-                    <span className="font-bold text-white text-lg">Travel Data</span>
-                  </div>
-                </div>
-              </Link>
-
-              {/* Mobile Actions */}
-              <div className="flex items-center space-x-3">
-                <button
-                  onClick={openCart}
-                  className="relative flex items-center justify-center w-10 h-10 rounded-full bg-logo-teal hover:bg-logo-ocean transition-all duration-200 focus-visible"
-                  aria-label={`Shopping cart with ${cartItemCount} items`}
-                >
-                  <ShoppingCart className="h-5 w-5 text-white" />
-                  {cartItemCount > 0 && (
-                    <span className="absolute -top-2 -right-2 bg-logo-signal text-white text-xs font-bold rounded-full h-5 w-5 flex items-center justify-center animate-bounce-gentle">
-                      {cartItemCount > 99 ? '99+' : cartItemCount}
-                    </span>
-                  )}
-                </button>
-
-                <button
-                  onClick={() => setIsMenuOpen(!isMenuOpen)}
-                  className="menu-button flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 transition-all duration-200 focus-visible"
-                  aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
-                >
-                  {isMenuOpen ? (
-                    <X className="h-5 w-5 text-gray-600" />
-                  ) : (
-                    <Menu className="h-5 w-5 text-gray-600" />
-                  )}
-                </button>
               </div>
             </div>
           </div>
         </div>
-
-        {/* Mobile Navigation Menu */}
-        <div className={`mobile-menu lg:hidden transition-all duration-300 ease-in-out ${
-          isMenuOpen 
-            ? 'max-h-screen opacity-100' 
-            : 'max-h-0 opacity-0 overflow-hidden'
-        }`}>
-          <div className="border-t border-gray-200 bg-white/95 backdrop-blur-md">
-            <div className="max-w-7xl mx-auto px-4 py-6">
-              {/* Contact Info */}
-              <div className="mb-6 p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600 mb-1">Need help choosing?</p>
-                    <a 
-                      href="tel:+1-800-555-0123"
-                      className="text-lg font-semibold text-logo-teal hover:text-logo-ocean transition-colors"
-                    >
-                      1-800-555-0123
-                    </a>
-                  </div>
-                  <Phone className="h-8 w-8 text-logo-teal" />
-                </div>
-              </div>
-
-              {/* Navigation Links */}
-              <nav className="space-y-4">
-                {navigation.map((item) => (
-                  <Link
-                    key={item.name}
-                    href={item.href}
-                    className="block group"
-                    onClick={() => setIsMenuOpen(false)}
-                  >
-                    <div className={`flex items-center justify-between p-4 rounded-lg transition-colors ${
-                      item.name === 'Support Center'
-                        ? 'bg-teal-50 border border-teal-200 hover:bg-teal-100'
-                        : 'hover:bg-gray-50'
-                    }`}>
-                      <div className="flex items-center space-x-3">
-                        {item.icon && <item.icon className="h-5 w-5 text-logo-teal" />}
-                        <div>
-                          <div className={`text-lg font-semibold transition-colors ${
-                            item.name === 'Support Center'
-                              ? 'text-logo-teal'
-                              : 'text-gray-900 group-hover:text-logo-teal'
-                          }`}>
-                            {item.name}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {item.description}
-                          </div>
-                        </div>
-                      </div>
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center transition-colors ${
-                        item.name === 'Support Center'
-                          ? 'bg-logo-teal text-white'
-                          : 'bg-logo-teal/10 group-hover:bg-logo-teal group-hover:text-white'
-                      }`}>
-                        <span className="text-xs">→</span>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </nav>
-
-              {/* Mobile CTA */}
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <Link
-                  href="/free-guide"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="block w-full bg-gradient-cta text-white text-center py-4 rounded-lg font-semibold hover:shadow-lg transition-shadow"
-                >
-                  Get Free Setup Guide
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Search Overlay */}
-        {isSearchOpen && (
-          <div className="absolute top-full left-0 right-0 bg-white shadow-lg border-b border-gray-200 lg:block hidden">
-            <div className="max-w-7xl mx-auto px-4 py-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search products, guides, or support..."
-                  className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-logo-teal focus:border-transparent"
-                  autoFocus
-                />
-              </div>
-            </div>
-          </div>
-        )}
       </header>
 
       <Cart />
