@@ -33,12 +33,24 @@ ZOHO_STORE_ID=your_zoho_store_id
 
 ## Deployment
 
-This project is optimized for Cloudflare Pages:
+This project is optimized for deployment on Vercel and uses Upstash Redis for
+product caching. A daily cron job fetches products from Zoho Inventory and
+stores them in Redis for fast access.
 
-1. Connect your GitHub repository to Cloudflare Pages
+### Deployment on Vercel
+
+1. Connect your GitHub repository to Vercel
 2. Set build command: `npm run build`
-3. Set output directory: `out`
-4. Add environment variables in Cloudflare Pages dashboard
+3. Add the required environment variables in the Vercel dashboard:
+
+```
+UPSTASH_REDIS_REST_URL=your_redis_url
+UPSTASH_REDIS_REST_TOKEN=your_redis_token
+CRON_SECRET=your_secure_random_string
+```
+
+4. Vercel will automatically run the cron job defined in `vercel.json` to sync
+   products daily.
 
 ## Project Structure
 
