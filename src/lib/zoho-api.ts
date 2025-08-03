@@ -1,4 +1,6 @@
 // ===== src/lib/zoho-api.ts ===== (UPDATED TO USE STOREFRONT API FOR IMAGES)
+import { rateLimitedFetch } from './zoho-rate-limit';
+
 class ZohoCommerceAPI {
   private baseURL = 'https://commerce.zoho.com/store/api/v1';
   private storefrontURL = 'https://commerce.zoho.com/storefront/api/v1';
@@ -27,7 +29,7 @@ class ZohoCommerceAPI {
       grant_type: 'refresh_token',
     };
 
-    const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
+    const response = await rateLimitedFetch('https://accounts.zoho.com/oauth/v2/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams(credentials),
@@ -66,7 +68,7 @@ class ZohoCommerceAPI {
       });
     }
 
-    const response = await fetch(url, {
+    const response = await rateLimitedFetch(url, {
       ...options,
       headers,
     });
@@ -118,7 +120,7 @@ class ZohoCommerceAPI {
       });
     }
 
-    const response = await fetch(url, {
+    const response = await rateLimitedFetch(url, {
       ...options,
       headers,
     });
