@@ -51,6 +51,14 @@ const InvoicePaymentPage = () => {
   const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Helper function to safely get amount value
+  const getAmountValue = useCallback((): number => {
+    if (orderDetails?.total) return orderDetails.total;
+    if (Array.isArray(amount)) return parseFloat(amount[0] || '0');
+    if (amount) return parseFloat(amount as string);
+    return 0;
+  }, [orderDetails, amount]);
+
   const fetchOrderDetails = useCallback(async () => {
     try {
       console.log('Fetching order details for:', order_id);
@@ -149,14 +157,6 @@ const InvoicePaymentPage = () => {
       currency: Array.isArray(currency) ? currency[0] : currency || 'USD'
     }).format(num);
   };
-
-    // Helper function to safely get amount value
-    const getAmountValue = useCallback((): number => {
-      if (orderDetails?.total) return orderDetails.total;
-      if (Array.isArray(amount)) return parseFloat(amount[0] || '0');
-      if (amount) return parseFloat(amount as string);
-      return 0;
-    }, [orderDetails, amount]);
 
   if (loading) {
     return (

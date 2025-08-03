@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/router';
 import useSWR from 'swr';
 import Link from 'next/link';
-import Image from 'next/image';
+import NextImage from 'next/image';
 import Layout from '../../components/Layout';
 import { useCartStore } from '../../store/cart';
 import { ArrowLeft, ShoppingCart, Loader2, AlertCircle, Package, Star, ChevronLeft, ChevronRight, ZoomIn } from 'lucide-react';
@@ -122,7 +122,7 @@ class ImageLoader {
 // Types
 interface ImageItem {
   src: string;
-  alt?: string;
+  alt: string;
 }
 
 interface CarouselProps {
@@ -145,11 +145,13 @@ const ProductImageCarousel: React.FC<CarouselProps> = ({ images, productName, cl
   // Normalize images to consistent format
   const normalizedImages: ImageItem[] = useMemo(() => {
     if (!images || images.length === 0) return [];
-    
-    return images.map((img, index) => ({
-      src: typeof img === 'string' ? img : img.src,
-      alt: `${productName} - Image ${index + 1}`
-    })).filter(img => img.src && img.src.trim() !== '');
+
+    return images
+      .map((img, index) => ({
+        src: typeof img === 'string' ? img : img.src || '',
+        alt: `${productName} - Image ${index + 1}`
+      }))
+      .filter(img => img.src.trim() !== '');
   }, [images, productName]);
 
   // Preload images with rate limiting
@@ -159,7 +161,7 @@ const ProductImageCarousel: React.FC<CarouselProps> = ({ images, productName, cl
     const preloadImage = (src: string, index: number): Promise<void> => {
       return imageLoaderRef.current.addToQueue(() => {
         return new Promise((resolve, reject) => {
-          const img = new Image();
+          const img = new window.Image();
           img.onload = () => {
             setLoadedImages(prev => new Set(prev).add(index));
             resolve();
@@ -285,7 +287,7 @@ const ProductImageCarousel: React.FC<CarouselProps> = ({ images, productName, cl
           {hasFailed ? (
             <FallbackSVG />
           ) : (
-            <Image
+            <NextImage
               src={image.src}
               alt={image.alt}
               fill
@@ -336,7 +338,7 @@ const ProductImageCarousel: React.FC<CarouselProps> = ({ images, productName, cl
         {hasCurrentFailed ? (
           <FallbackSVG />
         ) : (
-          <Image
+          <NextImage
             src={currentImage.src}
             alt={currentImage.alt}
             fill
@@ -416,7 +418,7 @@ const ProductImageCarousel: React.FC<CarouselProps> = ({ images, productName, cl
                       </svg>
                     </div>
                   ) : (
-                    <Image
+                    <NextImage
                       src={image.src}
                       alt={`Thumbnail ${index + 1}`}
                       fill
