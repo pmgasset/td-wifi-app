@@ -17,6 +17,13 @@ const fetcher = (url: string) => fetch(url).then(res => {
 
 // Get product image URL (remove size restrictions for high quality)
 const getProductImage = (product: any): string => {
+  if (product.enhanced_images && product.enhanced_images.length > 0) {
+    const enhancedUrl = product.enhanced_images[0]?.url;
+    if (enhancedUrl) {
+      return enhancedUrl;
+    }
+  }
+
   if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
     // Remove size restrictions from Zoho CDN URLs to get full-size images
     let imageUrl = product.product_images[0];
@@ -28,7 +35,7 @@ const getProductImage = (product: any): string => {
     }
     return imageUrl;
   }
-  
+
   // Return placeholder SVG for missing images
   return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iMTUwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
 };
