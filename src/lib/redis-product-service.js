@@ -11,7 +11,12 @@ export class RedisProductService {
       const cached = await redis.get(CACHE_KEY)
       if (cached) {
         console.log('✅ Products loaded from Redis cache')
-        return JSON.parse(cached)
+        try {
+          return typeof cached === 'string' ? JSON.parse(cached) : cached
+        } catch (parseError) {
+          console.error('Error parsing cached products, refreshing from Zoho', parseError)
+          return await this.fetchAndCacheProducts()
+        }
       }
       console.log('⚠️ Cache miss - falling back to Zoho API')
       return await this.fetchAndCacheProducts()
@@ -25,7 +30,11 @@ export class RedisProductService {
     try {
       const cached = await redis.get(`product:${itemId}`)
       if (cached) {
-        return JSON.parse(cached)
+        try {
+          return typeof cached === 'string' ? JSON.parse(cached) : cached
+        } catch (parseError) {
+          console.error('Error parsing cached product:', parseError)
+        }
       }
       const allProducts = await this.getAllProducts()
       return allProducts.find(p => p.item_id === itemId)
@@ -39,7 +48,11 @@ export class RedisProductService {
     try {
       const cached = await redis.get(`product:sku:${sku}`)
       if (cached) {
-        return JSON.parse(cached)
+        try {
+          return typeof cached === 'string' ? JSON.parse(cached) : cached
+        } catch (parseError) {
+          console.error('Error parsing cached product by SKU:', parseError)
+        }
       }
       const allProducts = await this.getAllProducts()
       return allProducts.find(p => p.sku === sku)
@@ -52,10 +65,22 @@ export class RedisProductService {
   async getCacheStats() {
     try {
       const lastSync = await redis.get('products:last_sync')
-      const productCount = await redis.get(CACHE_KEY)
+      const productCountRaw = await redis.get(CACHE_KEY)
+      let productCount = 0
+      if (productCountRaw) {
+        try {
+          const parsed =
+            typeof productCountRaw === 'string'
+              ? JSON.parse(productCountRaw)
+              : productCountRaw
+          productCount = Array.isArray(parsed) ? parsed.length : 0
+        } catch (_) {
+          productCount = 0
+        }
+      }
       return {
-        lastSync: lastSync ? new Date(lastSync) : null,
-        productCount: productCount ? JSON.parse(productCount).length : 0,
+        lastSync: lastSync ? new Date(Number(lastSync)) : null,
+        productCount,
         cacheAge: lastSync ? Date.now() - Number(lastSync) : null
       }
     } catch (error) {
