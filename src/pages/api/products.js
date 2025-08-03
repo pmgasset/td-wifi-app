@@ -1,15 +1,26 @@
 // ===== src/pages/api/products.js ===== (FIXED WITH STOREFRONT API IMAGES)
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
 import { zohoAPI } from '../../lib/zoho-api.ts';
+import { redis } from '../../lib/upstash';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  const cacheKey = 'products:all';
+
   try {
+    if (redis) {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        console.log('🗃️ Returning cached products');
+        return res.status(200).json(cached);
+      }
+    }
+
     console.log('🚀 Starting FIXED products API with Storefront images...');
-    
+
     const startTime = Date.now();
 
     // Step 1: Get products from Inventory API (has custom fields)
@@ -46,7 +57,7 @@ export default async function handler(req, res) {
     // Provide detailed statistics
     const imageStats = generateImageStatistics(activeProducts);
 
-    res.status(200).json({ 
+    const responseData = {
       products: activeProducts,
       meta: {
         total_inventory_products: inventoryProducts.length,
@@ -57,9 +68,15 @@ export default async function handler(req, res) {
         timestamp: new Date().toISOString(),
         api_version: '2.0_fixed_storefront_images',
         fix_applied: 'storefront_api_integration',
-        ...imageStats
-      }
-    });
+        ...imageStats,
+      },
+    };
+
+    if (redis) {
+      await redis.set(cacheKey, responseData, { ex: 60 * 60 * 24 });
+    }
+
+    res.status(200).json(responseData);
 
   } catch (error) {
     console.error('❌ FIXED Products API Error:', {
