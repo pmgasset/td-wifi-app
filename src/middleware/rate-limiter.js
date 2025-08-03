@@ -1,6 +1,8 @@
 // middleware/rate-limiter.js
 // Rate limiting middleware to prevent API abuse
 
+const { kv } = require('@vercel/kv');
+
 class RateLimiter {
   constructor(options = {}) {
     this.windowMs = options.windowMs || 15 * 60 * 1000; // 15 minutes
@@ -9,14 +11,19 @@ class RateLimiter {
     this.headers = options.headers !== false; // Include rate limit headers
     this.skipSuccessfulRequests = options.skipSuccessfulRequests || false;
     this.skipFailedRequests = options.skipFailedRequests || false;
-    
-    // Store for tracking requests (in production, use Redis)
-    this.requests = new Map();
-    
-    // Cleanup expired entries every 5 minutes
-    this.cleanupInterval = setInterval(() => {
-      this.cleanup();
-    }, 5 * 60 * 1000);
+
+    // Use Vercel KV if environment variables are configured
+    this.useKv = Boolean(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
+
+    // Fallback in-memory store
+    this.requests = this.useKv ? null : new Map();
+
+    // Cleanup expired entries every 5 minutes for in-memory store
+    if (!this.useKv) {
+      this.cleanupInterval = setInterval(() => {
+        this.cleanup();
+      }, 5 * 60 * 1000);
+    }
   }
 
   // Get client identifier (IP address with optional user ID)
@@ -38,37 +45,45 @@ class RateLimiter {
   }
 
   // Increment request count for client
-  incrementRequests(clientId) {
-    const windowStart = this.getWindowStart();
-    const key = `${clientId}:${windowStart}`;
-    
+  async incrementRequests(key, windowStart) {
+    if (this.useKv) {
+      const count = await kv.incr(key);
+      if (count === 1) {
+        await kv.expire(key, Math.ceil(this.windowMs / 1000));
+      }
+      return { count, resetTime: windowStart + this.windowMs };
+    }
+
     const current = this.requests.get(key) || { count: 0, resetTime: windowStart + this.windowMs };
     current.count++;
     this.requests.set(key, current);
-    
     return current;
   }
 
   // Get current request count for client
-  getRequestCount(clientId) {
-    const windowStart = this.getWindowStart();
-    const key = `${clientId}:${windowStart}`;
-    
+  async getRequestCount(key, windowStart) {
+    if (this.useKv) {
+      const count = await kv.get(key);
+      return { count: count || 0, resetTime: windowStart + this.windowMs };
+    }
+
     return this.requests.get(key) || { count: 0, resetTime: windowStart + this.windowMs };
   }
 
-  // Clean up expired entries
+  // Clean up expired entries (only for in-memory store)
   cleanup() {
+    if (this.useKv) return;
+
     const now = Date.now();
     let cleanedCount = 0;
-    
+
     for (const [key, data] of this.requests) {
       if (now > data.resetTime) {
         this.requests.delete(key);
         cleanedCount++;
       }
     }
-    
+
     if (cleanedCount > 0) {
       console.log(`Rate limiter cleanup: removed ${cleanedCount} expired entries`);
     }
@@ -76,9 +91,12 @@ class RateLimiter {
 
   // Main middleware function
   middleware() {
-    return (req, res, next) => {
+    return async (req, res, next) => {
       const clientId = this.getClientId(req);
-      const current = this.getRequestCount(clientId);
+      const windowStart = this.getWindowStart();
+      const key = `rl:${clientId}:${windowStart}`;
+
+      const current = await this.getRequestCount(key, windowStart);
       
       // Check if limit exceeded
       if (current.count >= this.maxRequests) {
@@ -101,7 +119,7 @@ class RateLimiter {
       }
       
       // Increment request count
-      const updated = this.incrementRequests(clientId);
+      const updated = await this.incrementRequests(key, windowStart);
       
       // Set rate limit headers
       if (this.headers) {
@@ -116,15 +134,18 @@ class RateLimiter {
       const originalSend = res.send;
       res.send = function(body) {
         const statusCode = res.statusCode;
-        
+
         // Optionally skip counting successful/failed requests
         if ((this.skipSuccessfulRequests && statusCode < 400) ||
             (this.skipFailedRequests && statusCode >= 400)) {
-          // Decrement the count
-          updated.count--;
-          this.requests.set(`${clientId}:${this.getWindowStart()}`, updated);
+          if (this.useKv) {
+            kv.decr(key).catch(() => {});
+          } else {
+            updated.count--;
+            this.requests.set(key, updated);
+          }
         }
-        
+
         return originalSend.call(this, body);
       }.bind(this);
       
@@ -134,33 +155,47 @@ class RateLimiter {
 
   // Get statistics
   getStats() {
+    if (this.useKv) {
+      return {
+        activeWindows: null,
+        totalRequests: null,
+        expiredEntries: null,
+        totalEntries: null,
+        windowMs: this.windowMs,
+        maxRequests: this.maxRequests,
+        storage: 'kv'
+      };
+    }
+
     const now = Date.now();
     let activeWindows = 0;
     let totalRequests = 0;
     let expiredEntries = 0;
-    
+
     for (const [key, data] of this.requests) {
       totalRequests += data.count;
-      
+
       if (now > data.resetTime) {
         expiredEntries++;
       } else {
         activeWindows++;
       }
     }
-    
+
     return {
       activeWindows,
       totalRequests,
       expiredEntries,
       totalEntries: this.requests.size,
       windowMs: this.windowMs,
-      maxRequests: this.maxRequests
+      maxRequests: this.maxRequests,
+      storage: 'memory'
     };
   }
 
   // Reset all rate limits (for testing or emergency)
   reset() {
+    if (this.useKv) return;
     this.requests.clear();
   }
 
