@@ -1,19 +1,22 @@
 import { Redis } from '@upstash/redis'
+import { zohoAPI } from './zoho-api.ts'
 
 const redis = Redis.fromEnv()
+const CACHE_KEY = 'products:all'
+const CACHE_TTL = 60 * 60 * 24 // 24 hours
 
 export class RedisProductService {
   async getAllProducts() {
     try {
-      const cached = await redis.get('products:all')
+      const cached = await redis.get(CACHE_KEY)
       if (cached) {
         console.log('✅ Products loaded from Redis cache')
         return JSON.parse(cached)
       }
-      console.log('⚠️ Cache miss - falling back to API')
+      console.log('⚠️ Cache miss - falling back to Zoho API')
       return await this.fetchAndCacheProducts()
     } catch (error) {
-      console.error('Redis error, falling back to API:', error)
+      console.error('Redis error, falling back to Zoho API:', error)
       return await this.fetchFromZohoDirectly()
     }
   }
@@ -49,11 +52,11 @@ export class RedisProductService {
   async getCacheStats() {
     try {
       const lastSync = await redis.get('products:last_sync')
-      const productCount = await redis.get('products:all')
+      const productCount = await redis.get(CACHE_KEY)
       return {
         lastSync: lastSync ? new Date(lastSync) : null,
         productCount: productCount ? JSON.parse(productCount).length : 0,
-        cacheAge: lastSync ? Date.now() - lastSync : null
+        cacheAge: lastSync ? Date.now() - Number(lastSync) : null
       }
     } catch (error) {
       return { error: error.message }
@@ -62,13 +65,52 @@ export class RedisProductService {
 
   async fetchAndCacheProducts() {
     const products = await this.fetchFromZohoDirectly()
-    await redis.setex('products:all', 3600, JSON.stringify(products))
+    await redis.set(CACHE_KEY, JSON.stringify(products), { ex: CACHE_TTL })
+    await redis.set('products:last_sync', Date.now().toString())
     return products
   }
 
   async fetchFromZohoDirectly() {
-    const { zohoInventoryAPI } = await import('./zoho-api-inventory')
-    return await zohoInventoryAPI.getInventoryProducts()
+    const products = await zohoAPI.getProducts()
+
+    const filtered = (products || []).filter(product => {
+      const displayInApp =
+        product.cf_display_in_app ||
+        product.cf_display_in_app_unformatted ||
+        product.display_in_app
+      return (
+        displayInApp === true ||
+        displayInApp === 'true' ||
+        displayInApp === 'True' ||
+        displayInApp === 'TRUE' ||
+        displayInApp === '1' ||
+        displayInApp === 1
+      )
+    })
+
+    const transformed = filtered.map(item => ({
+      product_id: item.product_id || item.item_id,
+      product_name: item.product_name || item.name,
+      product_price: item.product_price || item.min_rate || item.rate || 0,
+      product_description: item.product_description || item.description || '',
+      inventory_count: parseInt(
+        item.inventory_count || item.available_stock || item.stock_on_hand || 0
+      ),
+      product_category: item.product_category || item.category_name || '',
+      sku: item.sku,
+      status: item.status,
+      product_images: item.product_images || [],
+      enhanced_images: item.enhanced_images || undefined
+    }))
+
+    const activeProducts = transformed.filter(
+      product =>
+        product.status === 'active' ||
+        product.status === 'Active' ||
+        !product.status
+    )
+
+    return activeProducts
   }
 }
 
