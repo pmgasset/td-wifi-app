@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useRouter } from 'next/router';
 import useSWR from 'swr';
 import Link from 'next/link';
+import Image from 'next/image';
 import Layout from '../../components/Layout';
 import { useCartStore } from '../../store/cart';
 import { ArrowLeft, ShoppingCart, Loader2, AlertCircle, Package, Star, ChevronLeft, ChevronRight, ZoomIn } from 'lucide-react';
@@ -275,7 +276,7 @@ const ProductImageCarousel: React.FC<CarouselProps> = ({ images, productName, cl
 
     return (
       <div className={`relative group ${className}`}>
-        <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden">
+        <div className="aspect-square bg-gray-100 rounded-lg overflow-hidden relative">
           {!isLoaded && !hasFailed && (
             <div className="w-full h-full flex items-center justify-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-travel-blue"></div>
@@ -284,10 +285,11 @@ const ProductImageCarousel: React.FC<CarouselProps> = ({ images, productName, cl
           {hasFailed ? (
             <FallbackSVG />
           ) : (
-            <img
+            <Image
               src={image.src}
               alt={image.alt}
-              className={`w-full h-full object-cover transition-all duration-300 cursor-pointer ${
+              fill
+              className={`object-cover transition-all duration-300 cursor-pointer ${
                 isLoaded ? 'opacity-100' : 'opacity-0'
               } ${isZoomed ? 'scale-150' : 'hover:scale-105'}`}
               onClick={() => setIsZoomed(!isZoomed)}
@@ -334,10 +336,11 @@ const ProductImageCarousel: React.FC<CarouselProps> = ({ images, productName, cl
         {hasCurrentFailed ? (
           <FallbackSVG />
         ) : (
-          <img
+          <Image
             src={currentImage.src}
             alt={currentImage.alt}
-            className={`w-full h-full object-cover transition-all duration-300 cursor-pointer ${
+            fill
+            className={`object-cover transition-all duration-300 cursor-pointer ${
               isCurrentLoaded ? 'opacity-100' : 'opacity-0'
             } ${isZoomed ? 'scale-150' : 'hover:scale-105'}`}
             onClick={() => setIsZoomed(!isZoomed)}
@@ -413,10 +416,11 @@ const ProductImageCarousel: React.FC<CarouselProps> = ({ images, productName, cl
                       </svg>
                     </div>
                   ) : (
-                    <img
+                    <Image
                       src={image.src}
                       alt={`Thumbnail ${index + 1}`}
-                      className={`w-full h-full object-cover transition-opacity ${
+                      fill
+                      className={`object-cover transition-opacity ${
                         isThumbnailLoaded ? 'opacity-100' : 'opacity-0'
                       }`}
                     />
@@ -501,7 +505,7 @@ const ProductPage: React.FC = () => {
           <div className="text-center">
             <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Error Loading Product</h1>
-            <p className="text-gray-600 mb-4">We couldn't load the product details. Please try again.</p>
+            <p className="text-gray-600 mb-4">We couldn&apos;t load the product details. Please try again.</p>
             <button 
               onClick={() => router.reload()}
               className="bg-travel-blue text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
@@ -521,7 +525,7 @@ const ProductPage: React.FC = () => {
           <div className="text-center">
             <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
             <h1 className="text-2xl font-bold text-gray-900 mb-2">Product Not Found</h1>
-            <p className="text-gray-600 mb-4">The product you're looking for doesn't exist or may have been removed.</p>
+            <p className="text-gray-600 mb-4">The product you&apos;re looking for doesn&apos;t exist or may have been removed.</p>
             <Link 
               href="/products"
               className="bg-travel-blue text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors inline-block"

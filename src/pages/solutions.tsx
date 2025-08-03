@@ -1,6 +1,7 @@
 // src/pages/solutions.tsx
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
 import { 
@@ -195,9 +196,9 @@ const SolutionsPage = () => {
       <section className="py-16 lg:py-24 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 mb-4">
-              What's Your Connectivity Challenge?
-            </h2>
+              <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 mb-4">
+                What&apos;s Your Connectivity Challenge?
+              </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
               Select your situation to see how Travel Data WiFi provides the perfect solution.
             </p>
@@ -259,7 +260,7 @@ const SolutionsPage = () => {
                   </li>
                   <li className="flex items-start">
                     <CheckCircle className="h-5 w-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
-                    <span>Unlimited data on T-Mobile's premium network</span>
+                      <span>Unlimited data on T-Mobile&apos;s premium network</span>
                   </li>
                   <li className="flex items-start">
                     <CheckCircle className="h-5 w-5 text-green-500 mr-3 mt-0.5 flex-shrink-0" />
@@ -290,9 +291,9 @@ const SolutionsPage = () => {
             <h2 className="text-3xl lg:text-5xl font-bold text-gray-900 mb-4">
               Why Travel Data WiFi Works
             </h2>
-            <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              We've solved the core problems that make mobile internet frustrating.
-            </p>
+              <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+                We&apos;ve solved the core problems that make mobile internet frustrating.
+              </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -387,14 +388,15 @@ const SolutionsPage = () => {
                 
                 return (
                   <div key={product.product_id || index} className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-300 overflow-hidden">
-                    <div className="aspect-w-16 aspect-h-12 bg-gray-100">
-                      {productImage ? (
-                        <img 
-                          src={productImage} 
-                          alt={getProductName(product)}
-                          className="w-full h-48 object-cover"
-                        />
-                      ) : (
+                    <div className="aspect-w-16 aspect-h-12 bg-gray-100 h-48 relative">
+                        {productImage ? (
+                          <Image
+                            src={productImage}
+                            alt={getProductName(product)}
+                            fill
+                            className="object-cover"
+                          />
+                        ) : (
                         <div className="w-full h-48 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
                           <Router className="h-16 w-16 text-gray-400" />
                         </div>
@@ -484,7 +486,7 @@ const SolutionsPage = () => {
                     <Star key={i} className="h-5 w-5 text-yellow-400 fill-current" />
                   ))}
                 </div>
-                <p className="text-gray-700 mb-4 italic">"{testimonial.quote}"</p>
+                  <p className="text-gray-700 mb-4 italic">&quot;{testimonial.quote}&quot;</p>
                 <div>
                   <div className="font-semibold text-gray-900">{testimonial.author}</div>
                   <div className="text-sm text-gray-600">{testimonial.title}</div>
@@ -502,9 +504,9 @@ const SolutionsPage = () => {
             Ready to Solve Your Connectivity Problems?
           </h2>
           
-          <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
-            Join thousands of travelers who've discovered reliable internet anywhere.
-          </p>
+            <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
+              Join thousands of travelers who&apos;ve discovered reliable internet anywhere.
+            </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link 
