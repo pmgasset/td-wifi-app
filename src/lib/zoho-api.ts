@@ -106,12 +106,23 @@ class ZohoCommerceAPI {
     }
   }
 
-  async getProducts(): Promise<any[]> {
+  async getProducts(filter?: { names?: string[]; skus?: string[] }): Promise<any[]> {
     try {
       console.log('🛍️ Getting products from Store API for basic data...');
       const storeResponse = await this.apiRequest('/products');
-      const storeProducts: any[] = storeResponse.products || [];
+      let storeProducts: any[] = storeResponse.products || [];
       console.log(`✅ Retrieved ${storeProducts.length} products from Store API`);
+
+      if (filter?.names || filter?.skus) {
+        const nameSet = new Set((filter.names || []).map(n => n.toLowerCase().trim()));
+        const skuSet = new Set((filter.skus || []).map(s => s.toLowerCase().trim()));
+        storeProducts = storeProducts.filter(product => {
+          const name = (product.name || product.product_name || '').toLowerCase().trim();
+          const sku = (product.sku || '').toLowerCase().trim();
+          return (name && nameSet.has(name)) || (sku && skuSet.has(sku));
+        });
+        console.log(`🎯 Focusing on ${storeProducts.length} products after filtering`);
+      }
 
       console.log('🖼️ Getting product images from Storefront API...');
       const productsWithImages: any[] = [];

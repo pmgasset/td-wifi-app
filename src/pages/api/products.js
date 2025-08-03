@@ -28,15 +28,18 @@ export default async function handler(req, res) {
     const inventoryProducts = await zohoInventoryAPI.getInventoryProducts();
     console.log(`✅ Retrieved ${inventoryProducts.length} total inventory products`);
 
-    // Step 2: Get products from Commerce API with FIXED Storefront images
-    console.log('🖼️ Fetching products from FIXED Zoho Commerce API (Storefront + Store)...');
-    const commerceProducts = await zohoAPI.getProducts(); // Now uses both Store + Storefront APIs
-    console.log(`✅ Retrieved ${commerceProducts.length} commerce products with fixed images`);
-
-    // Step 3: Filter inventory products by cf_display_in_app custom field
+    // Step 2: Filter inventory products by cf_display_in_app custom field
     console.log('🔍 Filtering products by cf_display_in_app field...');
     const filteredProducts = filterProductsByDisplayInApp(inventoryProducts);
     console.log(`✅ Found ${filteredProducts.length} products with display_in_app=true`);
+
+    // Step 3: Get products from Commerce API with FIXED Storefront images for filtered items
+    console.log('🖼️ Fetching products from FIXED Zoho Commerce API (Storefront + Store)...');
+    const commerceProducts = await zohoAPI.getProducts({
+      names: filteredProducts.map(p => p.name),
+      skus: filteredProducts.map(p => p.sku)
+    });
+    console.log(`✅ Retrieved ${commerceProducts.length} commerce products with fixed images`);
 
     // Step 4: Merge inventory products with commerce images (now using Storefront API)
     console.log('🔄 Merging inventory products with FIXED commerce images...');
