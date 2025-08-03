@@ -2,6 +2,7 @@
 // REMOVED: globalTokenCache - now uses tokenManager.getAccessToken('inventory')
 
 import { tokenManager } from './enhanced-token-manager';
+import { rateLimitedFetch } from './zoho-rate-limit';
 
 interface ZohoInventoryItem {
   item_id: string;
@@ -92,7 +93,7 @@ class ZohoInventoryAPI {
 
       console.log(`📡 Making Inventory API request: ${endpoint}`);
 
-      const response = await fetch(url, {
+      const response = await rateLimitedFetch(url, {
         ...options,
         headers: {
           'Authorization': `Zoho-oauthtoken ${token}`,

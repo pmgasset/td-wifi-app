@@ -1,48 +1,18 @@
 // ===== src/lib/zoho-api.ts ===== (UPDATED TO USE STOREFRONT API FOR IMAGES)
+import { rateLimitedFetch } from './zoho-rate-limit';
+import { tokenManager } from './enhanced-token-manager';
+
 class ZohoCommerceAPI {
   private baseURL = 'https://commerce.zoho.com/store/api/v1';
   private storefrontURL = 'https://commerce.zoho.com/storefront/api/v1';
 
-  private validateEnvVars(): void {
-    const requiredVars = [
-      'ZOHO_CLIENT_ID',
-      'ZOHO_CLIENT_SECRET',
-      'ZOHO_REFRESH_TOKEN'
-    ];
-    
-    const missingVars = requiredVars.filter(varName => !process.env[varName]);
-    
-    if (missingVars.length > 0) {
-      throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
-    }
-  }
-
   async getAccessToken(): Promise<string> {
-    this.validateEnvVars();
-    
-    const credentials = {
-      client_id: process.env.ZOHO_CLIENT_ID!,
-      client_secret: process.env.ZOHO_CLIENT_SECRET!,
-      refresh_token: process.env.ZOHO_REFRESH_TOKEN!,
-      grant_type: 'refresh_token',
-    };
-
-    const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(credentials),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Auth error: ${response.status} - ${await response.text()}`);
+    try {
+      return await tokenManager.getAccessToken('commerce');
+    } catch (error) {
+      console.error('Failed to get commerce access token:', error);
+      throw error;
     }
-
-    const data = await response.json();
-    if (!data.access_token) {
-      throw new Error(`No access token received: ${JSON.stringify(data)}`);
-    }
-
-    return data.access_token;
   }
 
   async apiRequest(endpoint: string, options: RequestInit = {}, retry = true): Promise<any> {
@@ -66,7 +36,7 @@ class ZohoCommerceAPI {
       });
     }
 
-    const response = await fetch(url, {
+    const response = await rateLimitedFetch(url, {
       ...options,
       headers,
     });
@@ -118,7 +88,7 @@ class ZohoCommerceAPI {
       });
     }
 
-    const response = await fetch(url, {
+    const response = await rateLimitedFetch(url, {
       ...options,
       headers,
     });
@@ -136,66 +106,77 @@ class ZohoCommerceAPI {
     }
   }
 
-  async getProducts(): Promise<any[]> {
+  async getProducts(filter?: { names?: string[]; skus?: string[] }): Promise<any[]> {
     try {
       console.log('🛍️ Getting products from Store API for basic data...');
       const storeResponse = await this.apiRequest('/products');
-      const storeProducts: any[] = storeResponse.products || [];
+      let storeProducts: any[] = storeResponse.products || [];
       console.log(`✅ Retrieved ${storeProducts.length} products from Store API`);
 
+      if (filter?.names || filter?.skus) {
+        const nameSet = new Set((filter.names || []).map(n => n.toLowerCase().trim()));
+        const skuSet = new Set((filter.skus || []).map(s => s.toLowerCase().trim()));
+        storeProducts = storeProducts.filter(product => {
+          const name = (product.name || product.product_name || '').toLowerCase().trim();
+          const sku = (product.sku || '').toLowerCase().trim();
+          return (name && nameSet.has(name)) || (sku && skuSet.has(sku));
+        });
+        console.log(`🎯 Focusing on ${storeProducts.length} products after filtering`);
+      }
+
       console.log('🖼️ Getting product images from Storefront API...');
-      const productsWithImages = await Promise.all(
-        storeProducts.map(async (product: any) => {
-          try {
-            const storefrontData = await this.storefrontRequest(`/products/${product.product_id}?format=json`);
-            const storefrontProduct = storefrontData?.payload?.product || storefrontData?.product || storefrontData;
-            
-            if (storefrontProduct) {
-              const images = this.extractStorefrontImages(storefrontProduct);
-              
-              if (images.length > 0) {
-                console.log(`✅ Found ${images.length} images for ${product.name} via Storefront API`);
-              }
-              
-              return {
-                ...product,
-                product_name: product.name || product.product_name,
-                product_price: product.min_rate || product.max_rate || product.product_price || 0,
-                product_images: images,
-                inventory_count: this.parseStock(product.overall_stock),
-                product_category: product.category_name || product.product_category || '',
-                seo_url: product.url || product.seo_url || product.product_id,
-                image_source: 'storefront_api'
-              };
+      const productsWithImages: any[] = [];
+
+      for (const product of storeProducts) {
+        try {
+          const storefrontData = await this.storefrontRequest(`/products/${product.product_id}?format=json`);
+          const storefrontProduct = storefrontData?.payload?.product || storefrontData?.product || storefrontData;
+
+          if (storefrontProduct) {
+            const images = this.extractStorefrontImages(storefrontProduct);
+
+            if (images.length > 0) {
+              console.log(`✅ Found ${images.length} images for ${product.name} via Storefront API`);
             }
-            
-            return {
+
+            productsWithImages.push({
               ...product,
               product_name: product.name || product.product_name,
               product_price: product.min_rate || product.max_rate || product.product_price || 0,
-              product_images: this.extractImages(product),
+              product_images: images,
               inventory_count: this.parseStock(product.overall_stock),
               product_category: product.category_name || product.product_category || '',
               seo_url: product.url || product.seo_url || product.product_id,
-              image_source: 'store_api_fallback'
-            };
-            
-          } catch (error) {
-            console.warn(`⚠️ Storefront API failed for product ${product.product_id}: ${(error as Error).message}`);
-            
-            return {
-              ...product,
-              product_name: product.name || product.product_name,
-              product_price: product.min_rate || product.max_rate || product.product_price || 0,
-              product_images: this.extractImages(product),
-              inventory_count: this.parseStock(product.overall_stock),
-              product_category: product.category_name || product.product_category || '',
-              seo_url: product.url || product.seo_url || product.product_id,
-              image_source: 'store_api_only'
-            };
+              image_source: 'storefront_api'
+            });
+            continue;
           }
-        })
-      );
+
+          productsWithImages.push({
+            ...product,
+            product_name: product.name || product.product_name,
+            product_price: product.min_rate || product.max_rate || product.product_price || 0,
+            product_images: this.extractImages(product),
+            inventory_count: this.parseStock(product.overall_stock),
+            product_category: product.category_name || product.product_category || '',
+            seo_url: product.url || product.seo_url || product.product_id,
+            image_source: 'store_api_fallback'
+          });
+        } catch (error) {
+          console.warn(`⚠️ Storefront API failed for product ${product.product_id}: ${(error as Error).message}`);
+
+          productsWithImages.push({
+            ...product,
+            product_name: product.name || product.product_name,
+            product_price: product.min_rate || product.max_rate || product.product_price || 0,
+            product_images: this.extractImages(product),
+            inventory_count: this.parseStock(product.overall_stock),
+            product_category: product.category_name || product.product_category || '',
+            seo_url: product.url || product.seo_url || product.product_id,
+            image_source: 'store_api_only'
+          });
+        }
+      }
 
       console.log('✅ Successfully merged Store API + Storefront API data');
       return productsWithImages;

@@ -1,5 +1,6 @@
 // src/lib/enhanced-token-manager.ts - Centralized token management with advanced rate limiting
 // CRITICAL: This replaces all scattered token caching implementations
+import { rateLimitedFetch } from './zoho-rate-limit';
 
 interface TokenCacheEntry {
   accessToken: string;
@@ -187,7 +188,7 @@ class EnhancedTokenManager {
         throw new Error(`Missing environment variables: ${missingVars.join(', ')}`);
       }
 
-      const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
+      const response = await rateLimitedFetch('https://accounts.zoho.com/oauth/v2/token', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
