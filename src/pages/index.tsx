@@ -1,5 +1,6 @@
 // src/pages/index.tsx
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { 
@@ -144,7 +145,7 @@ const EnhancedHomepage: React.FC = () => {
       setActiveTestimonial((prev) => (prev + 1) % testimonials.length);
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [testimonials.length]);
 
   return (
     <Layout>
@@ -349,7 +350,7 @@ const EnhancedHomepage: React.FC = () => {
                   ))}
                 </div>
                 <blockquote className="text-xl text-gray-700 italic mb-6">
-                  "{testimonials[activeTestimonial].quote}"
+                  &quot;{testimonials[activeTestimonial].quote}&quot;
                 </blockquote>
                 <div className="flex items-center justify-center space-x-4">
                   <div className="w-12 h-12 bg-logo-teal rounded-full flex items-center justify-center">
@@ -409,7 +410,7 @@ const EnhancedHomepage: React.FC = () => {
               <div className="text-center bg-red-50 rounded-xl p-8 max-w-2xl border border-red-200">
                 <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
                 <h3 className="text-lg font-semibold text-red-900 mb-2">Unable to Load Products</h3>
-                <p className="text-red-700 mb-4">We're experiencing technical difficulties. Please try again.</p>
+                  <p className="text-red-700 mb-4">We&apos;re experiencing technical difficulties. Please try again.</p>
                 <button 
                   onClick={fetchProducts}
                   className="bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 transition-colors"
@@ -442,9 +443,11 @@ const EnhancedHomepage: React.FC = () => {
                       {/* Clickable Product Image */}
                       <Link href={`/products/${getProductSlug(product)}`}>
                         <div className="aspect-w-16 aspect-h-12 bg-gradient-to-br from-gray-100 to-gray-200 relative overflow-hidden cursor-pointer">
-                          <img 
+                          <Image
                             src={getProductImageUrl(product)}
                             alt={getProductName(product)}
+                            width={384}
+                            height={288}
                             className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
                             onError={(e: React.SyntheticEvent<HTMLImageElement, Event>) => {
                               console.log('Image failed to load for product:', getProductName(product));

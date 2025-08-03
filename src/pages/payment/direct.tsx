@@ -1,5 +1,5 @@
 // ===== src/pages/payment/direct.tsx ===== (CREATE THIS FILE)
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
 import { useCartStore } from '../../store/cart';
@@ -31,13 +31,7 @@ const DirectPaymentPage = () => {
   const [orderDetails, setOrderDetails] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (order_id) {
-      fetchOrderDetails();
-    }
-  }, [order_id]);
-
-  const fetchOrderDetails = async () => {
+  const fetchOrderDetails = useCallback(async () => {
     try {
       const response = await fetch(`/api/orders/${order_id}`);
       if (response.ok) {
@@ -49,7 +43,13 @@ const DirectPaymentPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [order_id]);
+
+  useEffect(() => {
+    if (order_id) {
+      fetchOrderDetails();
+    }
+  }, [order_id, fetchOrderDetails]);
 
   const handlePayment = async () => {
     setIsProcessing(true);

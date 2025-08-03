@@ -1,6 +1,7 @@
 // ===== src/pages/order/[orderId].tsx =====
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import Image from 'next/image';
 import Layout from '../../components/Layout';
 import { 
   Package, 
@@ -163,7 +164,7 @@ const OrderStatusPage: React.FC = () => {
           <div className="text-center">
             <AlertCircle className="h-16 w-16 text-gray-500 mx-auto mb-6" />
             <h1 className="text-2xl font-bold text-gray-900 mb-4">Order Not Found</h1>
-            <p className="text-gray-600 mb-8">We couldn't find an order with ID: {orderId}</p>
+            <p className="text-gray-600 mb-8">We couldn&apos;t find an order with ID: {orderId}</p>
             <button
               onClick={() => router.push('/products')}
               className="bg-travel-blue text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-700 transition-colors"
@@ -267,9 +268,11 @@ const OrderStatusPage: React.FC = () => {
                 <div className="space-y-6">
                   {orderData.items?.map((item: any, index: number) => (
                     <div key={index} className="flex items-start space-x-4 pb-6 border-b border-gray-200 last:border-b-0">
-                      <img 
+                      <Image
                         src={item.product_images?.[0] || '/images/placeholder.jpg'}
                         alt={item.product_name}
+                        width={80}
+                        height={80}
                         className="w-20 h-20 object-cover rounded-lg"
                       />
                       <div className="flex-1">

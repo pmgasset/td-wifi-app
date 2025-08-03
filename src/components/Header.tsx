@@ -1,6 +1,7 @@
 // src/components/Header.tsx
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { ShoppingCart, Menu, X, HelpCircle } from 'lucide-react';
 import { useCartStore } from '../store/cart';
 import Cart from './Cart';
@@ -85,9 +86,11 @@ const Header: React.FC = () => {
                 <div className={`transition-all duration-300 ${
                   isScrolled ? 'h-8' : 'h-10'
                 }`}>
-                  <img 
-                    src="/logo.svg" 
+                  <Image
+                    src="/logo.svg"
                     alt="Travel Data WiFi"
+                    width={isScrolled ? 32 : 40}
+                    height={isScrolled ? 32 : 40}
                     className="h-full w-auto"
                   />
                 </div>
@@ -169,9 +172,11 @@ const Header: React.FC = () => {
                 <div className={`transition-all duration-300 hover:scale-105 ${
                   isScrolled ? 'h-12' : 'h-16'
                 }`}>
-                  <img 
-                    src="/logo.svg" 
+                  <Image
+                    src="/logo.svg"
                     alt="Travel Data WiFi"
+                    width={isScrolled ? 48 : 64}
+                    height={isScrolled ? 48 : 64}
                     className="h-full w-auto"
                   />
                 </div>

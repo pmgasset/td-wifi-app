@@ -1,6 +1,7 @@
 // src/pages/coverage.tsx
 import React, { useState, useEffect } from 'react';
 import Layout from '../components/Layout';
+import Link from 'next/link';
 import { 
   MapPin, Search, CheckCircle, Zap, Signal, Globe, Shield, Phone, Mail,
   ChevronDown, AlertCircle, Loader2, Navigation, Users, Star, Smartphone
@@ -253,7 +254,7 @@ const CoveragePage = () => {
             </div>
 
             <p className="text-blue-100 text-sm mt-4">
-              We'll provide instant coverage data and connect you with an expert for personalized recommendations.
+              We&apos;ll provide instant coverage data and connect you with an expert for personalized recommendations.
             </p>
           </div>
         </div>
@@ -300,7 +301,7 @@ const CoveragePage = () => {
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-3">Guaranteed Solutions</h3>
               <p className="text-gray-600">
-                We only recommend solutions we're confident will work at your location. 
+                We only recommend solutions we&apos;re confident will work at your location.
                 No surprises, no disappointments.
               </p>
             </div>
@@ -319,7 +320,7 @@ const CoveragePage = () => {
                   Great! We found your location.
                 </h2>
                 <p className="text-gray-600">
-                  Now let's get you a personalized coverage analysis and recommendation.
+                  Now let&apos;s get you a personalized coverage analysis and recommendation.
                 </p>
                 <div className="mt-4 p-3 bg-blue-50 rounded-lg">
                   <p className="text-sm text-blue-800">
@@ -444,7 +445,7 @@ const CoveragePage = () => {
                     <div className="text-sm text-blue-800">
                       <p className="font-semibold mb-1">What happens next?</p>
                       <ul className="space-y-1">
-                        <li>• We'll analyze T-Mobile coverage at your specific location</li>
+                  <li>• We&apos;ll analyze T-Mobile coverage at your specific location</li>
                         <li>• A connectivity expert will call you within 24 hours</li>
                         <li>• Get personalized router and plan recommendations</li>
                         <li>• No obligation - free consultation and advice</li>
@@ -487,9 +488,9 @@ const CoveragePage = () => {
               </p>
 
               <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-8">
-                <h3 className="font-semibold text-green-800 mb-2">What's Next:</h3>
+                <h3 className="font-semibold text-green-800 mb-2">What&apos;s Next:</h3>
                 <ul className="text-left space-y-2 text-green-700">
-                  <li>• We'll call you within 24 hours at {formData.phone || 'your provided number'}</li>
+                  <li>• We&apos;ll call you within 24 hours at {formData.phone || 'your provided number'}</li>
                   <li>• Get detailed coverage analysis for {formData.address}</li>
                   <li>• Receive personalized router and plan recommendations</li>
                   <li>• Free consultation with no pressure to buy</li>
@@ -497,18 +498,18 @@ const CoveragePage = () => {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <a
+                <Link
                   href="/products"
                   className="bg-logo-teal text-white py-3 px-6 rounded-lg font-semibold hover:bg-logo-ocean transition-colors"
                 >
                   Browse Products
-                </a>
-                <a
+                </Link>
+                <Link
                   href="/solutions"
                   className="border-2 border-logo-teal text-logo-teal py-3 px-6 rounded-lg font-semibold hover:bg-logo-teal hover:text-white transition-colors"
                 >
                   View Solutions
-                </a>
+                </Link>
               </div>
             </div>
           </div>
@@ -520,10 +521,10 @@ const CoveragePage = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              Powered by T-Mobile's Network
+              Powered by T-Mobile&apos;s Network
             </h2>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-              We use T-Mobile's extensive 5G and 4G LTE network to deliver reliable connectivity nationwide.
+              We use T-Mobile&apos;s extensive 5G and 4G LTE network to deliver reliable connectivity nationwide.
             </p>
           </div>
 
@@ -576,15 +577,15 @@ const CoveragePage = () => {
             {[
               {
                 question: "How accurate is your coverage analysis?",
-                answer: "Our coverage analysis combines T-Mobile's official coverage maps with real-world testing data from our customers. We provide both theoretical coverage and practical performance expectations."
+                answer: "Our coverage analysis combines T-Mobile&apos;s official coverage maps with real-world testing data from our customers. We provide both theoretical coverage and practical performance expectations."
               },
               {
                 question: "Is the coverage consultation really free?",
                 answer: "Yes! Our coverage consultation is completely free with no obligation to purchase. We want to make sure you get the right solution for your specific location and needs."
               },
               {
-                question: "What if T-Mobile doesn't have good coverage at my location?",
-                answer: "We'll be honest about coverage limitations and can recommend alternative solutions or different carriers that might work better for your specific location."
+                question: "What if T-Mobile doesn&apos;t have good coverage at my location?",
+                answer: "We&apos;ll be honest about coverage limitations and can recommend alternative solutions or different carriers that might work better for your specific location."
               },
               {
                 question: "How long does the consultation take?",

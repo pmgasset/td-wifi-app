@@ -258,7 +258,7 @@ export function formatForAPI(address, apiType = 'admin') {
   return address;
 }
 
-export default {
+const zohoAddressHelper = {
   createZohoAddress,
   validateZohoAddress,
   createMinimalZohoAddress,
@@ -266,3 +266,5 @@ export default {
   LIMITS,
   TOTAL_LIMIT
 };
+
+export default zohoAddressHelper;

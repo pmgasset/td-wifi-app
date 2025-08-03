@@ -1,6 +1,7 @@
 // ===== src/pages/categories/[...slug].tsx ===== (Updated with utilities)
 import React, { useState } from 'react';
 import { useRouter } from 'next/router';
+import Image from 'next/image';
 import useSWR from 'swr';
 import Link from 'next/link';
 import Layout from '../../components/Layout';
@@ -263,11 +264,12 @@ const CategoryProductsPage: React.FC = () => {
                 return (
                   <div key={product.product_id} className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300">
                     {/* Product Image */}
-                    <div className="relative bg-gray-100">
-                      <img 
+                    <div className="relative bg-gray-100 h-48">
+                      <Image
                         src={productImage}
                         alt={productName}
-                        className="w-full h-48 object-cover"
+                        fill
+                        className="object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
                           target.src = "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjE1MCIgeT0iMTAwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTQiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5JbWFnZSBVbmF2YWlsYWJsZTwvdGV4dD4KPC9zdmc+Cg==";

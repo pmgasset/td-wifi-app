@@ -1,7 +1,7 @@
 // components/support/ArticleView.jsx
 // Component for displaying individual knowledge base articles
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   ArrowLeft, 
   Clock, 
@@ -25,17 +25,7 @@ const ArticleView = ({ article, onBack, onRelatedArticleSelect }) => {
   const [relatedArticles, setRelatedArticles] = useState([]);
   const [isBookmarked, setIsBookmarked] = useState(false);
 
-  useEffect(() => {
-    // Check if article is bookmarked
-    const bookmarks = JSON.parse(localStorage.getItem('bookmarked_articles') || '[]');
-    setIsBookmarked(bookmarks.includes(article.id));
-
-    // Load related articles
-    loadRelatedArticles();
-  }, [article.id]);
-
-  // Load related articles based on tags and category
-  const loadRelatedArticles = async () => {
+  const loadRelatedArticles = useCallback(async () => {
     try {
       const searchTerms = article.tags?.slice(0, 3).join(' ') || article.title;
       const response = await knowledgeBaseAPI.searchArticles(searchTerms, { limit: 5 });
@@ -46,7 +36,16 @@ const ArticleView = ({ article, onBack, onRelatedArticleSelect }) => {
     } catch (error) {
       console.error('Failed to load related articles:', error);
     }
-  };
+  }, [article.id, article.tags, article.title]);
+
+  useEffect(() => {
+    // Check if article is bookmarked
+    const bookmarks = JSON.parse(localStorage.getItem('bookmarked_articles') || '[]');
+    setIsBookmarked(bookmarks.includes(article.id));
+
+    // Load related articles
+    loadRelatedArticles();
+  }, [article.id, loadRelatedArticles]);
 
   // Handle feedback submission
   const handleFeedback = async (type) => {

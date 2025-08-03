@@ -193,7 +193,7 @@ const ContactForm = ({ onSuccess }) => {
             <div>
               <h3 className="text-sm font-medium text-green-800">Message Sent Successfully!</h3>
               <p className="text-sm text-green-700 mt-1">
-                We've received your message and will get back to you within 24 hours.
+                We&apos;ve received your message and will get back to you within 24 hours.
               </p>
             </div>
           </div>
