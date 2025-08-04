@@ -53,7 +53,7 @@ class ZohoCommerceAPI {
     const expiresIn = Number(data.expires_in) || 3600;
     this.tokenExpiry = Date.now() + (expiresIn - 60) * 1000; // refresh 1 min early
 
-    return this.accessToken;
+    return this.accessToken!;
   }
 
   async apiRequest(endpoint: string, options: RequestInit = {}, retry = true): Promise<any> {
