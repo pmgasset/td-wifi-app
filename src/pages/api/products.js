@@ -231,6 +231,7 @@ function transformProducts(products) {
       
       // Custom fields (the whole reason we're using Inventory API)
       cf_display_in_app: product.cf_display_in_app_unformatted || product.cf_display_in_app,
+      cf_in_app_description: product.cf_in_app_description || '',
       
       // Additional fields
       sku: product.sku,
