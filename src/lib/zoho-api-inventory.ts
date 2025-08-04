@@ -152,22 +152,36 @@ class ZohoInventoryAPI {
   async getInventoryProducts(): Promise<ZohoInventoryItem[]> {
     try {
       console.log('📦 Fetching products from Zoho Inventory API...');
-      
-      const response = await this.apiRequest('/items');
+
+      let response;
+
+      try {
+        // Primary request including custom fields and image metadata
+        response = await this.apiRequest(
+          '/items?custom_fields=true&include=images,documents'
+        );
+      } catch (primaryError) {
+        console.warn(
+          '⚠️ Inventory API custom field fetch failed, retrying without custom fields...'
+        );
+        // Fallback request without custom fields but still including image metadata
+        response = await this.apiRequest('/items?include=images,documents');
+      }
+
       const items = response.items || [];
-      
+
       console.log(`📊 Retrieved ${items.length} items from Inventory API`);
-      
+
       // Log custom fields info for debugging
-      const itemsWithCustomFields = items.filter((item: ZohoInventoryItem) => 
+      const itemsWithCustomFields = items.filter((item: ZohoInventoryItem) =>
         item.custom_fields && item.custom_fields.length > 0
       );
       console.log(`🏷️  ${itemsWithCustomFields.length} items have custom fields`);
-      
+
       return items;
     } catch (error) {
       console.error('❌ Failed to get inventory products:', error);
-      
+
       // Provide helpful error context
       if (error instanceof Error) {
         if (error.message.includes('rate limit')) {
@@ -180,7 +194,7 @@ class ZohoInventoryAPI {
           throw new Error('Zoho authentication failed. Check OAuth credentials.');
         }
       }
-      
+
       throw error;
     }
   }
