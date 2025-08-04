@@ -1,6 +1,7 @@
 // ===== src/pages/api/products.js ===== (FIXED WITH STOREFRONT API IMAGES)
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
 import { zohoAPI } from '../../lib/zoho-api.ts';
+import { get, set } from '@/lib/redis';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -8,8 +9,14 @@ export default async function handler(req, res) {
   }
 
   try {
+    const cached = await get('products:latest');
+    if (cached) {
+      console.log('♻️ Returning cached products');
+      return res.status(200).json(cached);
+    }
+
     console.log('🚀 Starting FIXED products API with Storefront images...');
-    
+
     const startTime = Date.now();
 
     // Step 1: Get products from Inventory API (has custom fields)
@@ -46,19 +53,23 @@ export default async function handler(req, res) {
     // Provide detailed statistics
     const imageStats = generateImageStatistics(activeProducts);
 
-    res.status(200).json({ 
+    const meta = {
+      total_inventory_products: inventoryProducts.length,
+      display_in_app_products: filteredProducts.length,
+      active_display_products: activeProducts.length,
+      commerce_products_fetched: commerceProducts.length,
+      processing_time_ms: processingTime,
+      timestamp: new Date().toISOString(),
+      api_version: '2.0_fixed_storefront_images',
+      fix_applied: 'storefront_api_integration',
+      ...imageStats
+    };
+
+    await set('products:latest', { products: activeProducts, meta });
+
+    res.status(200).json({
       products: activeProducts,
-      meta: {
-        total_inventory_products: inventoryProducts.length,
-        display_in_app_products: filteredProducts.length,
-        active_display_products: activeProducts.length,
-        commerce_products_fetched: commerceProducts.length,
-        processing_time_ms: processingTime,
-        timestamp: new Date().toISOString(),
-        api_version: '2.0_fixed_storefront_images',
-        fix_applied: 'storefront_api_integration',
-        ...imageStats
-      }
+      meta
     });
 
   } catch (error) {
