@@ -1,6 +1,6 @@
 // ===== src/pages/api/products.js ===== (FIXED WITH STOREFRONT API IMAGES)
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
-import { zohoAPI } from '../../lib/zoho-api.ts';
+import { zohoAPI } from '../../lib/zoho-api';
 import Redis from 'ioredis';
 
 const redis = new Redis(process.env.REDIS_URL || '');

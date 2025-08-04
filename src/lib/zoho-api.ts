@@ -267,7 +267,7 @@ class ZohoCommerceAPI {
     const addDocumentImages = (docs: any[]) => {
       docs.forEach(doc => {
         if (doc?.file_name && this.isImageFile(doc.file_name) && doc.document_id) {
-          const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}?storefront_domain=www.traveldatawifi.com`;
+          const imageUrl = `https://us.zohocommercecdn.com/product-images/${doc.file_name}/${doc.document_id}/400x400?storefront_domain=www.traveldatawifi.com`;
           imageSet.add(imageUrl);
         }
       });
