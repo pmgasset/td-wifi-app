@@ -333,6 +333,19 @@ export class RedisProductService {
    */
   filterProductsByDisplayInApp(inventoryProducts) {
     return inventoryProducts.filter((product) => {
+      // First check if the custom field exists as a top-level property (cf_display_in_app)
+      const topLevelValue =
+        product.cf_display_in_app ?? product.cf_display_in_app_unformatted
+      if (topLevelValue !== undefined) {
+        return (
+          topLevelValue === true ||
+          topLevelValue === 'true' ||
+          topLevelValue === '1' ||
+          topLevelValue === 1
+        )
+      }
+
+      // Fallback to searching within the custom_fields array
       if (!product.custom_fields || !Array.isArray(product.custom_fields)) {
         return false
       }
@@ -408,6 +421,9 @@ export class RedisProductService {
         return field ? field.value : null
       }
 
+      const displayInAppValue =
+        item.cf_display_in_app ?? getCustomFieldValue('display_in_app')
+
       return {
         // Core product data
         product_id: item.item_id,
@@ -439,7 +455,7 @@ export class RedisProductService {
         image_type: item.image_type,
 
         // Custom fields
-        cf_display_in_app: getCustomFieldValue('display_in_app'),
+        cf_display_in_app: displayInAppValue,
         custom_fields: item.custom_fields,
 
         // SEO

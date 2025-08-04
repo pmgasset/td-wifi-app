@@ -153,7 +153,10 @@ class ZohoInventoryAPI {
     try {
       console.log('📦 Fetching products from Zoho Inventory API...');
       
-      const response = await this.apiRequest('/items');
+      // Request documents and custom field data for each item
+      const response = await this.apiRequest(
+        '/items?custom_fields=true&include=documents'
+      );
       const items = response.items || [];
       
       console.log(`📊 Retrieved ${items.length} items from Inventory API`);
