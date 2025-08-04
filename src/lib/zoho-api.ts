@@ -213,10 +213,16 @@ class ZohoCommerceAPI {
     // Helper to add images from arrays
     const addImages = (items: any[]) => {
       items.forEach(item => {
-        if (typeof item === 'string') {
-          imageSet.add(`https://commerce.zoho.com${item}`);
-        } else if (item?.url) {
-          imageSet.add(`https://commerce.zoho.com${item.url}`);
+        const path = typeof item === 'string' ? item : item?.url;
+        if (!path) return;
+
+        const match = path.match(/\/product-images\/([^/]+)\/([^/]+)/);
+        if (match) {
+          const [, fileName, docId] = match;
+          const cdnUrl = `https://us.zohocommercecdn.com/product-images/${fileName}/${docId}/400x400?storefront_domain=www.traveldatawifi.com`;
+          imageSet.add(cdnUrl);
+        } else {
+          imageSet.add(path);
         }
       });
     };
