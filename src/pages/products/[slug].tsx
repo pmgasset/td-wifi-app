@@ -7,6 +7,7 @@ import Layout from '../../components/Layout';
 import { useCartStore } from '../../store/cart';
 import { ArrowLeft, ShoppingCart, Loader2, AlertCircle, Package, Star, ChevronLeft, ChevronRight, ZoomIn } from 'lucide-react';
 import toast from 'react-hot-toast';
+import DOMPurify from 'isomorphic-dompurify';
 
 const fetcher = (url: string) => fetch(url).then(res => {
   if (!res.ok) {
@@ -535,9 +536,12 @@ const ProductPage: React.FC = () => {
   }
 
   const parsedDescription = parseProductDescription(product.product_description || product.description || '');
+  const rawInAppDescription = product.cf_in_app_description || '';
+  const inAppDescriptionHtml = DOMPurify.sanitize(rawInAppDescription);
+  const inAppDescriptionText = stripHtml(inAppDescriptionHtml);
   const isAvailable = isProductAvailable(product);
-  const price = typeof product.product_price === 'number' 
-    ? product.product_price 
+  const price = typeof product.product_price === 'number'
+    ? product.product_price
     : parseFloat(product.product_price || product.min_rate || 0);
 
   // Schema markup for SEO
@@ -545,8 +549,8 @@ const ProductPage: React.FC = () => {
     "@context": "https://schema.org/",
     "@type": "Product",
     "name": product.product_name || product.name,
-    "description": parsedDescription.text || `Buy ${product.product_name || product.name} from Travel Data WiFi`,
-    "image": product.product_images && product.product_images.length > 0 
+    "description": inAppDescriptionText || parsedDescription.text || `Buy ${product.product_name || product.name} from Travel Data WiFi`,
+    "image": product.product_images && product.product_images.length > 0
       ? product.product_images.map((img: string | { src: string }) => typeof img === 'string' ? img : img.src).filter(Boolean)
       : [getProductImage(product)],
     "offers": {
@@ -560,7 +564,7 @@ const ProductPage: React.FC = () => {
   return (
     <Layout 
       title={`${product.product_name || product.name} - Travel Data WiFi`}
-      description={parsedDescription.text || `Buy ${product.product_name || product.name} from Travel Data WiFi`}
+      description={inAppDescriptionText || parsedDescription.text || `Buy ${product.product_name || product.name} from Travel Data WiFi`}
       schema={productSchema}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -694,6 +698,16 @@ const ProductPage: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {inAppDescriptionHtml && (
+              <div className="mt-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Product Description</h3>
+                <div
+                  className="text-gray-600 leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: inAppDescriptionHtml }}
+                />
+              </div>
+            )}
           </div>
         </div>
 
