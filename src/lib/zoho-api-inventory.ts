@@ -153,7 +153,20 @@ class ZohoInventoryAPI {
     try {
       console.log('📦 Fetching products from Zoho Inventory API...');
       
-      const response = await this.apiRequest('/items');
+      // Request documents and custom field data for each item
+      // Some accounts may not support the custom_fields=true parameter, so
+      // we attempt the call and gracefully fall back if Zoho rejects it.
+      let response;
+      try {
+        response = await this.apiRequest('/items?custom_fields=true&include=documents');
+      } catch (err) {
+        if (err instanceof Error && err.message.includes('Invalid value passed for custom_fields')) {
+          console.warn('custom_fields=true not supported, retrying without it');
+          response = await this.apiRequest('/items?include=documents');
+        } else {
+          throw err;
+        }
+      }
       const items = response.items || [];
       
       console.log(`📊 Retrieved ${items.length} items from Inventory API`);
