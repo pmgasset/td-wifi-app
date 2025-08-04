@@ -1,7 +1,7 @@
 # ===== README.md =====
 # Travel Data WiFi - Jamstack E-commerce
 
-A modern, high-performance e-commerce site built with Next.js, Cloudflare Pages, and Zoho Commerce APIs.
+A modern, high-performance e-commerce site built with Next.js, Vercel, and Zoho Commerce APIs.
 
 ## Features
 
@@ -9,7 +9,7 @@ A modern, high-performance e-commerce site built with Next.js, Cloudflare Pages,
 - 🛒 **E-commerce functionality** powered by Zoho APIs
 - 📱 **Mobile-first responsive design**
 - 🔍 **SEO optimized** with structured data
-- 🛡️ **Secure and fast** with Cloudflare Pages
+- 🛡️ **Secure and fast** with Vercel
 - 🎨 **Modern UI** with Tailwind CSS
 
 ## Quick Start
@@ -29,16 +29,20 @@ ZOHO_CLIENT_ID=your_zoho_client_id
 ZOHO_CLIENT_SECRET=your_zoho_client_secret  
 ZOHO_REFRESH_TOKEN=your_zoho_refresh_token
 ZOHO_STORE_ID=your_zoho_store_id
+KV_URL=your_kv_url
+KV_REST_API_URL=your_kv_rest_api_url
+KV_REST_API_TOKEN=your_kv_rest_api_token
+KV_REST_API_READ_ONLY_TOKEN=your_kv_read_only_token
+REDIS_URL=your_redis_url
 ```
 
 ## Deployment
 
-This project is optimized for Cloudflare Pages:
+This project is deployed on Vercel:
 
-1. Connect your GitHub repository to Cloudflare Pages
+1. Connect your GitHub repository to Vercel
 2. Set build command: `npm run build`
-3. Set output directory: `out`
-4. Add environment variables in Cloudflare Pages dashboard
+3. Add environment variables in the Vercel dashboard
 
 ## Project Structure
 
@@ -56,7 +60,7 @@ src/
 - Static generation with ISR for product updates
 - Image optimization and lazy loading
 - Code splitting and tree shaking
-- CDN-first architecture with Cloudflare
+- CDN-first architecture with Vercel
 
 ## SEO Features
 
