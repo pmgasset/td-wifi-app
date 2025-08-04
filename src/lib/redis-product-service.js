@@ -1,5 +1,6 @@
 import { Redis } from '@upstash/redis'
 import { zohoAPI } from './zoho-api.ts'
+import { zohoInventoryAPI } from './zoho-api-inventory.ts'
 
 const redis = Redis.fromEnv()
 const CACHE_KEY = 'products:all'
@@ -127,13 +128,13 @@ export class RedisProductService {
   }
 
   async fetchFromZohoDirectly() {
-    const products = await zohoAPI.getProducts()
+    // Step 1: Get inventory products for custom fields
+    const inventoryProducts = await zohoInventoryAPI.getInventoryProducts()
 
-    const filtered = (products || []).filter(product => {
+    // Step 2: Filter by cf_display_in_app
+    const displayProducts = inventoryProducts.filter(product => {
       const displayInApp =
-        product.cf_display_in_app ||
-        product.cf_display_in_app_unformatted ||
-        product.display_in_app
+        product.cf_display_in_app || product.cf_display_in_app_unformatted
       return (
         displayInApp === true ||
         displayInApp === 'true' ||
@@ -144,22 +145,31 @@ export class RedisProductService {
       )
     })
 
-    const transformed = filtered.map(item => ({
-      product_id: item.product_id || item.item_id,
-      product_name: item.product_name || item.name,
-      product_price: item.product_price || item.min_rate || item.rate || 0,
-      product_description: item.product_description || item.description || '',
-      inventory_count: parseInt(
-        item.inventory_count || item.available_stock || item.stock_on_hand || 0
-      ),
-      product_category: item.product_category || item.category_name || '',
-      sku: item.sku,
-      status: item.status,
-      product_images: item.product_images || [],
-      enhanced_images: item.enhanced_images || undefined
-    }))
+    // Step 3: For each inventory product, fetch commerce details sequentially
+    const merged = []
+    for (const item of displayProducts) {
+      const commerce = await zohoAPI.getProduct(item.item_id)
 
-    const activeProducts = transformed.filter(
+      merged.push({
+        product_id: item.item_id,
+        product_name: item.name,
+        product_price: (commerce && commerce.product_price) || item.rate || 0,
+        product_description:
+          item.description || (commerce && commerce.product_description) || '',
+        product_images: commerce?.product_images || [],
+        enhanced_images: commerce?.enhanced_images || undefined,
+        inventory_count: parseInt(
+          item.stock_on_hand || item.available_stock || 0
+        ),
+        product_category: item.category_name || commerce?.product_category || '',
+        sku: item.sku,
+        status: item.status,
+        image_source: commerce?.image_source || 'storefront_api'
+      })
+    }
+
+    // Step 4: Filter out inactive products
+    const activeProducts = merged.filter(
       product =>
         product.status === 'active' ||
         product.status === 'Active' ||
