@@ -1,5 +1,6 @@
 // ===== src/components/Cart.tsx (FIXED) =====
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/router'; // ✅ Added router import
 import { useCartStore } from '../store/cart';
 import { 
@@ -87,9 +88,11 @@ const Cart: React.FC = () => {
                 {items.map((item) => (
                   <div key={item.product_id} className="border rounded-lg p-3">
                     <div className="flex items-center space-x-3">
-                      <img
+                      <Image
                         src={item.product_images?.[0] || '/placeholder-product.png'}
                         alt={item.product_name}
+                        width={64}
+                        height={64}
                         className="w-16 h-16 object-cover rounded"
                       />
                       <div className="flex-1 min-w-0">

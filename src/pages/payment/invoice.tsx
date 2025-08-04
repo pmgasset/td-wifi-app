@@ -1,5 +1,5 @@
 // ===== src/pages/payment/invoice.tsx ===== (FIXED TypeScript Types)
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import Layout from '../../components/Layout';
 import { useCartStore } from '../../store/cart';
@@ -51,14 +51,15 @@ const InvoicePaymentPage = () => {
   const [orderDetails, setOrderDetails] = useState<OrderDetails | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch order details on component mount
-  useEffect(() => {
-    if (order_id) {
-      fetchOrderDetails();
-    }
-  }, [order_id]);
+  // Helper function to safely get amount value
+  const getAmountValue = useCallback((): number => {
+    if (orderDetails?.total) return orderDetails.total;
+    if (Array.isArray(amount)) return parseFloat(amount[0] || '0');
+    if (amount) return parseFloat(amount as string);
+    return 0;
+  }, [orderDetails, amount]);
 
-  const fetchOrderDetails = async () => {
+  const fetchOrderDetails = useCallback(async () => {
     try {
       console.log('Fetching order details for:', order_id);
       
@@ -92,7 +93,14 @@ const InvoicePaymentPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [order_id, order_number, currency, customer_email, customer_name, getAmountValue]);
+
+  // Fetch order details on component mount
+  useEffect(() => {
+    if (order_id) {
+      fetchOrderDetails();
+    }
+  }, [order_id, fetchOrderDetails]);
 
   const handlePayment = async () => {
     setIsProcessing(true);
@@ -148,14 +156,6 @@ const InvoicePaymentPage = () => {
       style: 'currency',
       currency: Array.isArray(currency) ? currency[0] : currency || 'USD'
     }).format(num);
-  };
-
-  // Helper function to safely get amount value
-  const getAmountValue = (): number => {
-    if (orderDetails?.total) return orderDetails.total;
-    if (Array.isArray(amount)) return parseFloat(amount[0] || '0');
-    if (amount) return parseFloat(amount as string);
-    return 0;
   };
 
   if (loading) {

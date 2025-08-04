@@ -269,7 +269,7 @@ const SupportDashboard = () => {
                 Contact Support
               </h1>
               <p className="text-gray-600">
-                Can't find what you're looking for? Our support team is here to help.
+                Can&apos;t find what you&apos;re looking for? Our support team is here to help.
               </p>
             </div>
 

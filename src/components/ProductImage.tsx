@@ -1,5 +1,6 @@
 // ===== src/components/ProductImage.tsx ===== (Enhanced version)
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { Package, ImageIcon, AlertCircle, Zap } from 'lucide-react';
 
 interface EnhancedImageData {
@@ -186,10 +187,11 @@ const ProductImage: React.FC<ProductImageProps> = ({
       )}
       
       {/* Main Image */}
-      <img
+      <Image
         src={currentImage?.url || createPlaceholder()}
         alt={productName}
-        className={`w-full h-full object-cover rounded transition-opacity duration-300 ${
+        fill
+        className={`object-cover rounded transition-opacity duration-300 ${
           isLoading ? 'opacity-0' : 'opacity-100'
         }`}
         onLoad={handleImageLoad}

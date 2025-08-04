@@ -214,9 +214,15 @@ class ZohoCommerceAPI {
     const addImages = (items: any[]) => {
       items.forEach(item => {
         if (typeof item === 'string') {
-          imageSet.add(`https://commerce.zoho.com${item}`);
+          const url = typeof item === 'string' && item.startsWith('http')
+            ? item
+            : `https://www.traveldatawifi.com${item}`;
+          imageSet.add(url);
         } else if (item?.url) {
-          imageSet.add(`https://commerce.zoho.com${item.url}`);
+          const url = item.url.startsWith('http')
+            ? item.url
+            : `https://www.traveldatawifi.com${item.url}`;
+          imageSet.add(url);
         }
       });
     };

@@ -232,7 +232,7 @@ const SearchBar = ({
               <Search className="h-8 w-8 mx-auto mb-2 text-gray-300" />
               <p className="text-sm">No suggestions found</p>
               <p className="text-xs text-gray-400 mt-1">
-                Press Enter to search for "{query}"
+                Press Enter to search for &quot;{query}&quot;
               </p>
             </div>
           )}

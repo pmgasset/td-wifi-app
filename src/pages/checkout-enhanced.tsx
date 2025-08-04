@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/router';
 import { toast } from 'react-hot-toast';
 import {
@@ -679,9 +680,11 @@ export default function EnhancedCheckoutPage() {
               <div className="space-y-4 mb-6">
                 {items.map((item: CartItem) => (
                   <div key={item.product_id} className="flex items-center space-x-4">
-                    <img
+                    <Image
                       src={item.product_images?.[0] || '/images/placeholder.jpg'}
                       alt={item.product_name}
+                      width={64}
+                      height={64}
                       className="w-16 h-16 object-cover rounded-lg"
                     />
                     <div className="flex-1">
@@ -723,7 +726,7 @@ export default function EnhancedCheckoutPage() {
                   <Shield className="h-5 w-5 text-green-600 mt-0.5" />
                   <div className="text-sm text-green-800">
                     <div className="font-medium mb-1">Secure Direct Payment</div>
-                    <div>No redirects - complete your purchase safely on our website with Stripe's secure payment processing.</div>
+                    <div>No redirects - complete your purchase safely on our website with Stripe&apos;s secure payment processing.</div>
                   </div>
                 </div>
               </div>

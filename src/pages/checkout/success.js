@@ -6,8 +6,9 @@
  * No external redirects - customer stays on your website throughout!
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
+import Image from 'next/image';
 import {
   CheckCircle,
   Package,
@@ -34,16 +35,10 @@ export default function CheckoutSuccessPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    if (payment_intent || order_id || session_id) {
-      fetchOrderDetails();
-    }
-  }, [payment_intent, order_id, session_id]);
-
   /**
    * Fetch order and payment details
    */
-  const fetchOrderDetails = async () => {
+  const fetchOrderDetails = useCallback(async () => {
     try {
       console.log('Fetching order details...', { payment_intent, order_id, session_id });
       
@@ -67,14 +62,20 @@ export default function CheckoutSuccessPage() {
 
       setOrderDetails(data.order);
       setPaymentDetails(data.payment);
-      
+
     } catch (error) {
       console.error('Error fetching order details:', error);
       setError(error.message);
     } finally {
       setLoading(false);
     }
-  };
+  }, [payment_intent, order_id, session_id]);
+
+  useEffect(() => {
+    if (payment_intent || order_id || session_id) {
+      fetchOrderDetails();
+    }
+  }, [payment_intent, order_id, session_id, fetchOrderDetails]);
 
   /**
    * Calculate estimated delivery date
@@ -227,9 +228,11 @@ export default function CheckoutSuccessPage() {
                     <div className="space-y-3">
                       {orderDetails.items.map((item, index) => (
                         <div key={index} className="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg">
-                          <img
+                          <Image
                             src={item.product_images?.[0] || '/images/placeholder.jpg'}
                             alt={item.product_name}
+                            width={64}
+                            height={64}
                             className="w-16 h-16 object-cover rounded-lg"
                           />
                           <div className="flex-1">
@@ -375,7 +378,7 @@ export default function CheckoutSuccessPage() {
 
               {/* What's Next */}
               <div className="bg-blue-50 rounded-lg p-6">
-                <h2 className="text-lg font-semibold text-blue-900 mb-4">What's Next?</h2>
+                <h2 className="text-lg font-semibold text-blue-900 mb-4">What&apos;s Next?</h2>
                 
                 <div className="space-y-3 text-sm text-blue-800">
                   <div className="flex items-start space-x-3">
@@ -384,7 +387,7 @@ export default function CheckoutSuccessPage() {
                     </div>
                     <div>
                       <p className="font-medium">Order Processing</p>
-                      <p className="text-blue-700">We'll prepare your order for shipment within 1-2 business days.</p>
+                      <p className="text-blue-700">We&apos;ll prepare your order for shipment within 1-2 business days.</p>
                     </div>
                   </div>
                   
@@ -394,7 +397,7 @@ export default function CheckoutSuccessPage() {
                     </div>
                     <div>
                       <p className="font-medium">Shipping Notification</p>
-                      <p className="text-blue-700">You'll receive tracking information once your order ships.</p>
+                      <p className="text-blue-700">You&apos;ll receive tracking information once your order ships.</p>
                     </div>
                   </div>
                   

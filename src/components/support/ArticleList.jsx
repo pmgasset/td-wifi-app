@@ -142,7 +142,7 @@ const ArticleList = ({
                 Search Results 
                 {searchQuery && (
                   <span className="text-gray-500 font-normal">
-                    for "{searchQuery}"
+                    for &quot;{searchQuery}&quot;
                   </span>
                 )}
               </>
