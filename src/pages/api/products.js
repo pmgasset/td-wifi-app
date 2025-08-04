@@ -1,10 +1,20 @@
 // ===== src/pages/api/products.js ===== (FIXED WITH STOREFRONT API IMAGES)
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
 import { zohoAPI } from '../../lib/zoho-api.ts';
+import Redis from 'ioredis';
+
+const redis = new Redis(process.env.REDIS_URL || '');
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const cacheKey = 'products:merged';
+  const cached = await redis.get(cacheKey);
+  if (cached) {
+    console.log('📦 Serving products from Redis cache');
+    return res.status(200).json(JSON.parse(cached));
   }
 
   try {
@@ -46,7 +56,7 @@ export default async function handler(req, res) {
     // Provide detailed statistics
     const imageStats = generateImageStatistics(activeProducts);
 
-    res.status(200).json({ 
+    const responsePayload = {
       products: activeProducts,
       meta: {
         total_inventory_products: inventoryProducts.length,
@@ -59,7 +69,11 @@ export default async function handler(req, res) {
         fix_applied: 'storefront_api_integration',
         ...imageStats
       }
-    });
+    };
+
+    await redis.set(cacheKey, JSON.stringify(responsePayload), 'EX', 3600);
+
+    res.status(200).json(responsePayload);
 
   } catch (error) {
     console.error('❌ FIXED Products API Error:', {
