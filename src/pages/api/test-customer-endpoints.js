@@ -1,5 +1,5 @@
 // ===== src/pages/api/test-customer-endpoints.js ===== (CREATE THIS FILE)
-import { enhancedZohoAPI } from '../../lib/zoho-api';
+import { zohoAPI } from '../../lib/zoho-api';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
       try {
         console.log(`Testing endpoint: ${endpoint}`);
         
-        const response = await enhancedZohoAPI.apiRequest(endpoint);
+        const response = await zohoAPI.apiRequest(endpoint);
         
         results.endpointTests[endpoint] = {
           success: true,
@@ -73,7 +73,7 @@ export default async function handler(req, res) {
     };
 
     try {
-      const customerResult = await enhancedZohoAPI.createCustomer(testCustomerData);
+      const customerResult = await zohoAPI.createCustomer(testCustomerData);
       
       results.customerCreationTest = {
         success: !!customerResult,
@@ -104,7 +104,7 @@ export default async function handler(req, res) {
     
     try {
       // Try to search for a customer that definitely exists (if any)
-      const searchResult = await enhancedZohoAPI.findCustomerByEmail('test@example.com');
+      const searchResult = await zohoAPI.findCustomerByEmail('test@example.com');
       
       results.customerSearchTest = {
         success: true,
@@ -152,8 +152,8 @@ export default async function handler(req, res) {
     };
 
     try {
-      const orderResult = await enhancedZohoAPI.createOrderWithCustomer(
-        testOrderData, 
+      const orderResult = await zohoAPI.createOrderWithCustomer(
+        testOrderData,
         testCustomerInfo
       );
       
