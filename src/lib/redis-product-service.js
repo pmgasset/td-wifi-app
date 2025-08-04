@@ -12,7 +12,18 @@ export class RedisProductService {
       if (cached) {
         console.log('✅ Products loaded from Redis cache')
         try {
-          return typeof cached === 'string' ? JSON.parse(cached) : cached
+          const parsed = typeof cached === 'string' ? JSON.parse(cached) : cached
+          // Handle legacy array-only cache
+          if (Array.isArray(parsed)) {
+            return {
+              products: parsed,
+              meta: {
+                total_products: parsed.length,
+                source: 'legacy-array'
+              }
+            }
+          }
+          return parsed
         } catch (parseError) {
           console.error('Error parsing cached products, refreshing from Zoho', parseError)
           return await this.fetchAndCacheProducts()
@@ -22,7 +33,15 @@ export class RedisProductService {
       return await this.fetchAndCacheProducts()
     } catch (error) {
       console.error('Redis error, falling back to Zoho API:', error)
-      return await this.fetchFromZohoDirectly()
+      const products = await this.fetchFromZohoDirectly()
+      return {
+        products,
+        meta: {
+          total_products: products.length,
+          source: 'zoho',
+          last_sync: new Date().toISOString()
+        }
+      }
     }
   }
 
@@ -37,7 +56,7 @@ export class RedisProductService {
         }
       }
       const allProducts = await this.getAllProducts()
-      return allProducts.find(p => p.item_id === itemId)
+      return allProducts.products?.find(p => p.product_id === itemId)
     } catch (error) {
       console.error('Error fetching product:', error)
       return null
@@ -55,7 +74,7 @@ export class RedisProductService {
         }
       }
       const allProducts = await this.getAllProducts()
-      return allProducts.find(p => p.sku === sku)
+      return allProducts.products?.find(p => p.sku === sku)
     } catch (error) {
       console.error('Error fetching product by SKU:', error)
       return null
@@ -73,7 +92,11 @@ export class RedisProductService {
             typeof productCountRaw === 'string'
               ? JSON.parse(productCountRaw)
               : productCountRaw
-          productCount = Array.isArray(parsed) ? parsed.length : 0
+          if (Array.isArray(parsed)) {
+            productCount = parsed.length
+          } else if (Array.isArray(parsed?.products)) {
+            productCount = parsed.products.length
+          }
         } catch (_) {
           productCount = 0
         }
@@ -90,9 +113,17 @@ export class RedisProductService {
 
   async fetchAndCacheProducts() {
     const products = await this.fetchFromZohoDirectly()
-    await redis.set(CACHE_KEY, JSON.stringify(products), { ex: CACHE_TTL })
+    const payload = {
+      products,
+      meta: {
+        total_products: products.length,
+        source: 'zoho',
+        last_sync: new Date().toISOString()
+      }
+    }
+    await redis.set(CACHE_KEY, JSON.stringify(payload), { ex: CACHE_TTL })
     await redis.set('products:last_sync', Date.now().toString())
-    return products
+    return payload
   }
 
   async fetchFromZohoDirectly() {
