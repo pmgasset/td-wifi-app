@@ -78,7 +78,7 @@ export default async function handler(req, res) {
     };
 
     try {
-      await redis.set(cacheKey, JSON.stringify(responseData), { EX: 300 });
+      await redis.set(cacheKey, JSON.stringify(responseData), { EX: 86400 });
     } catch (redisError) {
       console.error('Redis write error:', redisError);
     }

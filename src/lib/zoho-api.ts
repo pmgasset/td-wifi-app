@@ -2,7 +2,8 @@
 class ZohoCommerceAPI {
   private baseURL = 'https://commerce.zoho.com/store/api/v1';
   private storefrontURL = 'https://commerce.zoho.com/storefront/api/v1';
-  private imageCache = new Map<string, string[]>();
+  private imageCache = new Map<string, { images: string[]; timestamp: number }>();
+  private readonly imageCacheTTL = 24 * 60 * 60 * 1000; // 24 hours in ms
 
   private validateEnvVars(): void {
     const requiredVars = [
@@ -153,17 +154,22 @@ class ZohoCommerceAPI {
           batch.map(async (product: any) => {
             try {
               if (this.imageCache.has(product.product_id)) {
-                const cachedImages = this.imageCache.get(product.product_id)!;
-                return {
-                  ...product,
-                  product_name: product.name || product.product_name,
-                  product_price: product.min_rate || product.max_rate || product.product_price || 0,
-                  product_images: cachedImages,
-                  inventory_count: this.parseStock(product.overall_stock),
-                  product_category: product.category_name || product.product_category || '',
-                  seo_url: product.url || product.seo_url || product.product_id,
-                  image_source: 'cache'
-                };
+                const cached = this.imageCache.get(product.product_id)!;
+                if (Date.now() - cached.timestamp < this.imageCacheTTL) {
+                  const cachedImages = cached.images;
+                  return {
+                    ...product,
+                    product_name: product.name || product.product_name,
+                    product_price: product.min_rate || product.max_rate || product.product_price || 0,
+                    product_images: cachedImages,
+                    inventory_count: this.parseStock(product.overall_stock),
+                    product_category: product.category_name || product.product_category || '',
+                    seo_url: product.url || product.seo_url || product.product_id,
+                    image_source: 'cache'
+                  };
+                } else {
+                  this.imageCache.delete(product.product_id);
+                }
               }
 
               const storefrontData = await this.storefrontRequest(`/products/${product.product_id}?format=json`);
@@ -172,7 +178,7 @@ class ZohoCommerceAPI {
               if (storefrontProduct) {
                 const images = this.extractStorefrontImages(storefrontProduct);
                 if (images.length > 0) {
-                  this.imageCache.set(product.product_id, images);
+                  this.imageCache.set(product.product_id, { images, timestamp: Date.now() });
                   console.log(`✅ Found ${images.length} images for ${product.name} via Storefront API`);
                 }
 
@@ -189,7 +195,7 @@ class ZohoCommerceAPI {
               }
 
               const fallbackImages = this.extractImages(product);
-              this.imageCache.set(product.product_id, fallbackImages);
+              this.imageCache.set(product.product_id, { images: fallbackImages, timestamp: Date.now() });
 
               return {
                 ...product,
@@ -205,6 +211,7 @@ class ZohoCommerceAPI {
             } catch (error) {
               console.warn(`⚠️ Storefront API failed for product ${product.product_id}: ${(error as Error).message}`);
               const fallbackImages = this.extractImages(product);
+              this.imageCache.set(product.product_id, { images: fallbackImages, timestamp: Date.now() });
               return {
                 ...product,
                 product_name: product.name || product.product_name,
