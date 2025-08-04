@@ -1,6 +1,7 @@
 // ===== src/pages/api/products.js ===== (FIXED WITH STOREFRONT API IMAGES)
 import { zohoInventoryAPI } from '../../lib/zoho-api-inventory';
 import { zohoAPI } from '../../lib/zoho-api.ts';
+import { redis } from '../../lib/redis';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -9,7 +10,20 @@ export default async function handler(req, res) {
 
   try {
     console.log('🚀 Starting FIXED products API with Storefront images...');
-    
+
+    const cacheKey = 'products_api_cache';
+    if (redis) {
+      try {
+        const cached = await redis.get(cacheKey);
+        if (cached) {
+          console.log('💾 Returning products from Redis cache');
+          return res.status(200).json(cached);
+        }
+      } catch (cacheError) {
+        console.error('⚠️ Redis get failed, continuing without cache:', cacheError);
+      }
+    }
+
     const startTime = Date.now();
 
     // Step 1: Get products from Inventory API (has custom fields)
@@ -36,7 +50,7 @@ export default async function handler(req, res) {
     const transformedProducts = transformProducts(mergedProducts);
 
     // Step 6: Filter out inactive products
-    const activeProducts = transformedProducts.filter(product => 
+    const activeProducts = transformedProducts.filter(product =>
       product.status === 'active' || product.status === 'Active' || !product.status
     );
 
@@ -46,7 +60,7 @@ export default async function handler(req, res) {
     // Provide detailed statistics
     const imageStats = generateImageStatistics(activeProducts);
 
-    res.status(200).json({ 
+    const response = {
       products: activeProducts,
       meta: {
         total_inventory_products: inventoryProducts.length,
@@ -59,7 +73,17 @@ export default async function handler(req, res) {
         fix_applied: 'storefront_api_integration',
         ...imageStats
       }
-    });
+    };
+
+    if (redis) {
+      try {
+        await redis.set(cacheKey, response, { ex: 300 });
+      } catch (cacheError) {
+        console.error('⚠️ Redis set failed, response not cached:', cacheError);
+      }
+    }
+
+    res.status(200).json(response);
 
   } catch (error) {
     console.error('❌ FIXED Products API Error:', {

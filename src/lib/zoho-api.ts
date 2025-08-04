@@ -1,52 +1,12 @@
 // ===== src/lib/zoho-api.ts ===== (UPDATED TO USE STOREFRONT API FOR IMAGES)
+import { tokenManager } from './enhanced-token-manager';
+
 class ZohoCommerceAPI {
   private baseURL = 'https://commerce.zoho.com/store/api/v1';
   private storefrontURL = 'https://commerce.zoho.com/storefront/api/v1';
 
-  private validateEnvVars(): void {
-    const requiredVars = [
-      'ZOHO_CLIENT_ID',
-      'ZOHO_CLIENT_SECRET',
-      'ZOHO_REFRESH_TOKEN'
-    ];
-    
-    const missingVars = requiredVars.filter(varName => !process.env[varName]);
-    
-    if (missingVars.length > 0) {
-      throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
-    }
-  }
-
-  async getAccessToken(): Promise<string> {
-    this.validateEnvVars();
-    
-    const credentials = {
-      client_id: process.env.ZOHO_CLIENT_ID!,
-      client_secret: process.env.ZOHO_CLIENT_SECRET!,
-      refresh_token: process.env.ZOHO_REFRESH_TOKEN!,
-      grant_type: 'refresh_token',
-    };
-
-    const response = await fetch('https://accounts.zoho.com/oauth/v2/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(credentials),
-    });
-
-    if (!response.ok) {
-      throw new Error(`Auth error: ${response.status} - ${await response.text()}`);
-    }
-
-    const data = await response.json();
-    if (!data.access_token) {
-      throw new Error(`No access token received: ${JSON.stringify(data)}`);
-    }
-
-    return data.access_token;
-  }
-
   async apiRequest(endpoint: string, options: RequestInit = {}, retry = true): Promise<any> {
-    const token = await this.getAccessToken();
+    const token = await tokenManager.getAccessToken('commerce');
     const url = `${this.baseURL}${endpoint}`;
 
     // Create headers using the Headers API
@@ -101,7 +61,7 @@ class ZohoCommerceAPI {
 
   // Storefront API request method for getting products with images
   async storefrontRequest(endpoint: string, options: RequestInit = {}): Promise<any> {
-    const token = await this.getAccessToken();
+    const token = await tokenManager.getAccessToken('commerce');
     const url = `${this.storefrontURL}${endpoint}`;
 
     // Create headers using the Headers API
