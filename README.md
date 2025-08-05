@@ -19,6 +19,7 @@ A modern, high-performance e-commerce site built with Next.js, Cloudflare Pages,
 3. Set up environment variables (see below)
 4. Run development server: `npm run dev`
 5. Build for production: `npm run build`
+6. (Optional) Pull latest environment variables from Vercel: `vercel env pull .env.development.local`
 
 ## Environment Variables
 
@@ -29,6 +30,9 @@ ZOHO_CLIENT_ID=your_zoho_client_id
 ZOHO_CLIENT_SECRET=your_zoho_client_secret  
 ZOHO_REFRESH_TOKEN=your_zoho_refresh_token
 ZOHO_STORE_ID=your_zoho_store_id
+CACHE_DIR=/tmp # optional cache directory (use /tmp on serverless)
+UPSTASH_REDIS_REST_URL=your_upstash_url
+UPSTASH_REDIS_REST_TOKEN=your_upstash_token
 ```
 
 ## Deployment
@@ -39,6 +43,11 @@ This project is optimized for Cloudflare Pages:
 2. Set build command: `npm run build`
 3. Set output directory: `out`
 4. Add environment variables in Cloudflare Pages dashboard
+   - Set `CACHE_DIR` to `/tmp` or another writable path on serverless platforms
+
+## Caching
+
+Product responses are cached in [Upstash Redis](https://upstash.com/) for 24 hours to reduce API calls. Use the `refresh=true` query parameter on `/api/products` to bypass the cache and update immediately.
 
 ## Project Structure
 
