@@ -3,7 +3,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 
-// Declare global types for Zoho ASAP
+// Declare global types for Zoho ASAP and Analytics
 declare global {
   interface Window {
     ZohoDeskAsapReady?: (callback: () => void) => void;
@@ -13,8 +13,12 @@ declare global {
       on: (event: string, callback: () => void) => void;
     };
     ZohoHCAsap?: (a: string, b: any) => void;
+    gtag?: (command: string, eventName: string, parameters?: any) => void;
   }
 }
+
+// Also declare gtag as a global function for TypeScript
+declare const gtag: ((command: string, eventName: string, parameters?: any) => void) | undefined;
 
 export interface ZohoASAPConfig {
   colorMode?: 'light' | 'dark';
@@ -195,8 +199,8 @@ const ZohoASAPWidget: React.FC<ZohoASAPWidgetProps> = ({
             onOpen?.();
             
             // Add Google Analytics tracking if available
-            if (typeof gtag !== 'undefined') {
-              gtag('event', 'asap_widget_opened', {
+            if (typeof window !== 'undefined' && window.gtag) {
+              window.gtag('event', 'asap_widget_opened', {
                 'event_category': 'support',
                 'event_label': 'zoho_asap'
               });
@@ -208,8 +212,8 @@ const ZohoASAPWidget: React.FC<ZohoASAPWidgetProps> = ({
             onClose?.();
             
             // Add Google Analytics tracking if available
-            if (typeof gtag !== 'undefined') {
-              gtag('event', 'asap_widget_closed', {
+            if (typeof window !== 'undefined' && window.gtag) {
+              window.gtag('event', 'asap_widget_closed', {
                 'event_category': 'support',
                 'event_label': 'zoho_asap'
               });
