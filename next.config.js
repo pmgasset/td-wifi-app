@@ -19,6 +19,20 @@ const nextConfig = {
       },
     ]
   },
+  async redirects() {
+    return [
+      {
+        source: '/old-product-page',
+        destination: '/products',
+        permanent: true,
+      },
+      {
+        source: '/shop',
+        destination: '/products',
+        permanent: true,
+      },
+    ]
+  },
 }
 
 module.exports = nextConfig
