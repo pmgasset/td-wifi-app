@@ -1,7 +1,7 @@
 # ===== README.md =====
 # Travel Data WiFi - Jamstack E-commerce
 
-A modern, high-performance e-commerce site built with Next.js, Cloudflare Pages, and Zoho Commerce APIs.
+A modern, high-performance e-commerce site built with Next.js, Vercel, and Zoho Commerce APIs.
 
 ## Features
 
@@ -9,7 +9,7 @@ A modern, high-performance e-commerce site built with Next.js, Cloudflare Pages,
 - 🛒 **E-commerce functionality** powered by Zoho APIs
 - 📱 **Mobile-first responsive design**
 - 🔍 **SEO optimized** with structured data
-- 🛡️ **Secure and fast** with Cloudflare Pages
+- 🛡️ **Secure and fast** with Vercel
 - 🎨 **Modern UI** with Tailwind CSS
 
 ## Quick Start
@@ -25,20 +25,27 @@ A modern, high-performance e-commerce site built with Next.js, Cloudflare Pages,
 Create a `.env.local` file with:
 
 ```
+AUTH0_SECRET=your_auth0_secret
+AUTH0_BASE_URL=http://localhost:3000
+AUTH0_ISSUER_BASE_URL=https://your-tenant.auth0.com
+AUTH0_CLIENT_ID=your_auth0_client_id
+AUTH0_CLIENT_SECRET=your_auth0_client_secret
+
 ZOHO_CLIENT_ID=your_zoho_client_id
-ZOHO_CLIENT_SECRET=your_zoho_client_secret  
+ZOHO_CLIENT_SECRET=your_zoho_client_secret
 ZOHO_REFRESH_TOKEN=your_zoho_refresh_token
 ZOHO_STORE_ID=your_zoho_store_id
 ```
 
+Ensure these variables are also configured in the Vercel dashboard.
+
 ## Deployment
 
-This project is optimized for Cloudflare Pages:
+This project is deployed on Vercel:
 
-1. Connect your GitHub repository to Cloudflare Pages
-2. Set build command: `npm run build`
-3. Set output directory: `out`
-4. Add environment variables in Cloudflare Pages dashboard
+1. Connect your GitHub repository to Vercel.
+2. Add environment variables in the Vercel dashboard.
+3. Vercel will handle building and deploying the app.
 
 ## Project Structure
 
@@ -56,7 +63,7 @@ src/
 - Static generation with ISR for product updates
 - Image optimization and lazy loading
 - Code splitting and tree shaking
-- CDN-first architecture with Cloudflare
+- CDN-first architecture with Vercel
 
 ## SEO Features
 
