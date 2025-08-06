@@ -68,7 +68,7 @@ class EnhancedTokenManager {
   /**
    * Get access token with comprehensive rate limiting and caching
    */
-  async getAccessToken(service: 'inventory' | 'commerce' = 'inventory'): Promise<string> {
+  async getAccessToken(service: 'inventory' | 'commerce' | 'billing' = 'inventory'): Promise<string> {
     const cacheKey = `zoho_${service}`;
     
     // Check if we need to wait due to rate limiting
@@ -180,7 +180,8 @@ class EnhancedTokenManager {
     try {
       console.log(`🔄 Refreshing Zoho access token for ${service}...`);
 
-      const requiredVars = ['ZOHO_REFRESH_TOKEN', 'ZOHO_CLIENT_ID', 'ZOHO_CLIENT_SECRET'];
+      const prefix = service === 'billing' ? 'ZOHO_BILLING_' : 'ZOHO_';
+      const requiredVars = [`${prefix}REFRESH_TOKEN`, `${prefix}CLIENT_ID`, `${prefix}CLIENT_SECRET`];
       const missingVars = requiredVars.filter(varName => !process.env[varName]);
       
       if (missingVars.length > 0) {
@@ -193,9 +194,9 @@ class EnhancedTokenManager {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-          refresh_token: process.env.ZOHO_REFRESH_TOKEN!,
-          client_id: process.env.ZOHO_CLIENT_ID!,
-          client_secret: process.env.ZOHO_CLIENT_SECRET!,
+          refresh_token: process.env[`${prefix}REFRESH_TOKEN`]!,
+          client_id: process.env[`${prefix}CLIENT_ID`]!,
+          client_secret: process.env[`${prefix}CLIENT_SECRET`]!,
           grant_type: 'refresh_token',
         }),
         // Add timeout to prevent hanging requests
