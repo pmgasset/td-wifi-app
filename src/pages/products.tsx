@@ -7,6 +7,7 @@ import Layout from '../components/Layout';
 import { useCartStore } from '../store/cart';
 import { ShoppingCart, Loader2, AlertCircle, Package, Search, Star } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { getProductImageUrl } from '../utils/product-images';
 
 const fetcher = (url: string) => fetch(url).then(res => {
   if (!res.ok) {
@@ -14,24 +15,6 @@ const fetcher = (url: string) => fetch(url).then(res => {
   }
   return res.json();
 });
-
-// Get product image URL (remove size restrictions for high quality)
-const getProductImage = (product: any): string => {
-  if (product.product_images && product.product_images.length > 0 && product.product_images[0]) {
-    // Remove size restrictions from Zoho CDN URLs to get full-size images
-    let imageUrl = product.product_images[0];
-    if (imageUrl.includes('/400x400')) {
-      imageUrl = imageUrl.replace('/400x400', '');
-    }
-    if (imageUrl.includes('/300x300')) {
-      imageUrl = imageUrl.replace('/300x300', '');
-    }
-    return imageUrl;
-  }
-  
-  // Return placeholder SVG for missing images
-  return "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjMwMCIgZmlsbD0iI2Y4ZmFmYyIvPgogIDx0ZXh0IHg9IjIwMCIgeT0iMTUwIiBmb250LWZhbWlseT0iQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiM2Yjc0ODEiIHRleHQtYW5jaG9yPSJtaWRkbGUiIGR5PSIuM2VtIj5ObyBJbWFnZSBBdmFpbGFibGU8L3RleHQ+Cjwvc3ZnPgo=";
-};
 
 const getProductSlug = (product: any): string => {
   return product.seo_url || product.url || product.product_id;
@@ -52,7 +35,7 @@ const ProductsPage: React.FC = () => {
       name: product.product_name || product.name,
       price: product.product_price || product.min_rate || 0,
       quantity: 1,
-      image: getProductImage(product)
+      image: getProductImageUrl(product)
     });
     
     toast.success(`${product.product_name || product.name} added to cart!`);
@@ -189,7 +172,7 @@ const ProductsPage: React.FC = () => {
                 <Link href={`/products/${getProductSlug(product)}`}>
                   <div className="h-48 bg-gray-50 rounded-t-lg overflow-hidden cursor-pointer group flex items-center justify-center p-4">
                     <img
-                      src={getProductImage(product)}
+                      src={getProductImageUrl(product)}
                       alt={product.product_name || product.name}
                       className="max-w-full max-h-full object-contain group-hover:scale-105 transition-transform duration-300"
                       style={{
