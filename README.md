@@ -29,6 +29,15 @@ ZOHO_CLIENT_ID=your_zoho_client_id
 ZOHO_CLIENT_SECRET=your_zoho_client_secret  
 ZOHO_REFRESH_TOKEN=your_zoho_refresh_token
 ZOHO_STORE_ID=your_zoho_store_id
+AUTH0_SECRET=your_auth0_secret
+AUTH0_BASE_URL=http://localhost:3000
+AUTH0_ISSUER_BASE_URL=https://your-domain.auth0.com
+AUTH0_CLIENT_ID=your_auth0_client_id
+AUTH0_CLIENT_SECRET=your_auth0_client_secret
+ZOHO_BILLING_REFRESH_TOKEN=your_zoho_billing_refresh_token
+ZOHO_BILLING_CLIENT_ID=your_zoho_billing_client_id
+ZOHO_BILLING_CLIENT_SECRET=your_zoho_billing_client_secret
+ZOHO_BILLING_ORG_ID=your_zoho_billing_org_id
 ```
 
 ## Deployment
