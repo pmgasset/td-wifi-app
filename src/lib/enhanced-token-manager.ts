@@ -68,7 +68,7 @@ class EnhancedTokenManager {
   /**
    * Get access token with comprehensive rate limiting and caching
    */
-  async getAccessToken(service: 'inventory' | 'commerce' = 'inventory'): Promise<string> {
+  async getAccessToken(service: 'inventory' | 'commerce' | 'billing' = 'inventory'): Promise<string> {
     const cacheKey = `zoho_${service}`;
     
     // Check if we need to wait due to rate limiting
@@ -180,9 +180,22 @@ class EnhancedTokenManager {
     try {
       console.log(`🔄 Refreshing Zoho access token for ${service}...`);
 
-      const requiredVars = ['ZOHO_REFRESH_TOKEN', 'ZOHO_CLIENT_ID', 'ZOHO_CLIENT_SECRET'];
-      const missingVars = requiredVars.filter(varName => !process.env[varName]);
-      
+      const vars = service === 'billing'
+        ? {
+            ZOHO_BILLING_REFRESH_TOKEN: process.env.ZOHO_BILLING_REFRESH_TOKEN,
+            ZOHO_BILLING_CLIENT_ID: process.env.ZOHO_BILLING_CLIENT_ID,
+            ZOHO_BILLING_CLIENT_SECRET: process.env.ZOHO_BILLING_CLIENT_SECRET
+          }
+        : {
+            ZOHO_REFRESH_TOKEN: process.env.ZOHO_REFRESH_TOKEN,
+            ZOHO_CLIENT_ID: process.env.ZOHO_CLIENT_ID,
+            ZOHO_CLIENT_SECRET: process.env.ZOHO_CLIENT_SECRET
+          };
+
+      const missingVars = Object.entries(vars)
+        .filter(([, value]) => !value)
+        .map(([key]) => key);
+
       if (missingVars.length > 0) {
         throw new Error(`Missing environment variables: ${missingVars.join(', ')}`);
       }
@@ -193,9 +206,15 @@ class EnhancedTokenManager {
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-          refresh_token: process.env.ZOHO_REFRESH_TOKEN!,
-          client_id: process.env.ZOHO_CLIENT_ID!,
-          client_secret: process.env.ZOHO_CLIENT_SECRET!,
+          refresh_token: service === 'billing'
+            ? vars.ZOHO_BILLING_REFRESH_TOKEN!
+            : vars.ZOHO_REFRESH_TOKEN!,
+          client_id: service === 'billing'
+            ? vars.ZOHO_BILLING_CLIENT_ID!
+            : vars.ZOHO_CLIENT_ID!,
+          client_secret: service === 'billing'
+            ? vars.ZOHO_BILLING_CLIENT_SECRET!
+            : vars.ZOHO_CLIENT_SECRET!,
           grant_type: 'refresh_token',
         }),
         // Add timeout to prevent hanging requests
