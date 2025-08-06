@@ -5,6 +5,9 @@ const nextConfig = {
   images: {
     unoptimized: true
   },
+  env: {
+    AUTH0_BASE_PATH: '/api/auth',
+  },
   // Environment variables are handled by Vercel's dashboard
   // No need to expose them here
   async generateBuildId() {
