@@ -15,6 +15,7 @@ const Header: React.FC = () => {
     { name: 'Products', href: '/products', description: 'Browse our router selection' },
     { name: 'Solutions', href: '/solutions', description: 'Find your perfect setup' },
     { name: 'Coverage', href: '/coverage', description: 'Check network availability' },
+    { name: 'Members', href: '/members', description: 'Access member content' },
     { name: 'Support Center', href: '/support', description: 'Get help and guides', icon: HelpCircle },
   ];
 
