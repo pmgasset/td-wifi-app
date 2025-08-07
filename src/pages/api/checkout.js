@@ -1,5 +1,6 @@
 // ===== src/pages/api/checkout.js =====
 import { zohoAPI } from '../../lib/zoho-api.ts';
+import { zohoBillingAPI } from '../../lib/zoho-billing-api.ts';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -31,6 +32,9 @@ export default async function handler(req, res) {
         details: validationErrors
       });
     }
+
+    // Retrieve any existing subscription info for the customer
+    const billingInfo = await zohoBillingAPI.getSubscription(customerInfo.email).catch(() => null);
 
     // Calculate order totals
     const subtotal = cartItems.reduce((sum, item) => 
@@ -161,7 +165,8 @@ export default async function handler(req, res) {
       trackingInfo: {
         available: false,
         message: 'Tracking information will be available once your order ships'
-      }
+      },
+      billing: billingInfo
     });
 
   } catch (error) {
