@@ -25,7 +25,8 @@ class ZohoBillingAPI {
   }
 
   async getSubscriptionByEmail(email: string) {
-    return this.request(`/subscriptions?customer_email=${encodeURIComponent(email)}`);
+    const customerId = await this.getCustomerIdByEmail(email);
+    return this.request(`/subscriptions?customer_id=${customerId}`);
   }
 
   async cancelSubscription(subscriptionId: string) {
@@ -37,15 +38,27 @@ class ZohoBillingAPI {
   }
 
   async getInvoicesByEmail(email: string) {
-    return this.request(`/invoices?customer_email=${encodeURIComponent(email)}`);
+    const customerId = await this.getCustomerIdByEmail(email);
+    return this.request(`/invoices?customer_id=${customerId}`);
   }
 
   async getCreditNotesByEmail(email: string) {
-    return this.request(`/creditnotes?customer_email=${encodeURIComponent(email)}`);
+    const customerId = await this.getCustomerIdByEmail(email);
+    return this.request(`/creditnotes?customer_id=${customerId}`);
   }
 
   async getPaymentMethodByEmail(email: string) {
-    return this.request(`/paymentmethods?customer_email=${encodeURIComponent(email)}`);
+    const customerId = await this.getCustomerIdByEmail(email);
+    return this.request(`/paymentmethods?customer_id=${customerId}`);
+  }
+
+  private async getCustomerIdByEmail(email: string): Promise<string> {
+    const data = await this.request(`/customers?filter_by=Email==${encodeURIComponent(email)}`);
+    const customer = data?.customers?.[0];
+    if (!customer?.customer_id) {
+      throw new Error('Customer not found');
+    }
+    return customer.customer_id as string;
   }
 }
 
