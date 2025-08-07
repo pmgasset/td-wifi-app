@@ -1,7 +1,7 @@
 import { tokenManager } from './enhanced-token-manager';
 
 class ZohoBillingAPI {
-  private baseURL = 'https://subscriptions.zoho.com/api/v1';
+  private baseURL = 'https://subscriptions.zohoapis.com/api/v1';
 
   private async request(endpoint: string, options: RequestInit = {}) {
     const orgId = process.env.ZOHO_BILLING_ORG_ID;
