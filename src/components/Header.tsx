@@ -19,7 +19,7 @@ const Header: React.FC = () => {
     { name: 'Coverage', href: '/coverage', description: 'Check network availability' },
     user
       ? { name: 'Logout', href: '/api/auth/logout', description: 'Sign out of your account' }
-      : { name: 'Members', href: '/member', description: 'Access member content' },
+      : { name: 'Members', href: '/members', description: 'Access member content' },
     { name: 'Support Center', href: '/support', description: 'Get help and guides', icon: HelpCircle },
   ];
 

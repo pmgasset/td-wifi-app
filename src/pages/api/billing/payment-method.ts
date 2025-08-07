@@ -7,21 +7,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!session?.user?.email) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', ['POST']);
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', ['GET']);
     return res.status(405).end('Method Not Allowed');
   }
-
   try {
-    const { subscriptionId, data } = req.body || {};
-    let subId = subscriptionId;
-    if (!subId) {
-      const sub = await zohoBillingAPI.getSubscription(session.user.email as string);
-      subId = sub?.subscriptions?.[0]?.subscription_id;
-    }
-    const result = await zohoBillingAPI.updatePaymentMethod(subId, data);
-    return res.status(200).json(result);
+    const method = await zohoBillingAPI.getPaymentMethodByEmail(session.user.email as string);
+    return res.status(200).json(method);
   } catch (error: any) {
     console.error(error);
     return res.status(500).json({ error: error.message });

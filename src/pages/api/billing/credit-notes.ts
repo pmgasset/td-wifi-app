@@ -7,15 +7,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!session?.user?.email) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
     return res.status(405).end('Method Not Allowed');
   }
-
   try {
-    const invoices = await zohoBillingAPI.getInvoices(session.user.email as string);
-    return res.status(200).json(invoices);
+    const notes = await zohoBillingAPI.getCreditNotesByEmail(session.user.email as string);
+    return res.status(200).json(notes);
   } catch (error: any) {
     console.error(error);
     return res.status(500).json({ error: error.message });

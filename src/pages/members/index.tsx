@@ -1,12 +1,11 @@
 import { withPageAuthRequired } from '@auth0/nextjs-auth0/client';
 import Layout from '../../components/Layout';
-import PlanManagement from '../../components/member/PlanManagement';
-import Cancellation from '../../components/member/Cancellation';
-import PaymentMethodForm from '../../components/member/PaymentMethodForm';
-import InvoiceHistory from '../../components/member/InvoiceHistory';
-import CreditNoteHistory from '../../components/member/CreditNoteHistory';
+import SubscriptionManager from '../../components/members/SubscriptionManager';
+import PaymentMethod from '../../components/members/PaymentMethod';
+import InvoiceHistory from '../../components/members/InvoiceHistory';
+import CreditNoteHistory from '../../components/members/CreditNoteHistory';
 
-function MemberPage() {
+function MembersPage() {
   return (
     <Layout title="Member Portal">
       <div className="max-w-4xl mx-auto py-8 space-y-6">
@@ -14,9 +13,8 @@ function MemberPage() {
           <h1 className="text-3xl font-bold text-gray-900">Member Portal</h1>
           <a href="/api/auth/logout" className="text-sm text-logo-teal hover:underline">Logout</a>
         </div>
-        <PlanManagement />
-        <Cancellation />
-        <PaymentMethodForm />
+        <SubscriptionManager />
+        <PaymentMethod />
         <InvoiceHistory />
         <CreditNoteHistory />
       </div>
@@ -24,4 +22,4 @@ function MemberPage() {
   );
 }
 
-export default withPageAuthRequired(MemberPage);
+export default withPageAuthRequired(MembersPage);

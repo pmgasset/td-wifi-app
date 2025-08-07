@@ -24,34 +24,28 @@ class ZohoBillingAPI {
     return response.json();
   }
 
-  async getSubscription(email: string) {
+  async getSubscriptionByEmail(email: string) {
     return this.request(`/subscriptions?customer_email=${encodeURIComponent(email)}`);
-  }
-
-  async changeSubscription(subscriptionId: string, data: any) {
-    return this.request(`/subscriptions/${subscriptionId}`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
   }
 
   async cancelSubscription(subscriptionId: string) {
     return this.request(`/subscriptions/${subscriptionId}`, { method: 'DELETE' });
   }
 
-  async updatePaymentMethod(subscriptionId: string, data: any) {
-    return this.request(`/subscriptions/${subscriptionId}/payment_method`, {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+  async resumeSubscription(subscriptionId: string) {
+    return this.request(`/subscriptions/${subscriptionId}/resume`, { method: 'POST' });
   }
 
-  async getInvoices(email: string) {
+  async getInvoicesByEmail(email: string) {
     return this.request(`/invoices?customer_email=${encodeURIComponent(email)}`);
   }
 
-  async getCreditNotes(email: string) {
+  async getCreditNotesByEmail(email: string) {
     return this.request(`/creditnotes?customer_email=${encodeURIComponent(email)}`);
+  }
+
+  async getPaymentMethodByEmail(email: string) {
+    return this.request(`/paymentmethods?customer_email=${encodeURIComponent(email)}`);
   }
 }
 
