@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ShoppingCart, Menu, X, HelpCircle } from 'lucide-react';
+import { useUser } from '@auth0/nextjs-auth0/client';
 import { useCartStore } from '../store/cart';
 import Cart from './Cart';
 
@@ -11,10 +12,14 @@ const Header: React.FC = () => {
   const { getTotalItems, openCart } = useCartStore();
   const cartItemCount = getTotalItems();
 
+  const { user } = useUser();
   const navigation = [
     { name: 'Products', href: '/products', description: 'Browse our router selection' },
     { name: 'Solutions', href: '/solutions', description: 'Find your perfect setup' },
     { name: 'Coverage', href: '/coverage', description: 'Check network availability' },
+    user
+      ? { name: 'Logout', href: '/api/auth/logout', description: 'Sign out of your account' }
+      : { name: 'Members', href: '/members', description: 'Access member content' },
     { name: 'Support Center', href: '/support', description: 'Get help and guides', icon: HelpCircle },
   ];
 
